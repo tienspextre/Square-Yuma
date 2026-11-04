@@ -4,6 +4,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.ForwardingPlayer
+import dev.lelonio.square.playback.ShuffleOrders.shuffleFromCurrent
+import dev.lelonio.square.playback.ShuffleOrders.shuffleInAhead
 
 /** Keeps the public queue on the main player while its outgoing audio overlaps the next song. */
 @UnstableApi
@@ -33,7 +35,7 @@ class SkipFadePlayer(
         val queued = mediaItems.isNotEmpty() && mediaItems.all(::isQueued)
         val at = if (queued) queueEnd() else mediaItemCount
         super.addMediaItems(at, mediaItems)
-        if (queued) playNextInShuffle(at, mediaItems.size)
+        if (queued) playNextInShuffle(at, mediaItems.size) else exo?.shuffleInAhead(at, mediaItems.size)
     }
 
     override fun addMediaItem(index: Int, mediaItem: MediaItem) = addMediaItems(index, mutableListOf(mediaItem))
@@ -43,7 +45,7 @@ class SkipFadePlayer(
         val queued = mediaItems.isNotEmpty() && mediaItems.all(::isQueued)
         val at = if (queued) queueEnd() else index
         super.addMediaItems(at, mediaItems)
-        if (queued) playNextInShuffle(at, mediaItems.size)
+        if (queued) playNextInShuffle(at, mediaItems.size) else exo?.shuffleInAhead(at, mediaItems.size)
     }
 
     /**
@@ -61,12 +63,7 @@ class SkipFadePlayer(
         val timeline = currentTimeline
         if (timeline.isEmpty) return
         val added = (at until at + count).toSet()
-        val order = mutableListOf<Int>()
-        var index = timeline.getFirstWindowIndex(true)
-        while (index != androidx.media3.common.C.INDEX_UNSET && order.size < timeline.windowCount) {
-            order += index
-            index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, true)
-        }
+        val order = dev.lelonio.square.playback.ShuffleOrders.of(timeline)
         order.removeAll(added)
         var place = order.indexOf(currentMediaItemIndex) + 1
         while (place in order.indices && isQueued(getMediaItemAt(order[place]))) place++
@@ -120,14 +117,22 @@ class SkipFadePlayer(
         changing { super.setMediaItem(mediaItem, resetPosition) }
 
     override fun setMediaItems(mediaItems: MutableList<MediaItem>) =
-        changing { super.setMediaItems(mediaItems) }
+        changing { super.setMediaItems(mediaItems); exo?.shuffleFromCurrent() }
 
     override fun setMediaItems(mediaItems: MutableList<MediaItem>, resetPosition: Boolean) =
-        changing { super.setMediaItems(mediaItems, resetPosition) }
+        changing { super.setMediaItems(mediaItems, resetPosition); exo?.shuffleFromCurrent() }
 
     override fun setMediaItems(
         mediaItems: MutableList<MediaItem>,
         startIndex: Int,
         startPositionMs: Long,
-    ) = changing { super.setMediaItems(mediaItems, startIndex, startPositionMs) }
+    ) = changing { super.setMediaItems(mediaItems, startIndex, startPositionMs); exo?.shuffleFromCurrent() }
+
+    override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
+        // From the song playing: everything else, before it in the list or after, is still to come.
+        if (shuffleModeEnabled) exo?.shuffleFromCurrent()
+        super.setShuffleModeEnabled(shuffleModeEnabled)
+    }
+
+    private val exo get() = wrappedPlayer as? androidx.media3.exoplayer.ExoPlayer
 }

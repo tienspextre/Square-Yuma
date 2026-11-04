@@ -87,7 +87,15 @@ object SpicyLyrics {
         val lines = when (json.optString("Type")) {
             "Syllable" -> json.optJSONArray("Content").objects().mapNotNull { vocal ->
                 val lead = vocal.optJSONObject("Lead") ?: return@mapNotNull null
-                syllableLine(lead)
+                val main = syllableLine(lead) ?: return@mapNotNull null
+                // Backing vocals sung over the line, kept as its own words so the view can draw
+                // them under it instead of interleaving them with the lead's.
+                val backing = vocal.optJSONArray("Background").objects().mapNotNull(::syllableLine)
+                main.copy(
+                    text = (listOf(main.text) + backing.map { "(${it.text})" }).joinToString(" "),
+                    words = main.words + backing.flatMap { b -> b.words.map { it.copy(background = true) } },
+                    secondVoice = vocal.optBoolean("OppositeAligned"),
+                )
             }
             "Line" -> json.optJSONArray("Content").objects().mapNotNull { line ->
                 val text = line.optString("Text").trim()

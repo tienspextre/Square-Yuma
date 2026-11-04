@@ -15,7 +15,7 @@ import kotlinx.coroutines.isActive
  * 60/120fps drift-corrected hardware-clock lyrics timing coordinator.
  *
  * Eliminates the 250ms polling stutter, accounts for playback speed and audio drift,
- * applies human visual perception lead-time (+120ms for syllables, +260ms for lines),
+ * applies YumaPlayer's lead-time (+150ms for word-timed lyrics, +450ms for line-timed),
  * and incorporates user-customized sync offsets (AudioEffects.lyricsSyncOffsetMs).
  */
 @Composable
@@ -35,7 +35,7 @@ fun rememberSmoothLyricsPosition(
     val latestIsTtml = rememberUpdatedState(isTtml)
 
     LaunchedEffect(isPlaying) {
-        val leadMs = if (latestIsTtml.value) 120L else 260L
+        val leadMs = if (latestIsTtml.value) WORD_LEAD_MS else LINE_LEAD_MS
         if (!latestIsPlaying.value) {
             smoothed.longValue = (latestSource.value + latestSyncOffset.value + leadMs).coerceAtLeast(0L)
             return@LaunchedEffect
@@ -77,7 +77,7 @@ fun rememberSmoothLyricsPosition(
                 }
             }
 
-            val currentLead = if (latestIsTtml.value) 120L else 260L
+            val currentLead = if (latestIsTtml.value) WORD_LEAD_MS else LINE_LEAD_MS
             var finalPositionMs = (nextPositionMs + latestSyncOffset.value + currentLead).coerceAtLeast(0L)
             if (!seeked && finalPositionMs < lastOut) finalPositionMs = lastOut
             lastOut = finalPositionMs
@@ -90,3 +90,7 @@ fun rememberSmoothLyricsPosition(
 
     return smoothed
 }
+
+// YumaPlayer's numbers: its 0/300ms lead plus its 150ms visual tuning offset.
+private const val WORD_LEAD_MS = 150L
+private const val LINE_LEAD_MS = 450L

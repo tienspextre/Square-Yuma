@@ -20,6 +20,9 @@ import dev.lelonio.square.playback.AudioEffects
 import dev.lelonio.square.playback.AutomixStateHolder
 import dev.lelonio.square.playback.BungeeAudioProcessor
 import dev.lelonio.square.playback.BungeeProcessorChain
+import dev.lelonio.square.playback.ShuffleOrders.copyShuffleOrder
+import dev.lelonio.square.playback.ShuffleOrders.shuffleFromCurrent
+import dev.lelonio.square.playback.ShuffleOrders.shuffleInAhead
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -431,11 +434,12 @@ class YumaDualDeckPlayer private constructor(
         standby.playWhenReady = false
         standby.volume = 0f
         // The standby becomes the active deck after handoff, so it must carry the user's modes.
-        // ponytail: shuffle *order* is not copied (no public getter), only the flag; the order after
-        // a handoff is reshuffled. Copy via setShuffleOrder if a queue view must match exactly.
         standby.repeatMode = active.repeatMode
         standby.shuffleModeEnabled = active.shuffleModeEnabled
         standby.setMediaItems(queueItems, targetIndex, cueInMs)
+        // The same shuffled order, read off the active deck's timeline: a fresh one here skipped
+        // and repeated songs after every handoff.
+        standby.copyShuffleOrder(active)
         standby.pauseAtEndOfMediaItems = true
         standby.playbackParameters = active.playbackParameters
         standby.prepare()
@@ -862,19 +866,36 @@ class YumaDualDeckPlayer private constructor(
     override fun setMediaItems(mediaItems: List<MediaItem>) {
         beforeSeek()
         forwardingPlayer.setMediaItems(mediaItems)
+        activeDeck.player.shuffleFromCurrent()
         triggerAnalysisForCurrentAndNext()
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
         beforeSeek()
         forwardingPlayer.setMediaItems(mediaItems, resetPosition)
+        activeDeck.player.shuffleFromCurrent()
         triggerAnalysisForCurrentAndNext()
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) {
         beforeSeek()
         forwardingPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
+        activeDeck.player.shuffleFromCurrent()
         triggerAnalysisForCurrentAndNext()
+    }
+
+    override fun addMediaItem(mediaItem: MediaItem) = addMediaItems(mediaItemCount, listOf(mediaItem))
+
+    override fun addMediaItem(index: Int, mediaItem: MediaItem) = addMediaItems(index, listOf(mediaItem))
+
+    override fun addMediaItems(mediaItems: List<MediaItem>) = addMediaItems(mediaItemCount, mediaItems)
+
+    override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) {
+        val at = index.coerceIn(0, mediaItemCount)
+        forwardingPlayer.addMediaItems(at, mediaItems)
+        activeDeck.player.shuffleInAhead(at, mediaItems.size)
+        // The standby holds a copy of the old queue; let the scheduler cue it again from this one.
+        if (!isCrossfading) releaseStandby()
     }
 
     override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {
@@ -889,6 +910,8 @@ class YumaDualDeckPlayer private constructor(
 
     override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
         standbyDeck.player.shuffleModeEnabled = shuffleModeEnabled
+        // From the song playing: everything else, before it in the list or after, is still to come.
+        if (shuffleModeEnabled) activeDeck.player.shuffleFromCurrent()
         forwardingPlayer.shuffleModeEnabled = shuffleModeEnabled
         // The prepared standby was cued for the old next track; let the scheduler pick again.
         if (!isCrossfading) releaseStandby()

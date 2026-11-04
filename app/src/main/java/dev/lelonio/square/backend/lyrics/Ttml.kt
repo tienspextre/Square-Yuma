@@ -55,6 +55,8 @@ object Ttml {
         val words: List<LyricWord> = emptyList(),
         /** `itunes:key`, which is how a translation names the line it is for. */
         val key: String? = null,
+        /** `ttm:agent`: which voice of a duet sings it. */
+        val agent: String? = null,
     )
 
     private fun read(raw: String): Document {
@@ -161,6 +163,7 @@ object Ttml {
         val startMs = time(parser.getAttributeValue(null, "begin"))
         val endMs = time(parser.getAttributeValue(null, "end"))
         val key = parser.getAttributeValue(null, "key")
+        val agent = attribute(parser, "agent")
 
         val text = StringBuilder()
         val words = mutableListOf<LyricWord>()
@@ -171,6 +174,8 @@ object Ttml {
         var wordStart: Long? = null
         var wordEnd: Long? = null
         var depth = 1
+        // Inside a backing-vocal span from this depth down; 0 when not.
+        var backgroundDepth = 0
 
         while (depth > 0) {
             when (parser.next()) {
@@ -178,6 +183,7 @@ object Ttml {
                     depth++
                     val begin = time(parser.getAttributeValue(null, "begin"))
                     if (firstSpanMs == null) firstSpanMs = begin
+                    if (backgroundDepth == 0 && attribute(parser, "role") == "x-bg") backgroundDepth = depth
                     if (parser.name == "span") {
                         wordStart = begin
                         wordEnd = time(parser.getAttributeValue(null, "end"))
@@ -188,6 +194,7 @@ object Ttml {
                 }
 
                 XmlPullParser.END_TAG -> {
+                    if (depth == backgroundDepth) backgroundDepth = 0
                     depth--
                     if (parser.name == "span") {
                         wordStart = null
@@ -205,7 +212,7 @@ object Ttml {
                         // A span that says when it starts and not when it stops
                         // is rare; a short guess beats dropping the word, since
                         // the next word's start ends the highlight anyway.
-                        words += LyricWord(start, wordEnd ?: (start + WORD_MS), piece.trim())
+                        words += LyricWord(start, wordEnd ?: (start + WORD_MS), piece.trim(), background = backgroundDepth > 0)
                     }
                 }
 
@@ -222,8 +229,14 @@ object Ttml {
             text = WHITESPACE.replace(text, " ").trim(),
             words = words,
             key = key,
+            agent = agent,
         )
     }
+
+    /** An attribute by its local name, whatever namespace prefix the document gave it. */
+    private fun attribute(parser: XmlPullParser, name: String): String? =
+        (0 until parser.attributeCount).firstOrNull { parser.getAttributeName(it) == name }
+            ?.let(parser::getAttributeValue)
 
     /**
      * Keeps the view honest through the instrumental stretches.
@@ -237,12 +250,15 @@ object Ttml {
      */
     private fun withGaps(lines: List<Line>, translations: Map<String, String>): List<LyricLine> {
         val out = mutableListOf<LyricLine>()
+        // The voice that opens the song is the main one; any other is the duet's second.
+        val firstAgent = lines.firstNotNullOfOrNull { it.agent }
         lines.forEachIndexed { index, line ->
             out += LyricLine(
                 startTimeMs = line.startMs,
                 text = line.text,
                 words = line.words,
                 translation = line.key?.let(translations::get),
+                secondVoice = line.agent != null && line.agent != firstAgent,
             )
 
             val endMs = line.endMs ?: return@forEachIndexed

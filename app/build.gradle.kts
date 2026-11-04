@@ -48,7 +48,7 @@ android {
     defaultConfig {
         applicationId = "dev.lelonio.square"
         // cpal's Android host is AAudio, which the ndk crate gates at API 26.
-        minSdk = 26
+        minSdk = 29 // Accompanist lyrics-ui (the synced-lyrics view) declares 29; YumaPlayer forces it onto 26 instead.
         targetSdk = 35
         versionCode = 61
         versionName = "2.7.0"
@@ -201,6 +201,9 @@ dependencies {
     // solver YouTube's signed-in streams need; see PlayerChallenges.
     implementation(libs.androidx.javascriptengine)
     implementation(libs.reorderable)
+    // The synced-lyrics view YumaPlayer uses: several lines lit at once, background vocals, no per-frame recomposition.
+    implementation(libs.accompanist.lyrics.ui)
+    implementation(libs.accompanist.lyrics.core)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

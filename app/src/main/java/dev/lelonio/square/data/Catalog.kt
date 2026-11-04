@@ -121,11 +121,19 @@ data class LyricLine(
      * often than not. Null means the view has nothing to show under the line.
      */
     val translation: String? = null,
+    /** Sung by the second voice of a duet (TTML agent other than the first); drawn on the far side. */
+    val secondVoice: Boolean = false,
 )
 
 /** One word, and the moment it belongs to. */
 @Serializable
-data class LyricWord(val startMs: Long, val endMs: Long, val text: String)
+data class LyricWord(
+    val startMs: Long,
+    val endMs: Long,
+    val text: String,
+    /** A backing vocal (TTML `ttm:role="x-bg"`), sung over the main line rather than after it. */
+    val background: Boolean = false,
+)
 
 @Serializable
 data class Lyrics(
