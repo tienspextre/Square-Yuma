@@ -222,13 +222,14 @@ class SubsonicBackend(
     }
 
     override suspend fun savedAlbums(): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
-        val albums = client.getAlbumList(type = "starred", size = 60).getOrDefault(emptyList())
-        val fallback = if (albums.isEmpty()) {
-            client.getAlbumList(type = "newest", size = 60).getOrDefault(emptyList())
-        } else {
-            albums
+        // The whole library, A to Z, 500 at a time (the most Navidrome serves per call).
+        val all = mutableListOf<SubsonicAlbumEntry>()
+        while (true) {
+            val page = client.getAlbumList("alphabeticalByName", size = 500, offset = all.size).getOrDefault(emptyList())
+            all += page
+            if (page.size < 500) break
         }
-        fallback.map { it.toCatalogPlaylist(client) }
+        all.map { it.toCatalogPlaylist(client) }
     }
 
     override suspend fun followedArtists(): List<SearchItem> = withContext(Dispatchers.IO) {
@@ -266,7 +267,7 @@ class SubsonicBackend(
             val artistDetail = client.getArtist(id).getOrNull()
             if (artistDetail != null) {
                 val allSongs = mutableListOf<CatalogTrack>()
-                for (album in artistDetail.album.take(10)) {
+                for (album in artistDetail.album) {
                     val songs = client.getAlbum(album.id).getOrDefault(emptyList())
                     allSongs.addAll(songs.map { it.toCatalogTrack(client, offlineStore) })
                 }

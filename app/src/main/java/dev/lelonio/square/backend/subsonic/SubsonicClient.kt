@@ -13,6 +13,8 @@ import java.io.IOException
 class SubsonicClient(
     private val httpClient: OkHttpClient,
     val preferences: SubsonicPreferences,
+    /** True on mobile data. The transcode switch is for 4G only; on Wi-Fi the original file streams. */
+    private val isMetered: () -> Boolean = { false },
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -108,8 +110,8 @@ class SubsonicClient(
         }
     }
 
-    suspend fun getAlbumList(type: String, size: Int = 30): Result<List<SubsonicAlbumEntry>> = withContext(Dispatchers.IO) {
-        val url = buildUrl("getAlbumList2.view", mapOf("type" to type, "size" to size.toString()))
+    suspend fun getAlbumList(type: String, size: Int = 30, offset: Int = 0): Result<List<SubsonicAlbumEntry>> = withContext(Dispatchers.IO) {
+        val url = buildUrl("getAlbumList2.view", mapOf("type" to type, "size" to size.toString(), "offset" to offset.toString()))
             ?: return@withContext Result.failure(IOException("Invalid URL"))
         try {
             val request = Request.Builder().url(url).build()
@@ -221,7 +223,7 @@ class SubsonicClient(
 
     fun buildStreamUrl(songId: String): String {
         val params = mutableMapOf("id" to songId)
-        if (preferences.transcodeCellular.value) {
+        if (preferences.transcodeCellular.value && isMetered()) {
             params["maxBitRate"] = preferences.transcodeBitrate.value.toString()
             params["format"] = "opus"
         } else {

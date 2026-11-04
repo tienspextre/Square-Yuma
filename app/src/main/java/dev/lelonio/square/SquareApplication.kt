@@ -345,7 +345,9 @@ class SquareApplication : Application(), ImageLoaderFactory {
     }
 
     val subsonicClient: dev.lelonio.square.backend.subsonic.SubsonicClient by lazy {
-        dev.lelonio.square.backend.subsonic.SubsonicClient(sharedHttpClient, subsonicPreferences)
+        dev.lelonio.square.backend.subsonic.SubsonicClient(sharedHttpClient, subsonicPreferences) {
+            getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered != false
+        }
     }
 
     val subsonicDownloadManager: dev.lelonio.square.backend.subsonic.SubsonicDownloadManager by lazy {

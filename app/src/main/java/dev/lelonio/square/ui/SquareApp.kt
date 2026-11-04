@@ -2189,7 +2189,14 @@ fun SquareApp(
                                     },
                                     downloadState = page.uri
                                         ?.let { downloadOwners[it] }
-                                        ?: dev.lelonio.square.data.OwnerState.None,
+                                        // Every song already kept through another page: shown as done, so it is
+                                        // not fetched again. A tap claims it for this page too, without a download.
+                                        ?: if (page.tracks.isNotEmpty() && page.tracks.all { it.uri in downloadedFiles }) {
+                                            dev.lelonio.square.data.OwnerState.Complete
+                                        } else {
+                                            dev.lelonio.square.data.OwnerState.None
+                                        },
+                                    downloadOwned = page.uri in downloadOwners,
                                     onToggleDownload = { viewModel.toggleDownload(page) },
                                     // Pages of the source that is playing, on
                                     // either source now: Spotify's through its

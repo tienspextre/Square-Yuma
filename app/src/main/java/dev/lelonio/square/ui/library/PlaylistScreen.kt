@@ -238,6 +238,7 @@ fun PlaylistScreen(
     onToggleLatestSaved: () -> Unit = {},
     /** Whether this page is kept on the phone, and how far along that is. */
     downloadState: dev.lelonio.square.data.OwnerState = dev.lelonio.square.data.OwnerState.None,
+    downloadOwned: Boolean = true,
     onToggleDownload: () -> Unit = {},
     /** False where a download makes no sense: the local files shelf, YouTube. */
     canDownload: Boolean = false,
@@ -726,7 +727,7 @@ fun PlaylistScreen(
             onToggleFollow = onToggleFollow,
             download = downloadState,
             onToggleDownload = {
-                val kept = downloadState !is dev.lelonio.square.data.OwnerState.None
+                val kept = downloadOwned && downloadState !is dev.lelonio.square.data.OwnerState.None
                 if (kept) confirmingRemoval = true else onToggleDownload()
             },
             // Only where the reference puts one: a record or a list. An artist
