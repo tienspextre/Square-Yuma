@@ -19,6 +19,8 @@ data class AutomixStatus(
     val durationMs: Long? = null,
     val tier: TransitionTier? = null,
     val isBassSwapped: Boolean = false,
+    /** What is actually playing, e.g. "Hi-Res Lossless · 24/96" or "AAC · 256 kbps"; null when unknown. */
+    val quality: String? = null,
 )
 
 object AutomixStateHolder {

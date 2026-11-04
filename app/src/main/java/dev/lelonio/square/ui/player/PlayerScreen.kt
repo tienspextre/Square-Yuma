@@ -2522,7 +2522,7 @@ internal fun TimeRow(
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
         )
-        if (automixStatus?.isEnabled == true) {
+        if (automixStatus != null && (automixStatus.isCrossfading || automixStatus.quality != null)) {
             AutomixBadge(automixStatus)
         }
         Text(
@@ -2533,69 +2533,83 @@ internal fun TimeRow(
     }
 }
 
+/**
+ * Apple Music style: the format of what is playing at rest ("Lossless · 16/44.1"), and only while
+ * two songs are actually being mixed, "Automix" with moving bars. Then back to the format.
+ */
 @Composable
 internal fun AutomixBadge(status: AutomixStatus) {
-    val isCrossfading = status.isCrossfading
-    val currentBpm = status.currentTrackAnalysis?.bpm?.takeIf { it > 0 }?.roundToInt()
-    val nextBpm = status.nextTrackAnalysis?.bpm?.takeIf { it > 0 }?.roundToInt()
-
-    val infiniteTransition = rememberInfiniteTransition(label = "AutomixPulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pulseAlpha",
-    )
-
-    val labelText = when {
-        isCrossfading -> {
-            val pct = (status.crossfadeProgress * 100f).toInt()
-            val nextShort = status.nextTrackTitle?.takeIf { it.isNotBlank() }
-                ?.let { " ➔ " + (if (it.length > 16) it.take(15) + "…" else it) } ?: ""
-            if (currentBpm != null && nextBpm != null) {
-                "Automix $pct% ($currentBpm➔$nextBpm)$nextShort"
+    AnimatedContent(
+        targetState = status.isCrossfading,
+        transitionSpec = {
+            (fadeIn(tween(350)) + scaleIn(tween(350), initialScale = 0.92f)) togetherWith
+                (fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.92f)) using
+                SizeTransform(clip = false)
+        },
+        label = "badge",
+    ) { mixing ->
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .background(GlassInk.copy(alpha = if (mixing) 0.18f else 0.10f))
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            if (mixing) {
+                MixingBars(GlassInk)
+                Text(
+                    "Automix",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GlassInk,
+                    fontWeight = FontWeight.SemiBold,
+                )
             } else {
-                "Automix $pct%$nextShort"
+                Icon(
+                    imageVector = PhosphorIcons.Fill.Waveform,
+                    contentDescription = null,
+                    tint = GlassInkDim,
+                    modifier = Modifier.size(11.dp),
+                )
+                Text(
+                    status.quality.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GlassInkDim,
+                    fontWeight = FontWeight.Medium,
+                )
             }
         }
-        status.nextTrackTitle != null -> {
-            val nextShort = if (status.nextTrackTitle.length > 16) status.nextTrackTitle.take(15) + "…" else status.nextTrackTitle
-            if (currentBpm != null) "Automix · ${currentBpm} BPM ➔ $nextShort"
-            else "Automix Ready ➔ $nextShort"
-        }
-        currentBpm != null -> "Automix · ${currentBpm} BPM"
-        status.triggerAtMs != null -> "Automix Ready"
-        else -> "Automix"
     }
+}
 
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(
-                if (isCrossfading) GlassInk.copy(alpha = 0.22f * pulseAlpha)
-                else GlassInk.copy(alpha = 0.12f),
-            )
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-        contentAlignment = Alignment.Center,
+/** Three bars bouncing out of phase: the "two songs are playing together" signal. */
+@Composable
+private fun MixingBars(color: androidx.compose.ui.graphics.Color) {
+    val t = rememberInfiniteTransition(label = "mixBars")
+    val phases = listOf(0, 180, 90)
+    val heights = phases.map { delayMs ->
+        t.animateFloat(
+            initialValue = 0.3f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(420, delayMillis = delayMs, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "bar$delayMs",
+        )
+    }
+    Row(
+        Modifier.size(width = 11.dp, height = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.5.dp),
+        verticalAlignment = Alignment.Bottom,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Icon(
-                imageVector = PhosphorIcons.Fill.Waveform,
-                contentDescription = null,
-                tint = if (isCrossfading) GlassInk.copy(alpha = pulseAlpha) else GlassInkDim,
-                modifier = Modifier.size(11.dp),
-            )
-            Text(
-                text = labelText,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isCrossfading) GlassInk else GlassInkDim,
-                fontWeight = if (isCrossfading) FontWeight.Bold else FontWeight.Medium,
+        heights.forEach { h ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight(h.value)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(color),
             )
         }
     }

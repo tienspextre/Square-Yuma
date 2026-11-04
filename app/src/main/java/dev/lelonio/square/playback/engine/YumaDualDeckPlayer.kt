@@ -84,6 +84,39 @@ class YumaDualDeckPlayer private constructor(
     private var lastTriggeredMediaId: String? = null
     private var lastSeekTimestamp: Long = 0L
 
+    private fun qualityLabel(f: androidx.media3.common.Format): String? {
+        val mime = f.sampleMimeType ?: return null
+        val rateKhz = f.sampleRate.takeIf { it > 0 }?.let {
+            val k = it / 1000.0
+            if (k % 1.0 == 0.0) k.toInt().toString() else "%.1f".format(java.util.Locale.US, k)
+        }
+        val bits = when (f.pcmEncoding) {
+            C.ENCODING_PCM_16BIT -> 16
+            C.ENCODING_PCM_24BIT, C.ENCODING_PCM_24BIT_BIG_ENDIAN -> 24
+            C.ENCODING_PCM_32BIT, C.ENCODING_PCM_32BIT_BIG_ENDIAN, C.ENCODING_PCM_FLOAT -> 32
+            else -> null
+        }
+        val lossless = mime == androidx.media3.common.MimeTypes.AUDIO_FLAC ||
+            mime == androidx.media3.common.MimeTypes.AUDIO_ALAC ||
+            mime == androidx.media3.common.MimeTypes.AUDIO_RAW ||
+            mime == androidx.media3.common.MimeTypes.AUDIO_WAV
+        if (lossless) {
+            // Apple's split: above 48 kHz is Hi-Res Lossless.
+            val name = if (f.sampleRate > 48_000) "Hi-Res Lossless" else "Lossless"
+            val detail = listOfNotNull(bits?.toString(), rateKhz).joinToString("/")
+            return if (detail.isEmpty()) name else "$name · $detail"
+        }
+        val codec = when (mime) {
+            androidx.media3.common.MimeTypes.AUDIO_AAC -> "AAC"
+            androidx.media3.common.MimeTypes.AUDIO_MPEG -> "MP3"
+            androidx.media3.common.MimeTypes.AUDIO_OPUS -> "Opus"
+            androidx.media3.common.MimeTypes.AUDIO_VORBIS -> "Vorbis"
+            else -> mime.substringAfter('/').uppercase()
+        }
+        val kbps = f.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" }
+        return listOfNotNull(codec, kbps).joinToString(" · ")
+    }
+
     companion object {
         private const val READY_TIMEOUT_MS = 5_000L
         private const val FRAME_MS = 32L
@@ -246,6 +279,10 @@ class YumaDualDeckPlayer private constructor(
                 }
             }
 
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                if (player === activeDeck.player) publishQuality()
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (player === activeDeck.player && playbackState == Player.STATE_READY) {
                     triggerAnalysisForCurrentAndNext()
@@ -320,6 +357,15 @@ class YumaDualDeckPlayer private constructor(
             )
             if (result != null) applyAnalysisIfCurrent(mediaId, result)
         }
+    }
+
+    /** The badge under the seek bar: the active deck's real audio format, Apple Music style. */
+    private fun publishQuality() {
+        val format = activeDeck.player.currentTracks.groups
+            .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+            ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let(g::getTrackFormat) }
+        val label = format?.let(::qualityLabel)
+        AutomixStateHolder.update { it.copy(quality = label) }
     }
 
     // ExoPlayer is single-threaded: analysis finishes on IO, the deck is read back on Main.
@@ -698,6 +744,7 @@ class YumaDualDeckPlayer private constructor(
         }
 
         host.onActivePlayerChanged(this)
+        publishQuality()
         triggerAnalysisForCurrentAndNext()
     }
 
@@ -854,6 +901,7 @@ class YumaDualDeckPlayer private constructor(
     }
 
     override fun release() {
+        AutomixStateHolder.update { it.copy(quality = null) }
         schedulerJob?.cancel()
         cancelCrossfade()
         hardwareEffectsManager.detachSession()

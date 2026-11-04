@@ -3972,6 +3972,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             container.downloads.progress.value.keys.forEach {
                 runCatching { dev.lelonio.square.download.YouTubeDownloads.stop(it) }
             }
+            // NAS songs live in the device's Music folder, outside the store's root that
+            // clearAll wipes; delete those files explicitly.
+            container.downloads.files.value.keys
+                .filter { it.startsWith("subsonic:track:") }
+                .forEach { dev.lelonio.square.download.YouTubeDownloads.forget(getApplication(), it) }
             container.downloads.clearAll()
         }
     }
