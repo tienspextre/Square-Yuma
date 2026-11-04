@@ -29,6 +29,7 @@ data class OfflineTrackRecord(
     val coverArtUrl: String? = null,
     val fileSize: Long = 0L,
     val downloadedAt: Long = System.currentTimeMillis(),
+    val format: String = "flac",
 )
 
 class OfflineTrackStore(context: Context) {

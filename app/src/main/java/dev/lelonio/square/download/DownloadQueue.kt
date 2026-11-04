@@ -449,6 +449,7 @@ class DownloadQueue(
 
     private suspend fun attempt(trackUri: String): Outcome {
         if (trackUri.startsWith(YouTubeBackend.TRACK_PREFIX)) return attemptYouTube(trackUri)
+        if (trackUri.startsWith(SUBSONIC_PREFIX)) return attemptSubsonic(trackUri)
         val kbps = settings.quality.value.kbps
         val outcome = runCatching {
             withContext(Dispatchers.IO) { NativeBridge.downloadTrack(trackUri, kbps) }
@@ -529,6 +530,61 @@ class DownloadQueue(
                 Outcome.FAILED
             }
         }
+    }
+
+    /**
+     * A song from the NAS: fetched as the original file into the device's Music folder (or the
+     * folder picked in Settings) by SubsonicDownloadManager, then recorded here so it is listed
+     * under Downloads like any other. Its cover and its words are kept for offline too.
+     */
+    private suspend fun attemptSubsonic(trackUri: String): Outcome {
+        val app = appContext.applicationContext as dev.lelonio.square.SquareApplication
+        val track = store.trackOf(trackUri)
+        if (track == null) {
+            store.onFailed(trackUri, "unknown track")
+            return Outcome.FAILED
+        }
+        val outcome = runCatching {
+            app.subsonicDownloadManager.downloadNow(track) { store.onProgress(trackUri, it) }
+        }
+        outcome.onSuccess { record ->
+            store.onCompleted(
+                trackUri,
+                DownloadStore.FileRecord(
+                    trackId = record.subsonicId,
+                    format = record.format,
+                    bytes = record.fileSize,
+                    kbps = LOSSLESS_KBPS,
+                    downloadedAt = record.downloadedAt,
+                ),
+            )
+            track.artworkUrl?.let { runCatching { DownloadExtras.keep(it, "art") } }
+            scope.launch { extrasSemaphore.withPermit { keepSubsonicLyrics(app, track) } }
+            return Outcome.DONE
+        }
+        val error = outcome.exceptionOrNull()
+        store.clearProgress(trackUri)
+        return when {
+            error is kotlinx.coroutines.CancellationException && !kotlin.coroutines.coroutineContext.isActive -> throw error
+            error is java.io.IOException && !online() -> Outcome.NOT_NOW
+            else -> {
+                store.onFailed(trackUri, error?.message.orEmpty().ifEmpty { "download failed" })
+                Outcome.FAILED
+            }
+        }
+    }
+
+    /** The words, written down beside the download so the player has them offline. */
+    private suspend fun keepSubsonicLyrics(app: dev.lelonio.square.SquareApplication, track: dev.lelonio.square.data.CatalogTrack) {
+        if (DownloadExtras.asked("lyrics", track.uri)) return
+        runCatching {
+            val found = app.subsonicBackend.lyrics(track.uri, track.name, track.artist, track.durationMs)
+            if (found == null) {
+                DownloadExtras.note("lyrics", track.uri)
+            } else {
+                DownloadExtras.rememberLyrics(track.uri, lyricsJson.encodeToString(dev.lelonio.square.data.Lyrics.serializer(), found))
+            }
+        }.onFailure { android.util.Log.i("SquareDownloads", "subsonic lyrics for ${track.uri}: $it") }
     }
 
     /** Whether there is a network the system has checked reaches the internet. */
@@ -769,6 +825,11 @@ class DownloadQueue(
     }
 
     private companion object {
+        private const val SUBSONIC_PREFIX = "subsonic:track:"
+        // A NAS download is the original file; recorded as lossless so no quality check re-fetches it.
+        private const val LOSSLESS_KBPS = 1411
+        private val lyricsJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
         /**
          * One at a time, with a pause between tracks.
          *

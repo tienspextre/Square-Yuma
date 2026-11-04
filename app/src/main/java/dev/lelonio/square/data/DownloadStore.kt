@@ -118,6 +118,7 @@ class DownloadStore(context: Context) {
 
     /** Where the engine keeps the audio. Handed to it once, at startup. */
     val root: File = File(context.applicationContext.filesDir, DIR_NAME)
+    private val appContext: Context = context.applicationContext
 
     private val indexFile = File(root, INDEX_NAME)
     private val json = Json { ignoreUnknownKeys = true }
@@ -606,7 +607,10 @@ class DownloadStore(context: Context) {
      * the video for YouTube Music. See YouTubeDownloads.
      */
     private fun hasAudio(trackUri: String, record: FileRecord): Boolean =
-        if (trackUri.startsWith(dev.lelonio.square.backend.youtube.YouTubeBackend.TRACK_PREFIX)) {
+        if (trackUri.startsWith("subsonic:track:")) {
+            // Lives in the device's Music folder, indexed by the Subsonic offline store.
+            (appContext as? dev.lelonio.square.SquareApplication)?.offlineTrackStore?.isDownloaded(trackUri) == true
+        } else if (trackUri.startsWith(dev.lelonio.square.backend.youtube.YouTubeBackend.TRACK_PREFIX)) {
             File(File(root, YOUTUBE_DIR), "${record.trackId}.${record.format}").exists()
         } else {
             audioFile(record.trackId).exists()

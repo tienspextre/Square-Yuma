@@ -29,7 +29,9 @@ object YouTubeDownloads {
 
     /** Takes a kept song off the phone, whichever source it belongs to. */
     fun forget(context: Context, trackUri: String) {
-        if (trackUri.startsWith(YouTubeBackend.TRACK_PREFIX)) {
+        if (trackUri.startsWith("subsonic:track:")) {
+            (context.applicationContext as dev.lelonio.square.SquareApplication).subsonicDownloadManager.forget(trackUri)
+        } else if (trackUri.startsWith(YouTubeBackend.TRACK_PREFIX)) {
             remove(context, trackUri)
         } else {
             dev.lelonio.square.nativecore.NativeBridge.removeDownload(trackUri)
@@ -38,6 +40,8 @@ object YouTubeDownloads {
 
     /** Stops a song that is still coming, whichever source it belongs to. */
     fun stop(trackUri: String) {
+        // ponytail: a NAS download in flight finishes; the orphan sweep removes it if unwanted.
+        if (trackUri.startsWith("subsonic:track:")) return
         if (trackUri.startsWith(YouTubeBackend.TRACK_PREFIX)) {
             cancel(trackUri)
         } else {

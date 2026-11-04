@@ -3490,19 +3490,6 @@ fun SquareApp(
                         // The whole playlist in one link. yt-dlp and the apps
                         // built on it expand a playlist URL themselves, so this
                         // is the entire "download an album" feature.
-                        if (backend == dev.lelonio.square.backend.BackendId.SUBSONIC || shownPlaylist.uri.startsWith("subsonic:")) {
-                            TrackSheetAction(
-                                stringResource(R.string.subsonic_download),
-                                PhosphorIcons.Regular.Download,
-                            ) {
-                                playlistMenu = null
-                                val app = context.applicationContext as dev.lelonio.square.SquareApplication
-                                scope.launch {
-                                    val tracks = app.subsonicBackend.tracksOf(shownPlaylist.uri)
-                                    app.subsonicDownloadManager.downloadTracks(tracks)
-                                }
-                            }
-                        }
                         if (backend == dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC) {
                             val label = if (downloaderInstalled(context)) {
                                 stringResource(R.string.download_with)
@@ -3815,17 +3802,6 @@ fun SquareApp(
                         // YouTube only. A Spotify link handed to a downloader
                         // is a link it cannot do anything with, so offering the
                         // action there would be offering a failure.
-                        if (backend == dev.lelonio.square.backend.BackendId.SUBSONIC || menu.track.uri.startsWith("subsonic:track:")) {
-                            val app = context.applicationContext as dev.lelonio.square.SquareApplication
-                            val isDownloaded = app.offlineTrackStore.isDownloaded(menu.track.uri)
-                            val label = if (isDownloaded) stringResource(R.string.subsonic_downloaded) else stringResource(R.string.subsonic_download)
-                            TrackSheetAction(label, PhosphorIcons.Regular.Download) {
-                                trackMenu = null
-                                if (!isDownloaded) {
-                                    app.subsonicDownloadManager.downloadTrack(menu.track)
-                                }
-                            }
-                        }
                         if (backend == dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC) {
                             // Says which app it will open, and says the other
                             // thing when there is no app to open: a row that

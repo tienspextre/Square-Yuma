@@ -300,6 +300,8 @@ class SubsonicBackend(
     }
 
     override suspend fun lyrics(uri: String, title: String, artist: String, durationMs: Long): Lyrics? = withContext(Dispatchers.IO) {
+        // A downloaded song's own copy first: works offline and costs nothing.
+        dev.lelonio.square.backend.lyrics.SpotifyLyrics.kept(uri)?.let { return@withContext it }
         if (uri.startsWith("subsonic:track:")) {
             val songId = uri.removePrefix("subsonic:track:")
             val serverLyrics = client.getLyrics(songId).getOrNull()

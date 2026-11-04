@@ -67,9 +67,29 @@ class SubsonicDownloadManager(
         }
     }
 
-    private suspend fun downloadTrackInternal(songId: String, track: CatalogTrack) = withContext(Dispatchers.IO) {
+    private suspend fun downloadTrackInternal(songId: String, track: CatalogTrack) {
+        runCatching { downloadNow(track) }
+            .onFailure { android.util.Log.w("SubsonicDownload", "download failed for ${track.uri}: ${it.message}") }
+    }
+
+    /** Deletes a downloaded copy (from Music/ or the picked folder) and its index entry. */
+    fun forget(trackUri: String) {
+        scope.launch { store.deleteRecord(trackUri) }
+    }
+
+    /**
+     * Downloads one track to the device and indexes it; returns the record (the existing one when
+     * it is already here). Throws on failure. Used by the app-wide DownloadQueue so a Subsonic
+     * song downloaded from a playlist lands in the device's music folder and in Downloads.
+     */
+    suspend fun downloadNow(
+        track: CatalogTrack,
+        onProgress: (Float) -> Unit = {},
+    ): OfflineTrackRecord = withContext(Dispatchers.IO) {
+        store.records.value[track.uri]?.takeIf { store.isDownloaded(track.uri) }?.let { return@withContext it }
+        val songId = track.uri.removePrefix("subsonic:track:")
         val downloadUrl = client.buildDownloadUrl(songId)
-        if (downloadUrl.isBlank()) return@withContext
+        if (downloadUrl.isBlank()) throw IOException("Subsonic server not configured")
 
         val artist = safeName(track.artist, 60, "Unknown Artist")
         val album = safeName(track.album, 60, "Unknown Album")
@@ -104,6 +124,7 @@ class SubsonicDownloadManager(
                             if (contentLength > 0) {
                                 val progress = (totalRead.toFloat() / contentLength).coerceIn(0.01f, 0.99f)
                                 _downloadProgress.value = _downloadProgress.value + (track.uri to progress)
+                                onProgress(progress)
                             }
                         }
                         output.flush()
@@ -126,21 +147,20 @@ class SubsonicDownloadManager(
             val fileName = "$title.$ext"
             val stored = publish(partFile, mime, artist, album, fileName)
 
-            store.saveRecord(
-                OfflineTrackRecord(
-                    subsonicId = songId,
-                    trackUri = track.uri,
-                    localFilePath = stored,
-                    title = track.name,
-                    artist = track.artist,
-                    album = track.album,
-                    durationMs = track.durationMs,
-                    coverArtUrl = track.artworkUrl,
-                    fileSize = partFile.length(),
-                ),
+            val record = OfflineTrackRecord(
+                subsonicId = songId,
+                trackUri = track.uri,
+                localFilePath = stored,
+                title = track.name,
+                artist = track.artist,
+                album = track.album,
+                durationMs = track.durationMs,
+                coverArtUrl = track.artworkUrl,
+                fileSize = partFile.length(),
+                format = ext,
             )
-        } catch (e: Exception) {
-            android.util.Log.w("SubsonicDownload", "download failed for ${track.uri}: ${e.message}")
+            store.saveRecord(record)
+            record
         } finally {
             partFile.delete()
             _downloadProgress.value = _downloadProgress.value - track.uri
