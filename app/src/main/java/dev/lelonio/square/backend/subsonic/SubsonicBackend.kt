@@ -277,6 +277,20 @@ class SubsonicBackend(
         emptyList()
     }
 
+    /** An artist's records on the server, newest first, for the shelf on their page. */
+    suspend fun artistAlbums(uri: String): List<SearchItem> = withContext(Dispatchers.IO) {
+        if (!uri.startsWith("subsonic:artist:")) return@withContext emptyList()
+        val detail = client.getArtist(uri.removePrefix("subsonic:artist:")).getOrNull() ?: return@withContext emptyList()
+        detail.album.sortedByDescending { it.year ?: 0 }.map {
+            SearchItem(
+                uri = "subsonic:album:${it.id}",
+                title = it.name,
+                subtitle = listOfNotNull(it.year?.toString(), "${it.songCount} songs").joinToString(" • "),
+                artworkUrl = client.buildCoverArtUrl(it.coverArt),
+            )
+        }
+    }
+
     override suspend fun search(query: String, labels: SearchLabels, offset: Int): SearchResults = withContext(Dispatchers.IO) {
         val result = client.search(query).getOrDefault(SubsonicSearchResult3())
         SearchResults(

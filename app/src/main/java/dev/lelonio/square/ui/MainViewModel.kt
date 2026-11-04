@@ -4491,6 +4491,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         container.activeBackend.tracksOf(playlist.uri)
                     }
                     followKept(playlist.uri, tracks)
+                    // A NAS artist's records, as the shelf under their songs.
+                    val nasAlbums = if (kind == DetailKind.ARTIST) {
+                        (container.activeBackend as? dev.lelonio.square.backend.subsonic.SubsonicBackend)
+                            ?.artistAlbums(playlist.uri).orEmpty()
+                    } else {
+                        emptyList()
+                    }
+                    if (nasAlbums.isNotEmpty()) base = base.copy(albums = nasAlbums)
                     if (isActive && _playlist.value.uri == playlist.uri) {
                         publishPlaylist(base.copy(tracks = tracks, loading = false))
                     }
@@ -6678,6 +6686,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         uri.startsWith(dev.lelonio.square.backend.youtube.YouTubeBackend.ARTIST_PREFIX) ->
             DetailKind.ARTIST
         uri.startsWith("spotify:album:") -> DetailKind.ALBUM
+        // The NAS's records and artists, so their pages get Apple's photograph too.
+        uri.startsWith("subsonic:artist:") -> DetailKind.ARTIST
+        uri.startsWith("subsonic:album:") -> DetailKind.ALBUM
         dev.lelonio.square.data.SpotifyPodcasts.isShow(uri) -> DetailKind.SHOW
         else -> DetailKind.PLAYLIST
     }

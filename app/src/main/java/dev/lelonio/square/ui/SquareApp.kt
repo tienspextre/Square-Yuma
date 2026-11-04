@@ -1079,7 +1079,7 @@ fun SquareApp(
     val canvasEnabled by preferences.canvasEnabled.collectAsStateWithLifecycle()
     val coverSource by preferences.animatedCoverSource.collectAsStateWithLifecycle()
 
-    LaunchedEffect(playback.mediaId, backend, canvasEnabled, coverSource, offlineNow) {
+    LaunchedEffect(playback.mediaId, playback.artist, backend, canvasEnabled, coverSource, offlineNow) {
         val uri = playback.mediaId
         canvas = null
         // Offline means offline, including for the things that are only
@@ -1105,6 +1105,17 @@ fun SquareApp(
             canvas = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 dev.lelonio.square.download.DownloadExtras.localCanvas(uri)
             } ?: if (offlineNow) null else Catalog.canvas(uri)
+        } else if (uri != null &&
+            canvasEnabled &&
+            coverSource == dev.lelonio.square.data.PreferencesStore.CoverSource.SPOTIFY &&
+            uri.startsWith("subsonic:track:")
+        ) {
+            // A NAS song has no Spotify Canvas: the album's moving artwork from
+            // Apple stands in for it, the copy kept with a download first.
+            if (remote == null) awaitAudible(localState)
+            canvas = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                dev.lelonio.square.download.DownloadExtras.localCanvas(uri)
+            } ?: if (offlineNow) null else dev.lelonio.square.data.MotionCanvas.find(playback.title, playback.artist)
         }
     }
 

@@ -379,6 +379,13 @@ class DownloadQueue(
                 store.trackOf(uri)?.artworkUrl?.let { runCatching { DownloadExtras.keep(it, "art") } }
                 continue
             }
+            if (uri.startsWith(SUBSONIC_PREFIX)) {
+                val track = store.trackOf(uri) ?: continue
+                track.artworkUrl?.let { runCatching { DownloadExtras.keep(it, "art") } }
+                keepSubsonicExtras(appContext.applicationContext as dev.lelonio.square.SquareApplication, track)
+                delay(TRACK_GAP_MS)
+                continue
+            }
             // No sidecar is not a reason to skip: it carries the cover url the
             // engine recorded, and everything else here — the words, the tall
             // picture — is asked for by name from the index instead.
@@ -559,7 +566,7 @@ class DownloadQueue(
                 ),
             )
             track.artworkUrl?.let { runCatching { DownloadExtras.keep(it, "art") } }
-            scope.launch { extrasSemaphore.withPermit { keepSubsonicLyrics(app, track) } }
+            scope.launch { extrasSemaphore.withPermit { keepSubsonicExtras(app, track) } }
             return Outcome.DONE
         }
         val error = outcome.exceptionOrNull()
@@ -575,7 +582,23 @@ class DownloadQueue(
     }
 
     /** The words, written down beside the download so the player has them offline. */
-    private suspend fun keepSubsonicLyrics(app: dev.lelonio.square.SquareApplication, track: dev.lelonio.square.data.CatalogTrack) {
+    /** Lyrics, the album's moving artwork and its tall picture, so all three work offline. */
+    private suspend fun keepSubsonicExtras(app: dev.lelonio.square.SquareApplication, track: dev.lelonio.square.data.CatalogTrack) {
+        runCatching {
+            if (!DownloadExtras.asked("canvas", track.uri) || needsClip(track.uri)) {
+                val clip = dev.lelonio.square.data.MotionCanvas.find(track.name, track.artist)
+                if (clip == null) {
+                    DownloadExtras.note("canvas", track.uri)
+                } else {
+                    DownloadExtras.rememberCanvas(
+                        track.uri,
+                        JSONObject().put("url", clip.url).put("isVideo", true).toString(),
+                    )
+                    DownloadExtras.keep(clip.url, "video")
+                }
+            }
+            if (needsArt(track.uri)) keepArt(track.uri, track)
+        }.onFailure { android.util.Log.i("SquareDownloads", "subsonic canvas/art for ${track.uri}: $it") }
         if (DownloadExtras.asked("lyrics", track.uri)) return
         runCatching {
             val found = app.subsonicBackend.lyrics(track.uri, track.name, track.artist, track.durationMs)
