@@ -266,9 +266,20 @@ object TrackAnalyzer : AnalysisStore {
                         } else {
                             headResult.mixOutTime.takeIf { it > 0.0 } ?: (duration - 6.0).coerceAtLeast(0.0)
                         }
+                        // Loudness from the head alone misreads a quiet intro as a quiet song; power-
+                        // average it with the tail window, weighted by window length (30s / 45s).
+                        val tailLufs = TrackFeatures.analyze(tailSamples, duration)?.loudnessLufs
+                        val lufs = if (tailLufs != null && tailLufs < 0.0 && headResult.loudnessLufs < 0.0) {
+                            val hW = AudioDecoder.DEFAULT_HEAD_DECODE_MS.toDouble()
+                            val tW = AudioDecoder.TAIL_WINDOW_MS.toDouble()
+                            10.0 * kotlin.math.log10(
+                                (hW * Math.pow(10.0, headResult.loudnessLufs / 10.0) + tW * Math.pow(10.0, tailLufs / 10.0)) / (hW + tW),
+                            )
+                        } else headResult.loudnessLufs
                         headResult.copy(
                             mixOutTime = computedMixOut,
                             contentEndTime = duration,
+                            loudnessLufs = lufs,
                         )
                     } else {
                         headResult

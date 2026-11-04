@@ -3161,15 +3161,6 @@ fun SquareApp(
                                     if (remote != null) {
                                         onRemote { id -> RemoteConnect.seek(id, target) }
                                     } else {
-                                        // TEMP DEBUG: did the controller even allow the seek?
-                                        runCatching {
-                                            val c = player
-                                            java.io.File(context.filesDir, "yuma_debug.log").appendText(
-                                                "${java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())} UI onSeek($target) " +
-                                                    "ctrlSeekCmd=${c?.isCommandAvailable(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)} " +
-                                                    "ctrlSeekable=${c?.isCurrentMediaItemSeekable} ctrlPos=${c?.currentPosition}/${c?.duration} ctrlState=${c?.playbackState}\n",
-                                            )
-                                        }
                                         player?.seekTo(target)
                                     }
                                 },

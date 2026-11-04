@@ -73,6 +73,7 @@ class YumaDualDeckPlayer private constructor(
     // request at fade start made Android take focus from the outgoing deck, and ExoPlayer paused
     // it: the "song 1 cuts out, song 2 fades in" bug, and the freeze when the ramp read that pause.
     private var focusHandled = true
+    private var userVolume = 1f
     private var schedulerJob: Job? = null
 
     private var preparedStandbyIndex: Int = C.INDEX_UNSET
@@ -86,6 +87,9 @@ class YumaDualDeckPlayer private constructor(
     companion object {
         private const val READY_TIMEOUT_MS = 5_000L
         private const val FRAME_MS = 32L
+        // -16 LUFS: the common streaming reference; tracks louder than this are pulled down to it.
+        private const val TARGET_LUFS = -16.0
+        private const val MIN_NORM_GAIN = 0.25f // never more than -12 dB
 
         operator fun invoke(host: PlaybackHost): YumaDualDeckPlayer {
             val filterA = DjFilterAudioProcessor()
@@ -237,16 +241,9 @@ class YumaDualDeckPlayer private constructor(
                     lastTriggeredIndex = C.INDEX_UNSET
                     lastTriggeredMediaId = null
                     releaseStandby()
+                    applyRestingVolume()
                     triggerAnalysisForCurrentAndNext()
                 }
-            }
-
-            override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
-                dbg("cmdsChanged on ${if (player === playerA) "A" else "B"} seek=${availableCommands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)}")
-            }
-
-            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                if (player === activeDeck.player) dbg("discontinuity reason=$reason ${oldPosition.positionMs}->${newPosition.positionMs}")
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -564,8 +561,10 @@ class YumaDualDeckPlayer private constructor(
         incoming.partner = outgoing
         outgoing.isIncoming = false
         incoming.isIncoming = true
-        outgoing.baseVolume = 1f
-        incoming.baseVolume = 1f
+        // Each deck rides at its own loudness-matched level, so the overlap and the handoff
+        // land at the same perceived volume instead of jumping by the tracks' LUFS gap.
+        outgoing.baseVolume = outgoing.player.volume.takeIf { it > 0f } ?: restingVolumeFor(outgoing.player.currentMediaItem?.mediaId)
+        incoming.baseVolume = restingVolumeFor(incoming.player.currentMediaItem?.mediaId)
         outgoing.maxGainFactor = 1f
         incoming.maxGainFactor = 1f
 
@@ -654,7 +653,6 @@ class YumaDualDeckPlayer private constructor(
     }
 
     private fun completeHandoff(incoming: ExoDeck, outgoing: ExoDeck, plan: AutomixPlan) {
-        dbg("handoff")
         outgoing.player.pauseAtEndOfMediaItems = false
         incoming.player.pauseAtEndOfMediaItems = false
 
@@ -704,13 +702,12 @@ class YumaDualDeckPlayer private constructor(
     }
 
     private fun cancelCrossfade() {
-        dbg("cancelCrossfade")
         crossfadeJob?.cancel()
         crossfadeJob = null
         isCrossfading = false
 
         activeDeck.player.pauseAtEndOfMediaItems = false
-        activeDeck.player.volume = 1f
+        applyRestingVolume()
         activeDeck.clearAutomation()
 
         standbyDeck.player.pauseAtEndOfMediaItems = false
@@ -757,22 +754,6 @@ class YumaDualDeckPlayer private constructor(
     }
 
     // Every position jump goes through here so the scheduler never acts on a stale position.
-    // TEMP DEBUG: Vivo drops app logcat, so trace seeks to files/yuma_debug.log (adb run-as cat).
-    private fun dbg(msg: String) {
-        runCatching {
-            val f = java.io.File(host.context.filesDir, "yuma_debug.log")
-            if (f.length() > 512_000) f.delete()
-            val p = activeDeck.player
-            f.appendText(
-                "${java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())} $msg" +
-                    " | deck=${if (p === playerA) "A" else "B"} wrapped=${forwardingPlayer.activePlayer === p}" +
-                    " state=${p.playbackState} pwr=${p.playWhenReady} pos=${p.currentPosition}/${p.duration}" +
-                    " seekable=${p.isCurrentMediaItemSeekable} seekCmd=${p.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)}" +
-                    " xf=$isCrossfading id=${p.currentMediaItem?.mediaId}\n",
-            )
-        }
-    }
-
     private fun beforeSeek() {
         lastSeekTimestamp = android.os.SystemClock.elapsedRealtime()
         lastTriggeredIndex = C.INDEX_UNSET
@@ -792,13 +773,11 @@ class YumaDualDeckPlayer private constructor(
     }
 
     override fun seekTo(positionMs: Long) {
-        dbg("seekTo(" + listOf(positionMs) + ")")
         beforeSeek()
         forwardingPlayer.seekTo(positionMs)
     }
 
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
-        dbg("seekTo(" + listOf(mediaItemIndex, positionMs) + ")")
         beforeSeek()
         forwardingPlayer.seekTo(mediaItemIndex, positionMs)
     }
@@ -846,7 +825,6 @@ class YumaDualDeckPlayer private constructor(
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) {
-        dbg("setMediaItems(n=${mediaItems.size}, start=$startIndex, pos=$startPositionMs)")
         beforeSeek()
         forwardingPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
         triggerAnalysisForCurrentAndNext()
@@ -884,8 +862,27 @@ class YumaDualDeckPlayer private constructor(
     }
 
     override fun setVolume(volume: Float) {
-        playerA.volume = volume
-        playerB.volume = volume
+        userVolume = volume.coerceIn(0f, 1f)
+        applyRestingVolume()
+    }
+
+    override fun getVolume(): Float = userVolume
+
+    // Loudness matching. No ReplayGain tags on the server, so the analyzer's LUFS (head + tail
+    // windows) drives it. Attenuate-only: ExoPlayer volume cannot exceed 1 and boosting a quiet
+    // master would need a limiter, so a quiet track stays as loud as it is.
+    // ponytail: applied at track boundaries only (start, handoff, cancel), never mid-song, so the
+    // first play of an unanalysed track runs at full level. Add a short ramp if that matters.
+    private fun restingVolumeFor(mediaId: String?): Float {
+        val lufs = mediaId?.let { TrackAnalyzer.getCached(it)?.loudnessLufs }?.takeIf { it < 0.0 && it.isFinite() }
+            ?: return userVolume
+        val gain = Math.pow(10.0, (TARGET_LUFS - lufs) / 20.0).toFloat().coerceIn(MIN_NORM_GAIN, 1f)
+        return userVolume * gain
+    }
+
+    private fun applyRestingVolume() {
+        if (isCrossfading) return
+        activeDeck.player.volume = restingVolumeFor(activeDeck.player.currentMediaItem?.mediaId)
     }
 
     override fun setAudioAttributes(audioAttributes: androidx.media3.common.AudioAttributes, handleAudioFocus: Boolean) {
