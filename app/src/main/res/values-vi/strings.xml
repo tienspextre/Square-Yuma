@@ -716,4 +716,8 @@
     <string name="podcasts">Podcast</string>
     <string name="new_episodes">Tập mới từ podcast của bạn</string>
     <string name="podcast_count">%1$d podcast</string>
+    <string name="subsonic_download_folder">Thư mục tải về</string>
+    <string name="subsonic_download_folder_default">Music/Square trên thiết bị</string>
+    <string name="subsonic_download_folder_reset">Dùng thư mục Music của thiết bị</string>
+    <string name="subsonic_download_folder_note">Bài tải về được lưu theo Nghệ sĩ/Album/Tên bài trong thư mục này, các app nghe nhạc khác cũng thấy được.</string>
 </resources>

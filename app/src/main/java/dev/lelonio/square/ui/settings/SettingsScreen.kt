@@ -89,6 +89,7 @@ import com.adamglin.phosphoricons.regular.FilmStrip
 import com.adamglin.phosphoricons.regular.Repeat
 import com.adamglin.phosphoricons.regular.Scissors
 import com.adamglin.phosphoricons.regular.WifiHigh
+import com.adamglin.phosphoricons.regular.FolderSimple
 import com.adamglin.phosphoricons.regular.Heart
 import com.adamglin.phosphoricons.regular.AirplaneTilt
 import com.adamglin.phosphoricons.regular.HardDrives
@@ -1385,6 +1386,16 @@ private fun SubsonicSection(
     val username by prefs.username.collectAsStateWithLifecycle()
     val password by prefs.password.collectAsStateWithLifecycle()
     val transcodeCellular by prefs.transcodeCellular.collectAsStateWithLifecycle()
+    val downloadTree by prefs.downloadTreeUri.collectAsStateWithLifecycle()
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            // Persist the grant so downloads (and playback of them) keep working after restart.
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+            prefs.setDownloadTreeUri(uri.toString())
+        }
+    }
 
     var urlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
     var userDraft by remember(username) { mutableStateOf(username) }
@@ -1506,6 +1517,38 @@ private fun SubsonicSection(
         )
         Text(
             stringResource(R.string.subsonic_transcode_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = InkDim,
+            modifier = Modifier.padding(start = ROW_TEXT_START, end = 18.dp, bottom = 14.dp),
+        )
+
+        RowDivider()
+
+        val folderLabel = downloadTree
+            ?.let { android.net.Uri.parse(it).lastPathSegment?.substringAfter(':')?.ifBlank { null } }
+            ?: stringResource(R.string.subsonic_download_folder_default)
+        ActionRow(
+            "${stringResource(R.string.subsonic_download_folder)}: $folderLabel",
+            destructive = false,
+            icon = PhosphorIcons.Regular.FolderSimple,
+        ) { pickFolder.launch(null) }
+        if (downloadTree != null) {
+            ActionRow(
+                stringResource(R.string.subsonic_download_folder_reset),
+                destructive = false,
+            ) {
+                runCatching {
+                    context.contentResolver.releasePersistableUriPermission(
+                        android.net.Uri.parse(downloadTree),
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                }
+                prefs.setDownloadTreeUri(null)
+            }
+        }
+        Text(
+            stringResource(R.string.subsonic_download_folder_note),
             style = MaterialTheme.typography.bodySmall,
             color = InkDim,
             modifier = Modifier.padding(start = ROW_TEXT_START, end = 18.dp, bottom = 14.dp),

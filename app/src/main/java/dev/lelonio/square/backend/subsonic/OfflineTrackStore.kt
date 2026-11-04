@@ -1,6 +1,8 @@
 package dev.lelonio.square.backend.subsonic
 
 import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 import dev.lelonio.square.data.CatalogTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +20,7 @@ import java.io.File
 data class OfflineTrackRecord(
     val subsonicId: String,
     val trackUri: String,
+    /** An absolute path (legacy app-private downloads) or a content:// URI (Music/ or a picked folder). */
     val localFilePath: String,
     val title: String,
     val artist: String,
@@ -29,6 +32,8 @@ data class OfflineTrackRecord(
 )
 
 class OfflineTrackStore(context: Context) {
+
+    private val resolver = context.applicationContext.contentResolver
 
     private val file = File(context.filesDir, "subsonic_offline_tracks.json")
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
@@ -61,7 +66,19 @@ class OfflineTrackStore(context: Context) {
     suspend fun deleteRecord(trackUri: String): Boolean = withContext(Dispatchers.IO) {
         lock.withLock {
             val record = _records.value[trackUri] ?: return@withLock false
-            runCatching { File(record.localFilePath).delete() }
+            runCatching {
+                val path = record.localFilePath
+                if (path.startsWith("content://")) {
+                    val uri = Uri.parse(path)
+                    if (DocumentsContract.isDocumentUri(null, uri) || DocumentsContract.isTreeUri(uri)) {
+                        DocumentsContract.deleteDocument(resolver, uri)
+                    } else {
+                        resolver.delete(uri, null, null)
+                    }
+                } else {
+                    File(path).delete()
+                }
+            }
             val updated = _records.value - trackUri
             _records.value = updated
             writeToDisk(updated.values.toList())
@@ -69,15 +86,23 @@ class OfflineTrackStore(context: Context) {
         }
     }
 
+    // ponytail: a content:// download is trusted from the index here (no IPC per list row);
+    // getLocalUri() is the one that checks it still opens, at play time.
     fun isDownloaded(trackUri: String): Boolean {
-        val record = _records.value[trackUri] ?: return false
-        return File(record.localFilePath).exists()
+        val path = _records.value[trackUri]?.localFilePath ?: return false
+        return path.startsWith("content://") || File(path).exists()
     }
 
-    fun getLocalFile(trackUri: String): File? {
-        val record = _records.value[trackUri] ?: return null
-        val f = File(record.localFilePath)
-        return if (f.exists()) f else null
+    fun localPath(trackUri: String): String? =
+        _records.value[trackUri]?.localFilePath?.takeIf { isDownloaded(trackUri) }
+
+    /** A playable URI for the downloaded copy, or null when it is gone (then stream instead). */
+    fun getLocalUri(trackUri: String): Uri? {
+        val path = _records.value[trackUri]?.localFilePath ?: return null
+        if (!path.startsWith("content://")) return File(path).takeIf { it.exists() }?.let(Uri::fromFile)
+        val uri = Uri.parse(path)
+        val opens = runCatching { resolver.openFileDescriptor(uri, "r")?.use { true } ?: false }.getOrDefault(false)
+        return uri.takeIf { opens }
     }
 
     fun getAllCatalogTracks(): List<CatalogTrack> {

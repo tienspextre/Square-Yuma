@@ -1,6 +1,12 @@
 package dev.lelonio.square.backend.subsonic
 
+import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
+import android.os.Build
+import android.provider.DocumentsContract
+import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import android.os.Environment
 import dev.lelonio.square.data.CatalogTrack
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +29,7 @@ class SubsonicDownloadManager(
     private val httpClient: OkHttpClient,
     private val client: SubsonicClient,
     val store: OfflineTrackStore,
+    private val prefs: SubsonicPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -32,7 +39,8 @@ class SubsonicDownloadManager(
     private val _activeDownloads = MutableStateFlow(0)
     val isDownloading: StateFlow<Boolean> = MutableStateFlow(false)
 
-    private val baseDownloadDir: File
+    /** Pre-MediaStore devices (API < 29) only: the old app-private location. */
+    private val legacyDownloadDir: File
         get() {
             val ext = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
             val dir = File(ext ?: context.filesDir, "SquareOffline")
@@ -63,30 +71,30 @@ class SubsonicDownloadManager(
         val downloadUrl = client.buildDownloadUrl(songId)
         if (downloadUrl.isBlank()) return@withContext
 
-        val safeArtist = track.artist.replace(Regex("[^a-zA-Z0-9._ -]"), "_").take(60).ifBlank { "Unknown Artist" }
-        val safeAlbum = track.album.replace(Regex("[^a-zA-Z0-9._ -]"), "_").take(60).ifBlank { "Unknown Album" }
-        val safeTitle = track.name.replace(Regex("[^a-zA-Z0-9._ -]"), "_").take(80).ifBlank { "Track_$songId" }
+        val artist = safeName(track.artist, 60, "Unknown Artist")
+        val album = safeName(track.album, 60, "Unknown Album")
+        val title = safeName(track.name, 100, "Track_$songId")
 
-        val targetDir = File(baseDownloadDir, "$safeArtist/$safeAlbum")
-        targetDir.mkdirs()
-
-        val partFile = File(targetDir, "$safeTitle.flac.part")
-        val finalFile = File(targetDir, "$safeTitle.flac")
+        // Downloaded to private scratch first, then published in one go: a half-written file
+        // never shows up in the device's Music library, and a failure leaves nothing behind.
+        val partFile = File(context.cacheDir, "subsonic_dl_$songId.part")
 
         try {
             _downloadProgress.value = _downloadProgress.value + (track.uri to 0.01f)
 
+            var mime = "audio/flac"
             val request = Request.Builder().url(downloadUrl).build()
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw IOException("HTTP download failed: ${response.code}")
                 }
                 val body = response.body ?: throw IOException("Empty body")
+                body.contentType()?.let { if (it.type == "audio") mime = "${it.type}/${it.subtype}" }
                 val contentLength = body.contentLength()
 
                 body.byteStream().use { input ->
                     FileOutputStream(partFile).use { output ->
-                        val buffer = ByteArray(32 * 1024)
+                        val buffer = ByteArray(64 * 1024)
                         var bytesRead: Int
                         var totalRead = 0L
 
@@ -103,36 +111,107 @@ class SubsonicDownloadManager(
                 }
             }
 
-            if (finalFile.exists()) finalFile.delete()
-            partFile.renameTo(finalFile)
-
-            // Save into offline index
-            val record = OfflineTrackRecord(
-                subsonicId = songId,
-                trackUri = track.uri,
-                localFilePath = finalFile.absolutePath,
-                title = track.name,
-                artist = track.artist,
-                album = track.album,
-                durationMs = track.durationMs,
-                coverArtUrl = track.artworkUrl,
-                fileSize = finalFile.length(),
-            )
-            store.saveRecord(record)
-
-            _downloadProgress.value = _downloadProgress.value - track.uri
-
-            // Immediately run C++ TrackAnalyzer in background to cache BPM & Automix grids!
+            // Analyse from the local scratch copy while we have it: fastest path, and the
+            // published copy may be a content:// URI.
             runCatching {
                 TrackAnalyzer.analyze(
                     trackId = track.uri,
-                    file = finalFile,
+                    file = partFile,
                     durationSeconds = if (track.durationMs > 0) track.durationMs / 1000.0 else null,
                 )
             }
+
+            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+                ?: if (mime.contains("flac")) "flac" else "mp3"
+            val fileName = "$title.$ext"
+            val stored = publish(partFile, mime, artist, album, fileName)
+
+            store.saveRecord(
+                OfflineTrackRecord(
+                    subsonicId = songId,
+                    trackUri = track.uri,
+                    localFilePath = stored,
+                    title = track.name,
+                    artist = track.artist,
+                    album = track.album,
+                    durationMs = track.durationMs,
+                    coverArtUrl = track.artworkUrl,
+                    fileSize = partFile.length(),
+                ),
+            )
         } catch (e: Exception) {
+            android.util.Log.w("SubsonicDownload", "download failed for ${track.uri}: ${e.message}")
+        } finally {
             partFile.delete()
             _downloadProgress.value = _downloadProgress.value - track.uri
         }
     }
+
+    /**
+     * Copies the finished file to its home and returns what the offline index stores:
+     *  - a folder the user picked in Settings (SAF tree) -> <folder>/<Artist>/<Album>/<file>
+     *  - otherwise the device's public Music/Square/<Artist>/<Album>/ via MediaStore (API 29+),
+     *    which needs no storage permission and survives uninstall
+     *  - API < 29: the old app-private folder.
+     */
+    private fun publish(src: File, mime: String, artist: String, album: String, fileName: String): String {
+        val tree = prefs.downloadTreeUri.value?.let(Uri::parse)
+        if (tree != null) {
+            val resolver = context.contentResolver
+            var dir = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+            for (name in listOf(artist, album)) dir = findOrCreateDir(tree, dir, name)
+            val doc = DocumentsContract.createDocument(resolver, dir, mime, fileName)
+                ?: throw IOException("Cannot create $fileName in picked folder")
+            resolver.openOutputStream(doc)?.use { out -> src.inputStream().use { it.copyTo(out) } }
+                ?: throw IOException("Cannot write $fileName")
+            return doc.toString()
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Audio.Media.MIME_TYPE, mime)
+                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/Square/$artist/$album")
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
+                ?: throw IOException("MediaStore refused $fileName")
+            try {
+                resolver.openOutputStream(uri)?.use { out -> src.inputStream().use { it.copyTo(out) } }
+                    ?: throw IOException("Cannot write $fileName")
+                resolver.update(uri, ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) }, null, null)
+            } catch (e: Exception) {
+                resolver.delete(uri, null, null)
+                throw e
+            }
+            return uri.toString()
+        }
+
+        val target = File(legacyDownloadDir, "$artist/$album").apply { mkdirs() }.let { File(it, fileName) }
+        src.copyTo(target, overwrite = true)
+        return target.absolutePath
+    }
+
+    private fun findOrCreateDir(tree: Uri, parent: Uri, name: String): Uri {
+        val resolver = context.contentResolver
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(parent))
+        resolver.query(
+            children,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE),
+            null, null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == name && c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    return DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                }
+            }
+        }
+        return DocumentsContract.createDocument(resolver, parent, DocumentsContract.Document.MIME_TYPE_DIR, name)
+            ?: throw IOException("Cannot create folder $name")
+    }
+
+    // Keeps Vietnamese and every other script; strips only what file systems reject.
+    private fun safeName(raw: String, max: Int, fallback: String): String =
+        raw.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trimEnd('.').take(max).ifBlank { fallback }
 }

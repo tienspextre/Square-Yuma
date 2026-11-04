@@ -301,6 +301,10 @@
     <string name="subsonic_test_connection">Test Connection</string>
     <string name="subsonic_rescan_library">Trigger Server Rescan</string>
     <string name="subsonic_transcode_cellular">Transcode on 4G/Cellular (Opus 160k)</string>
+    <string name="subsonic_download_folder">Download folder</string>
+    <string name="subsonic_download_folder_default">Music/Square on this device</string>
+    <string name="subsonic_download_folder_reset">Use the device Music folder</string>
+    <string name="subsonic_download_folder_note">Downloads are saved as Artist/Album/Title in this folder, visible to other music apps.</string>
     <string name="subsonic_transcode_note">Save mobile data by transcoding Hi-Res FLAC to high-efficiency Opus when roaming outside home WiFi.</string>
     <string name="subsonic_download">Download to Device</string>
     <string name="subsonic_downloaded">Downloaded Offline ✓</string>

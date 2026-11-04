@@ -140,9 +140,9 @@ class YumaDualDeckPlayer private constructor(
                             spec.buildUpon().setUri(LocalLibrary.contentUri(uri)).build()
                         } else if (uri.startsWith("subsonic:track:")) {
                             val app = host.context.applicationContext as? dev.lelonio.square.SquareApplication
-                            val offlineFile = app?.offlineTrackStore?.getLocalFile(uri)
-                            if (offlineFile != null && offlineFile.exists()) {
-                                spec.buildUpon().setUri(android.net.Uri.fromFile(offlineFile)).build()
+                            val offlineUri = app?.offlineTrackStore?.getLocalUri(uri)
+                            if (offlineUri != null) {
+                                spec.buildUpon().setUri(offlineUri).build()
                             } else {
                                 val songId = uri.removePrefix("subsonic:track:")
                                 val streamUrl = app?.subsonicClient?.buildStreamUrl(songId).orEmpty()
@@ -289,8 +289,8 @@ class YumaDualDeckPlayer private constructor(
 
             val app = host.context.applicationContext as? dev.lelonio.square.SquareApplication
             val isSubsonic = mediaId.startsWith("subsonic:track:")
-            val offlineFile = if (isSubsonic) app?.offlineTrackStore?.getLocalFile(mediaId) else null
-            if (isSubsonic && (offlineFile == null || !offlineFile.exists())) {
+            val offlineUri = if (isSubsonic) app?.offlineTrackStore?.getLocalUri(mediaId) else null
+            if (isSubsonic && offlineUri == null) {
                 // Streamed: decode the head and tail over HTTP so the outro (fade to silence) is
                 // found, instead of mixing blind at duration - fade into a quiet tail.
                 val durationSec = mediaItem.mediaMetadata.durationMs?.takeIf { it > 0 }?.div(1000.0)
@@ -301,8 +301,8 @@ class YumaDualDeckPlayer private constructor(
                 if (result != null) applyAnalysisIfCurrent(mediaId, result)
                 return@launch
             }
-            val uri = if (offlineFile != null && offlineFile.exists()) {
-                android.net.Uri.fromFile(offlineFile)
+            val uri = if (offlineUri != null) {
+                offlineUri
             } else {
                 mediaItem.localConfiguration?.uri
                     ?: if (LocalLibrary.isLocal(mediaId)) LocalLibrary.contentUri(mediaId) else null

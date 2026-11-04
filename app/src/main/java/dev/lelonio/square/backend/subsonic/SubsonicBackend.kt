@@ -343,7 +343,7 @@ class SubsonicBackend(
         offlineStore: OfflineTrackStore,
     ): CatalogTrack {
         val trackUri = "subsonic:track:$id"
-        val localFile = offlineStore.getLocalFile(trackUri)?.absolutePath
+        val localFile = offlineStore.localPath(trackUri)
         return CatalogTrack(
             uri = trackUri,
             name = title,

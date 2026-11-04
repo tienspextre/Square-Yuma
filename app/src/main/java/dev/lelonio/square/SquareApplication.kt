@@ -349,7 +349,7 @@ class SquareApplication : Application(), ImageLoaderFactory {
     }
 
     val subsonicDownloadManager: dev.lelonio.square.backend.subsonic.SubsonicDownloadManager by lazy {
-        dev.lelonio.square.backend.subsonic.SubsonicDownloadManager(this, sharedHttpClient, subsonicClient, offlineTrackStore)
+        dev.lelonio.square.backend.subsonic.SubsonicDownloadManager(this, sharedHttpClient, subsonicClient, offlineTrackStore, subsonicPreferences)
     }
 
     val subsonicBackend: dev.lelonio.square.backend.subsonic.SubsonicBackend by lazy {

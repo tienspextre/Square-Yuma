@@ -18,6 +18,7 @@ class SubsonicPreferences(context: Context) {
         const val KEY_PASSWORD = "subsonic_password"
         const val KEY_TRANSCODE_CELLULAR = "subsonic_transcode_cellular"
         const val KEY_TRANSCODE_BITRATE = "subsonic_transcode_bitrate"
+        const val KEY_DOWNLOAD_TREE = "subsonic_download_tree_uri"
         const val DEFAULT_SERVER_URL = "http://100.110.65.47:4533"
         const val CLIENT_NAME = "SquarePlayer"
         const val API_VERSION = "1.16.1"
@@ -37,6 +38,15 @@ class SubsonicPreferences(context: Context) {
 
     private val _transcodeBitrate = MutableStateFlow(prefs.getInt(KEY_TRANSCODE_BITRATE, 160))
     val transcodeBitrate: StateFlow<Int> = _transcodeBitrate.asStateFlow()
+
+    /** A folder the user picked (SAF tree URI); null means the device's Music/Square. */
+    private val _downloadTreeUri = MutableStateFlow(prefs.getString(KEY_DOWNLOAD_TREE, null))
+    val downloadTreeUri: StateFlow<String?> = _downloadTreeUri.asStateFlow()
+
+    fun setDownloadTreeUri(value: String?) {
+        _downloadTreeUri.value = value
+        prefs.edit().putString(KEY_DOWNLOAD_TREE, value).apply()
+    }
 
     fun isConfigured(): Boolean {
         val url = _serverUrl.value.trim()
