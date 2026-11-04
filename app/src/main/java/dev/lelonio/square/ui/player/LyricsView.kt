@@ -150,7 +150,8 @@ fun LyricsView(
     onSeek: (Long) -> Unit,
 ) {
     val listState = remember(lyrics) { LazyListState() }
-    val position by rememberSmoothPosition(positionMs, isPlaying)
+    val isTtml = remember(lyrics) { lyrics.lines.any { it.words.isNotEmpty() } }
+    val position by rememberSmoothLyricsPosition(positionMs, isPlaying, isTtml = isTtml)
 
     val activeLine = remember(lyrics, position) {
         if (!lyrics.synced) -1
@@ -232,24 +233,8 @@ fun LyricsView(
  * The playback position, advanced every frame between reports.
  */
 @Composable
-private fun rememberSmoothPosition(source: State<Long>, isPlaying: Boolean): State<Long> {
-    val smoothed = remember { mutableLongStateOf(source.value) }
-    val reported = source.value
-
-    LaunchedEffect(reported, isPlaying) {
-        smoothed.longValue = reported
-        if (!isPlaying) return@LaunchedEffect
-
-        val startedAt = withFrameMillis { it }
-        while (true) {
-            withFrameMillis { frame ->
-                smoothed.longValue = reported + (frame - startedAt)
-            }
-        }
-    }
-
-    return smoothed
-}
+private fun rememberSmoothPosition(source: State<Long>, isPlaying: Boolean): State<Long> =
+    rememberSmoothLyricsPosition(source, isPlaying)
 
 /**
  * Gives wrapped content extra space for glow/shadow bleed without affecting layout sizing.

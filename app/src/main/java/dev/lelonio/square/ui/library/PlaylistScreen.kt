@@ -3378,10 +3378,10 @@ private fun MixPlayButton(onPlay: () -> Unit, backdrop: Backdrop, ink: Color) {
  */
 fun CatalogTrack.openLink(): String {
     val id = uri.substringAfterLast(':')
-    return if (uri.startsWith("ytmusic:")) {
-        "https://music.youtube.com/watch?v=$id"
-    } else {
-        "https://open.spotify.com/track/$id"
+    return when {
+        uri.startsWith("ytmusic:") -> "https://music.youtube.com/watch?v=$id"
+        uri.startsWith("subsonic:") || uri.startsWith("local:") || uri.startsWith("file:") -> uri
+        else -> "https://open.spotify.com/track/$id"
     }
 }
 
@@ -3396,6 +3396,9 @@ fun openLinkOf(uri: String): String {
     val id = uri.substringAfterLast(':')
     if (uri.startsWith("ytmusic:")) {
         return "https://music.youtube.com/playlist?list=$id"
+    }
+    if (uri.startsWith("subsonic:") || uri.startsWith("local:")) {
+        return uri
     }
     val kind = uri.split(':').getOrNull(1) ?: "playlist"
     return "https://open.spotify.com/$kind/$id"

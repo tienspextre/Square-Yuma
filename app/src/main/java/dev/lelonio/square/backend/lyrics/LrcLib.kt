@@ -143,7 +143,7 @@ object LrcLib {
      * the instrumental gaps, and without them the view holds the previous line
      * highlighted through a stretch where nothing is being sung.
      */
-    private fun parseLrc(raw: String): Lyrics? {
+    internal fun parseLrc(raw: String): Lyrics? {
         val lines = raw.lines().mapNotNull { line ->
             val match = LRC_LINE.find(line) ?: return@mapNotNull null
             val (minutes, seconds, fraction, text) = match.destructured

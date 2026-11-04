@@ -142,6 +142,8 @@ import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.Queue
 import com.adamglin.phosphoricons.regular.SpotifyLogo
 import com.adamglin.phosphoricons.regular.YoutubeLogo
+import com.adamglin.phosphoricons.regular.FolderSimple
+import com.adamglin.phosphoricons.regular.HardDrives
 import com.adamglin.phosphoricons.regular.Export
 import com.adamglin.phosphoricons.regular.Trash
 import com.adamglin.phosphoricons.regular.User
@@ -935,10 +937,10 @@ fun SquareApp(
     // until the app was restarted.
     var loadedBackend by remember { mutableStateOf(backend) }
     LaunchedEffect(backend) {
-        viewModel.loadYouTubeHome()
+        viewModel.loadYouTubeHome(force = true)
         if (backend != loadedBackend) {
             loadedBackend = backend
-            viewModel.refresh()
+            viewModel.refresh(restart = true)
         }
     }
 
@@ -1694,7 +1696,8 @@ fun SquareApp(
                                 },
                                 backdrop = artBackdrop,
                                 youtubeMode =
-                                    backend == dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC,
+                                    backend != dev.lelonio.square.backend.BackendId.SPOTIFY,
+                                backendId = backend,
                                 onRetryOnline = viewModel::retryOnline,
                                 youtubeHome = youtubeHome,
                                 shelves = homeShelves,
@@ -1721,7 +1724,7 @@ fun SquareApp(
                                 },
                                 onPickYouTubeChip = viewModel::selectYouTubeChip,
                                 onLoadMoreYouTube = viewModel::loadMoreYouTubeHome,
-                                youtubeSignedIn = youtubeAccountName != null,
+                                youtubeSignedIn = if (backend == dev.lelonio.square.backend.BackendId.SUBSONIC) true else youtubeAccountName != null,
                                 onYouTubeSignIn = { showYouTubeLogin = true },
                                 onSwitchSource = {
                                     preferences.setBackend(
@@ -3158,6 +3161,15 @@ fun SquareApp(
                                     if (remote != null) {
                                         onRemote { id -> RemoteConnect.seek(id, target) }
                                     } else {
+                                        // TEMP DEBUG: did the controller even allow the seek?
+                                        runCatching {
+                                            val c = player
+                                            java.io.File(context.filesDir, "yuma_debug.log").appendText(
+                                                "${java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())} UI onSeek($target) " +
+                                                    "ctrlSeekCmd=${c?.isCommandAvailable(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)} " +
+                                                    "ctrlSeekable=${c?.isCurrentMediaItemSeekable} ctrlPos=${c?.currentPosition}/${c?.duration} ctrlState=${c?.playbackState}\n",
+                                            )
+                                        }
                                         player?.seekTo(target)
                                     }
                                 },
@@ -3487,6 +3499,19 @@ fun SquareApp(
                         // The whole playlist in one link. yt-dlp and the apps
                         // built on it expand a playlist URL themselves, so this
                         // is the entire "download an album" feature.
+                        if (backend == dev.lelonio.square.backend.BackendId.SUBSONIC || shownPlaylist.uri.startsWith("subsonic:")) {
+                            TrackSheetAction(
+                                stringResource(R.string.subsonic_download),
+                                PhosphorIcons.Regular.Download,
+                            ) {
+                                playlistMenu = null
+                                val app = context.applicationContext as dev.lelonio.square.SquareApplication
+                                scope.launch {
+                                    val tracks = app.subsonicBackend.tracksOf(shownPlaylist.uri)
+                                    app.subsonicDownloadManager.downloadTracks(tracks)
+                                }
+                            }
+                        }
                         if (backend == dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC) {
                             val label = if (downloaderInstalled(context)) {
                                 stringResource(R.string.download_with)
@@ -3799,6 +3824,17 @@ fun SquareApp(
                         // YouTube only. A Spotify link handed to a downloader
                         // is a link it cannot do anything with, so offering the
                         // action there would be offering a failure.
+                        if (backend == dev.lelonio.square.backend.BackendId.SUBSONIC || menu.track.uri.startsWith("subsonic:track:")) {
+                            val app = context.applicationContext as dev.lelonio.square.SquareApplication
+                            val isDownloaded = app.offlineTrackStore.isDownloaded(menu.track.uri)
+                            val label = if (isDownloaded) stringResource(R.string.subsonic_downloaded) else stringResource(R.string.subsonic_download)
+                            TrackSheetAction(label, PhosphorIcons.Regular.Download) {
+                                trackMenu = null
+                                if (!isDownloaded) {
+                                    app.subsonicDownloadManager.downloadTrack(menu.track)
+                                }
+                            }
+                        }
                         if (backend == dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC) {
                             // Says which app it will open, and says the other
                             // thing when there is no app to open: a row that
@@ -3921,6 +3957,10 @@ fun SquareApp(
                                             PhosphorIcons.Regular.SpotifyLogo
                                         dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC ->
                                             PhosphorIcons.Regular.YoutubeLogo
+                                        dev.lelonio.square.backend.BackendId.LOCAL ->
+                                            PhosphorIcons.Regular.FolderSimple
+                                        dev.lelonio.square.backend.BackendId.SUBSONIC ->
+                                            PhosphorIcons.Regular.HardDrives
                                     },
                                     contentDescription = null,
                                     tint = Ink,
@@ -3933,6 +3973,10 @@ fun SquareApp(
                                                 R.string.backend_spotify
                                             dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC ->
                                                 R.string.backend_youtube
+                                            dev.lelonio.square.backend.BackendId.LOCAL ->
+                                                R.string.backend_local
+                                            dev.lelonio.square.backend.BackendId.SUBSONIC ->
+                                                R.string.backend_subsonic
                                         },
                                     ),
                                     style = MaterialTheme.typography.titleMedium,

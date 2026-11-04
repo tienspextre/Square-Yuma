@@ -563,7 +563,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun loadYouTubeHome(force: Boolean = false) {
         val backend = container.activeBackend
-        if (backend.id != BackendId.YOUTUBE_MUSIC) return
+        if (backend.id == BackendId.SPOTIFY) return
         if (youtubeHomeJob?.isActive == true) return
         if (!force && _youtubeHome.value.rows.isNotEmpty()) return
 
@@ -2089,6 +2089,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     when (backend) {
                         BackendId.SPOTIFY -> dev.lelonio.square.data.ListeningStore.Source.SPOTIFY
                         BackendId.YOUTUBE_MUSIC -> dev.lelonio.square.data.ListeningStore.Source.YOUTUBE_MUSIC
+                        BackendId.LOCAL -> dev.lelonio.square.data.ListeningStore.Source.LOCAL
+                        BackendId.SUBSONIC -> dev.lelonio.square.data.ListeningStore.Source.SUBSONIC
                     },
                 )
             }
@@ -4983,6 +4985,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             BackendId.SPOTIFY -> it.startsWith("spotify:") && !LocalLibrary.isSpotifyLocal(it) &&
                 !dev.lelonio.square.playback.websdk.WebSdkRecovery.inUse.value
             BackendId.YOUTUBE_MUSIC -> true
+            BackendId.LOCAL -> false
+            BackendId.SUBSONIC -> true
         }
     }
 

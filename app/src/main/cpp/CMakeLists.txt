@@ -46,3 +46,16 @@ target_compile_definitions(spotstretch PRIVATE
     BUNGEE_VERSION="${BUNGEE_VERSION}")
 
 target_link_libraries(spotstretch PRIVATE pffft log)
+target_link_options(spotstretch PRIVATE "-Wl,-z,max-page-size=16384")
+
+# Yuma offline audio analyzer (BPM, beat grid, intro/outro energy cliff, LUFS)
+add_library(yuma_analysis SHARED
+    analyzer/audio_analysis.cpp
+    analyzer/tempo_analysis.cpp
+    analyzer/resampler.cpp
+    jni/analysis_jni.cpp
+)
+target_include_directories(yuma_analysis PRIVATE analyzer)
+target_compile_options(yuma_analysis PRIVATE -O3 -fvisibility=hidden)
+target_link_options(yuma_analysis PRIVATE "-Wl,-z,max-page-size=16384")
+target_link_libraries(yuma_analysis PRIVATE log)

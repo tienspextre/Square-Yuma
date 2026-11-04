@@ -27,12 +27,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import dev.lelonio.square.playback.AudioEffects
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -259,6 +261,54 @@ fun LyricsOptionsPanel(
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
                     }
+                }
+
+                Heading("Sync Offset", top = 14.dp)
+                val syncOffset by AudioEffects.lyricsSyncOffsetMs.collectAsState()
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "-50 ms",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GlassInk,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(50))
+                            .background(GlassInk.copy(alpha = 0.12f))
+                            .pressable({ AudioEffects.setLyricsSyncOffsetMs(syncOffset - 50) }, shape = RoundedCornerShape(50))
+                            .padding(vertical = 9.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Text(
+                        if (syncOffset > 0) "+$syncOffset ms" else "$syncOffset ms",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (syncOffset != 0) GlassInk else GlassInkDim,
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .clip(RoundedCornerShape(50))
+                            .background(if (syncOffset != 0) GlassInk.copy(alpha = 0.22f) else GlassInk.copy(alpha = 0.08f))
+                            .pressable({ AudioEffects.setLyricsSyncOffsetMs(0) }, shape = RoundedCornerShape(50))
+                            .padding(vertical = 9.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Text(
+                        "+50 ms",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GlassInk,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(50))
+                            .background(GlassInk.copy(alpha = 0.12f))
+                            .pressable({ AudioEffects.setLyricsSyncOffsetMs(syncOffset + 50) }, shape = RoundedCornerShape(50))
+                            .padding(vertical = 9.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
                 }
             }
     }

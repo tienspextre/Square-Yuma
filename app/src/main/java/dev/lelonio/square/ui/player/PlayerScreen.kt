@@ -123,6 +123,15 @@ import dev.lelonio.square.ui.theme.softShadow
 import com.adamglin.phosphoricons.regular.MonitorPlay
 import com.adamglin.phosphoricons.regular.Gauge
 import com.adamglin.phosphoricons.regular.MusicNotes
+import com.adamglin.phosphoricons.fill.Waveform
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import dev.lelonio.square.playback.AutomixStateHolder
+import dev.lelonio.square.playback.AutomixStatus
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.regular.DeviceRotate
 import com.adamglin.phosphoricons.Fill
@@ -1783,6 +1792,7 @@ fun PlayerScreen(
                             val shownPosition = remember(positionMs) {
                                 derivedStateOf { scrubMs ?: positionMs.value }
                             }
+                            val automixStatus by AutomixStateHolder.state.collectAsStateWithLifecycle()
                             GlassProgressBar(
                                 positionMs = positionMs,
                                 durationMs = state.durationMs,
@@ -1790,14 +1800,10 @@ fun PlayerScreen(
                                 onScrub = { scrubMs = it },
                                 accentColor = GlassInk,
                                 trackColor = GlassInk.copy(alpha = 0.28f),
-                                // The cover's own layer, which carries its
-                                // colours down to here: the ground alone is
-                                // the app behind the player, and the thumb,
-                                // clear glass while it is dragged, came
-                                // out grey over a brown page.
                                 backdrop = glassBackdrop,
+                                markerMs = automixStatus.triggerAtMs,
                             )
-                            TimeRow(shownPosition, state.durationMs)
+                            TimeRow(shownPosition, state.durationMs, automixStatus = automixStatus)
 
                             Spacer(Modifier.height(if (sideways) 6.dp else 14.dp))
                         }
@@ -2501,18 +2507,97 @@ private fun Modifier.plainClickable(onClick: () -> Unit): Modifier {
 
 /** Isolated so the ticking position recomposes only these two labels. */
 @Composable
-internal fun TimeRow(positionMs: State<Long>, durationMs: Long) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+internal fun TimeRow(
+    positionMs: State<Long>,
+    durationMs: Long,
+    automixStatus: AutomixStatus? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
             formatDuration(positionMs.value),
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
         )
+        if (automixStatus?.isEnabled == true) {
+            AutomixBadge(automixStatus)
+        }
         Text(
             formatDuration(durationMs),
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
         )
+    }
+}
+
+@Composable
+internal fun AutomixBadge(status: AutomixStatus) {
+    val isCrossfading = status.isCrossfading
+    val currentBpm = status.currentTrackAnalysis?.bpm?.takeIf { it > 0 }?.roundToInt()
+    val nextBpm = status.nextTrackAnalysis?.bpm?.takeIf { it > 0 }?.roundToInt()
+
+    val infiniteTransition = rememberInfiniteTransition(label = "AutomixPulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulseAlpha",
+    )
+
+    val labelText = when {
+        isCrossfading -> {
+            val pct = (status.crossfadeProgress * 100f).toInt()
+            val nextShort = status.nextTrackTitle?.takeIf { it.isNotBlank() }
+                ?.let { " ➔ " + (if (it.length > 16) it.take(15) + "…" else it) } ?: ""
+            if (currentBpm != null && nextBpm != null) {
+                "Automix $pct% ($currentBpm➔$nextBpm)$nextShort"
+            } else {
+                "Automix $pct%$nextShort"
+            }
+        }
+        status.nextTrackTitle != null -> {
+            val nextShort = if (status.nextTrackTitle.length > 16) status.nextTrackTitle.take(15) + "…" else status.nextTrackTitle
+            if (currentBpm != null) "Automix · ${currentBpm} BPM ➔ $nextShort"
+            else "Automix Ready ➔ $nextShort"
+        }
+        currentBpm != null -> "Automix · ${currentBpm} BPM"
+        status.triggerAtMs != null -> "Automix Ready"
+        else -> "Automix"
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (isCrossfading) GlassInk.copy(alpha = 0.22f * pulseAlpha)
+                else GlassInk.copy(alpha = 0.12f),
+            )
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                imageVector = PhosphorIcons.Fill.Waveform,
+                contentDescription = null,
+                tint = if (isCrossfading) GlassInk.copy(alpha = pulseAlpha) else GlassInkDim,
+                modifier = Modifier.size(11.dp),
+            )
+            Text(
+                text = labelText,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isCrossfading) GlassInk else GlassInkDim,
+                fontWeight = if (isCrossfading) FontWeight.Bold else FontWeight.Medium,
+            )
+        }
     }
 }
 
@@ -3145,14 +3230,16 @@ private fun SongCard(
             }
         }
         Column(Modifier.widthIn(max = 420.dp).padding(top = 12.dp)) {
+            val automixStatus by AutomixStateHolder.state.collectAsStateWithLifecycle()
             GlassProgressBar(
                 positionMs = positionMs,
                 durationMs = state.durationMs,
                 onSeek = onSeek,
                 accentColor = GlassInk,
                 trackColor = GlassInk.copy(alpha = 0.28f),
+                markerMs = automixStatus.triggerAtMs,
             )
-            TimeRow(positionMs, state.durationMs)
+            TimeRow(positionMs, state.durationMs, automixStatus = automixStatus)
         }
         Text(
             state.title,

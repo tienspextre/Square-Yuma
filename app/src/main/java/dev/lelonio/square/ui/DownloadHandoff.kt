@@ -32,6 +32,7 @@ import dev.lelonio.square.data.CatalogPlaylist
 fun CatalogPlaylist.openLink(): String {
     val id = uri.substringAfterLast(':')
     return when {
+        uri.startsWith("subsonic:") || uri.startsWith("local:") -> uri
         uri.startsWith(YouTubeBackend.PLAYLIST_PREFIX) ->
             "https://music.youtube.com/playlist?list=$id"
         uri.startsWith(YouTubeBackend.ARTIST_PREFIX) ->

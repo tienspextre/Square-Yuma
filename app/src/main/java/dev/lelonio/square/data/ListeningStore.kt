@@ -20,7 +20,7 @@ import kotlinx.serialization.json.Json
  * [events] is the history of the source on screen; see [show].
  */
 class ListeningStore(context: Context) {
-    enum class Source { SPOTIFY, YOUTUBE_MUSIC }
+    enum class Source { SPOTIFY, YOUTUBE_MUSIC, LOCAL, SUBSONIC }
 
     private val prefs = context.getSharedPreferences("square_listening", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
@@ -48,6 +48,8 @@ class ListeningStore(context: Context) {
     fun ownerOf(source: Source): String? = when (source) {
         Source.SPOTIFY -> account
         Source.YOUTUBE_MUSIC -> YOUTUBE_OWNER
+        Source.LOCAL -> LOCAL_OWNER
+        Source.SUBSONIC -> SUBSONIC_OWNER
     }
 
     /** Puts this source's history in [events]. */
@@ -102,7 +104,7 @@ class ListeningStore(context: Context) {
         if (source == Source.SPOTIFY) mutable.value = emptyList()
     } }
 
-    private fun known(owner: String) = owner == YOUTUBE_OWNER || owner == account
+    private fun known(owner: String) = owner == YOUTUBE_OWNER || owner == LOCAL_OWNER || owner == account
 
     private fun key(owner: String) = "events:$owner"
 
@@ -120,5 +122,7 @@ class ListeningStore(context: Context) {
 
     companion object {
         const val YOUTUBE_OWNER = "youtube-music"
+        const val LOCAL_OWNER = "local"
+        const val SUBSONIC_OWNER = "subsonic"
     }
 }

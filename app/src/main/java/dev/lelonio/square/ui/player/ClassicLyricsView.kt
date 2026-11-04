@@ -59,12 +59,12 @@ fun ClassicLyricsView(
     onSeek: (Long) -> Unit,
 ) {
     val listState = remember(lyrics) { LazyListState() }
-    // Read as a derived value, so only a change of line recomposes the list.
-    val activeLine by remember(lyrics) {
-        derivedStateOf {
-            if (!lyrics.synced) -1
-            else lyrics.lines.indexOfLast { (it.startTimeMs ?: 0L) <= positionMs.value }
-        }
+    val isTtml = remember(lyrics) { lyrics.lines.any { it.words.isNotEmpty() } }
+    val smoothedPosition by rememberSmoothLyricsPosition(positionMs, isPlaying = true, isTtml = isTtml)
+
+    val activeLine = remember(lyrics, smoothedPosition) {
+        if (!lyrics.synced) -1
+        else lyrics.lines.indexOfLast { (it.startTimeMs ?: 0L) <= smoothedPosition }
     }
 
     LaunchedEffect(activeLine) {
@@ -125,7 +125,7 @@ fun ClassicLyricsView(
                 val ranges = remember(line) { wordRanges(line) }
                 Text(
                     if (timed) {
-                        sungSoFar(line, ranges, positionMs.value, GlassInk, GlassInk.copy(alpha = 0.38f))
+                        sungSoFar(line, ranges, smoothedPosition, GlassInk, GlassInk.copy(alpha = 0.38f))
                     } else {
                         AnnotatedString(line.text.ifBlank { "♪" })
                     },

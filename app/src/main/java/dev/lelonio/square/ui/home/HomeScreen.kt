@@ -64,8 +64,10 @@ import dev.lelonio.square.ui.glass.backdrop.Backdrop
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.ArrowsLeftRight
+import com.adamglin.phosphoricons.regular.HardDrives
 import com.adamglin.phosphoricons.regular.SpotifyLogo
 import com.adamglin.phosphoricons.regular.YoutubeLogo
+import dev.lelonio.square.backend.BackendId
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.platform.LocalConfiguration
@@ -189,17 +191,21 @@ fun HomeScreen(
     onWantPodcasts: () -> Unit = {},
     /** An episode tile: played, not opened. */
     onPlayEpisode: (CatalogPlaylist, String) -> Unit = { _, _ -> },
+    backendId: BackendId = BackendId.SPOTIFY,
 ) {
     if (youtubeMode) {
+        val accountName = if (backendId == BackendId.SUBSONIC) {
+            (state as? MainViewModel.UiState.Ready)?.displayName
+                ?: "Navidrome (NAS)"
+        } else {
+            (state as? MainViewModel.UiState.Ready)?.displayName.orEmpty()
+                .takeIf { youtubeSignedIn }.orEmpty()
+        }
         YouTubeHome(
             contentPadding = contentPadding,
             home = youtubeHome,
             recent = recent,
-            // Nobody's name while signed out: the library's answer outlived a
-            // sign-out, and the header went on naming an account the app was
-            // no longer in.
-            accountName = (state as? MainViewModel.UiState.Ready)?.displayName.orEmpty()
-                .takeIf { youtubeSignedIn }.orEmpty(),
+            accountName = accountName,
             backdrop = backdrop,
             onPlayRecent = onPlayRecent,
             onPlayTrending = onPlayTrending,
@@ -210,6 +216,7 @@ fun HomeScreen(
             onLoadMore = onLoadMoreYouTube,
             signedIn = youtubeSignedIn,
             onSignIn = onYouTubeSignIn,
+            backendId = backendId,
         )
         return
     }
@@ -1327,6 +1334,7 @@ private fun YouTubeHome(
     onLoadMore: () -> Unit,
     signedIn: Boolean,
     onSignIn: () -> Unit,
+    backendId: BackendId = BackendId.YOUTUBE_MUSIC,
 ) {
     val empty = home.rows.isEmpty() && recent.isEmpty()
     if (empty) {
@@ -1357,6 +1365,7 @@ private fun YouTubeHome(
                 collapse = { 0f },
                 onOpenSettings = onOpenSettings,
                 onSwitchSource = onSwitchSource,
+                backendId = backendId,
             )
         }
         return
@@ -1382,6 +1391,7 @@ private fun YouTubeHome(
             collapse = { collapse },
             onOpenSettings = onOpenSettings,
             onSwitchSource = onSwitchSource,
+            backendId = backendId,
         )
 
         LazyColumn(
@@ -1599,14 +1609,25 @@ private fun YouTubeHeader(
     collapse: () -> Float,
     onOpenSettings: () -> Unit,
     onSwitchSource: () -> Unit,
+    backendId: BackendId = BackendId.YOUTUBE_MUSIC,
     modifier: Modifier = Modifier,
 ) {
+    val service = if (backendId == BackendId.SUBSONIC) {
+        R.string.backend_subsonic
+    } else {
+        R.string.backend_youtube
+    }
+    val serviceIcon = if (backendId == BackendId.SUBSONIC) {
+        PhosphorIcons.Regular.HardDrives
+    } else {
+        PhosphorIcons.Regular.YoutubeLogo
+    }
     Header(
         modifier = modifier,
         name = accountName,
         avatarUrl = null,
-        service = R.string.backend_youtube,
-        serviceIcon = PhosphorIcons.Regular.YoutubeLogo,
+        service = service,
+        serviceIcon = serviceIcon,
         onSwitchSource = onSwitchSource,
         collapse = collapse,
         highlighted = Feed.entries.first(),

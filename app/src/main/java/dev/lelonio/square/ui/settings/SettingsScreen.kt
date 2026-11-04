@@ -433,6 +433,7 @@ fun SettingsScreen(
 
         if (shown == SettingsPage.Playback && "sound" in openGroups) groupItem("backend", Group.SOUND) {
             BackendSection()
+            SubsonicSection(backdrop, onReload = onYouTubeChannelChange)
         }
 
         if (shown == SettingsPage.Account) item("youtube-account") {
@@ -472,7 +473,7 @@ fun SettingsScreen(
 
         // The effects run on our own output, so this one holds for both backends.
         if (shown == SettingsPage.Playback && !sdkPlayback && "sound" in openGroups) groupItem("effect-quality", Group.SOUND) {
-            EffectQualitySection()
+            EffectQualitySection(backdrop)
         }
 
         if (shown == SettingsPage.Playback && "sound" in openGroups) groupEnd(Group.SOUND)
@@ -1354,11 +1355,161 @@ private fun BackendSection() {
                     when (backend) {
                         BackendId.SPOTIFY -> R.string.backend_spotify
                         BackendId.YOUTUBE_MUSIC -> R.string.backend_youtube
+                        BackendId.LOCAL -> R.string.backend_local
+                        BackendId.SUBSONIC -> R.string.backend_subsonic
                     },
                 ),
                 selected = backend == chosen,
             ) { store.setBackend(backend) }
         }
+    }
+}
+
+/**
+ * Settings for self-hosted NAS / Navidrome Subsonic server.
+ */
+@Composable
+private fun SubsonicSection(
+    backdrop: dev.lelonio.square.ui.glass.backdrop.Backdrop,
+    onReload: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    val app = remember(context) {
+        context.applicationContext as dev.lelonio.square.SquareApplication
+    }
+    val backend by app.preferences.backend.collectAsStateWithLifecycle()
+    if (backend != BackendId.SUBSONIC) return
+
+    val prefs = app.subsonicPreferences
+    val serverUrl by prefs.serverUrl.collectAsStateWithLifecycle()
+    val username by prefs.username.collectAsStateWithLifecycle()
+    val password by prefs.password.collectAsStateWithLifecycle()
+    val transcodeCellular by prefs.transcodeCellular.collectAsStateWithLifecycle()
+
+    var urlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
+    var userDraft by remember(username) { mutableStateOf(username) }
+    var passDraft by remember(password) { mutableStateOf(password) }
+
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var isChecking by remember { mutableStateOf(false) }
+    var isScanning by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Section(stringResource(R.string.subsonic_settings_title)) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+            androidx.compose.material3.OutlinedTextField(
+                value = urlDraft,
+                onValueChange = { urlDraft = it },
+                label = { Text(stringResource(R.string.subsonic_server_url)) },
+                placeholder = { Text("http://100.110.65.47:4533") },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            androidx.compose.material3.OutlinedTextField(
+                value = userDraft,
+                onValueChange = { userDraft = it },
+                label = { Text(stringResource(R.string.subsonic_username)) },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+            )
+            androidx.compose.material3.OutlinedTextField(
+                value = passDraft,
+                onValueChange = { passDraft = it },
+                label = { Text(stringResource(R.string.subsonic_password)) },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+            )
+
+            if (statusMessage != null) {
+                Text(
+                    text = statusMessage.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (statusMessage?.startsWith("✓") == true) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+
+        RowDivider()
+
+        val isDirty = urlDraft.trim() != serverUrl || userDraft.trim() != username || passDraft != password
+        if (isDirty) {
+            ActionRow(stringResource(R.string.save), destructive = false, icon = PhosphorIcons.Regular.Check) {
+                prefs.setServerUrl(urlDraft)
+                prefs.setUsername(userDraft)
+                prefs.setPassword(passDraft)
+                statusMessage = "Settings saved"
+                scope.launch { app.subsonicBackend.refreshAuth() }
+            }
+            RowDivider()
+        }
+
+        ActionRow(
+            if (isChecking) "Checking..." else stringResource(R.string.subsonic_test_connection),
+            destructive = false,
+            icon = PhosphorIcons.Regular.ArrowClockwise,
+        ) {
+            prefs.setServerUrl(urlDraft)
+            prefs.setUsername(userDraft)
+            prefs.setPassword(passDraft)
+            isChecking = true
+            statusMessage = "Connecting to server..."
+            scope.launch {
+                val ping = app.subsonicClient.ping()
+                isChecking = false
+                if (ping.isSuccess) {
+                    val info = ping.getOrThrow()
+                    statusMessage = "✓ Connected to ${info.type} v${info.serverVersion} (OpenSubsonic: ${info.openSubsonic})"
+                    app.subsonicBackend.refreshAuth()
+                    onReload()
+                } else {
+                    statusMessage = "✗ Error: ${ping.exceptionOrNull()?.message}"
+                }
+            }
+        }
+
+        RowDivider()
+
+        ActionRow(
+            if (isScanning) "Triggering rescan..." else stringResource(R.string.subsonic_rescan_library),
+            destructive = false,
+            icon = PhosphorIcons.Regular.ArrowClockwise,
+        ) {
+            isScanning = true
+            scope.launch {
+                val res = app.subsonicClient.startScan()
+                isScanning = false
+                statusMessage = if (res.isSuccess) "✓ Rescan triggered on server" else "✗ Failed to trigger scan"
+            }
+        }
+
+        RowDivider()
+
+        DownloadSwitch(
+            label = stringResource(R.string.subsonic_transcode_cellular),
+            checked = transcodeCellular,
+            backdrop = backdrop,
+            icon = PhosphorIcons.Regular.WifiHigh,
+            onChange = prefs::setTranscodeCellular,
+        )
+        Text(
+            stringResource(R.string.subsonic_transcode_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = InkDim,
+            modifier = Modifier.padding(start = ROW_TEXT_START, end = 18.dp, bottom = 14.dp),
+        )
     }
 }
 
@@ -1537,12 +1688,14 @@ private fun AutoplaySection(backdrop: Backdrop) {
 }
 
 @Composable
-private fun EffectQualitySection() {
+private fun EffectQualitySection(backdrop: Backdrop) {
     val context = LocalContext.current
     val store = remember(context) {
         (context.applicationContext as dev.lelonio.square.SquareApplication).effectQuality
     }
     val chosen by store.quality.collectAsStateWithLifecycle()
+    val audioOffload by dev.lelonio.square.playback.AudioEffects.audioOffload.collectAsStateWithLifecycle()
+    val eqEnabled by dev.lelonio.square.playback.AudioEffects.equalizerEnabled.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.effect_quality)) {
         EffectQuality.entries.forEachIndexed { index, quality ->
@@ -1552,6 +1705,22 @@ private fun EffectQualitySection() {
                 selected = quality == chosen,
             ) { store.set(quality) }
         }
+        RowDivider()
+        DownloadSwitch(
+            label = "Direct Audio Offload (Hi-Res 24/32-bit)",
+            icon = PhosphorIcons.Regular.HardDrives,
+            checked = audioOffload,
+            backdrop = backdrop,
+            onChange = dev.lelonio.square.playback.AudioEffects::setAudioOffload,
+        )
+        RowDivider()
+        DownloadSwitch(
+            label = "System Audio Effects & Equalizer",
+            icon = PhosphorIcons.Regular.Equalizer,
+            checked = eqEnabled,
+            backdrop = backdrop,
+            onChange = dev.lelonio.square.playback.AudioEffects::setEqualizerEnabled,
+        )
     }
 }
 
@@ -1567,6 +1736,8 @@ private fun CrossfadeSection(backdrop: Backdrop) {
     val chosen by store.seconds.collectAsStateWithLifecycle()
     val trimSilence by preferences.trimSilence.collectAsStateWithLifecycle()
     val skipFade by preferences.skipFade.collectAsStateWithLifecycle()
+    val automixEnabled by dev.lelonio.square.playback.AudioEffects.smartAutomix.collectAsStateWithLifecycle()
+    val bassSwapEnabled by dev.lelonio.square.playback.AudioEffects.automixBassSwap.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.crossfade)) {
         CrossfadeSteps.forEachIndexed { index, seconds ->
@@ -1600,6 +1771,24 @@ private fun CrossfadeSection(backdrop: Backdrop) {
             backdrop = backdrop,
             onChange = preferences::setSkipFade,
         )
+        RowDivider()
+        DownloadSwitch(
+            label = "Smart Automix (BPM & Beat Matching)",
+            icon = PhosphorIcons.Regular.Waveform,
+            checked = automixEnabled,
+            backdrop = backdrop,
+            onChange = dev.lelonio.square.playback.AudioEffects::setSmartAutomix,
+        )
+        if (automixEnabled) {
+            RowDivider()
+            DownloadSwitch(
+                label = "DJ Low-End Bass Swap",
+                icon = PhosphorIcons.Regular.SlidersHorizontal,
+                checked = bassSwapEnabled,
+                backdrop = backdrop,
+                onChange = dev.lelonio.square.playback.AudioEffects::setAutomixBassSwap,
+            )
+        }
         RowDivider()
         Text(
             stringResource(R.string.skip_fade_note),

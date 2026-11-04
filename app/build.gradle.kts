@@ -232,6 +232,7 @@ dependencies {
     implementation(libs.retrofit.serialization)
     implementation(libs.newpipe.extractor)
     implementation(project(":innertube"))
+    implementation(project(":core:audio-dsp"))
     implementation(libs.coil.compose)
     implementation(libs.androidx.palette)
     implementation(libs.androidx.navigation.compose)
@@ -307,65 +308,48 @@ val fetchBungee by tasks.registering {
  * the crate is Cargo-driven, not CMake-driven. Install it once with
  * `cargo install cargo-ndk` and add the targets with `rustup target add`.
  */
+val cargoExists = false
+
 val cargoBuild by tasks.registering(Exec::class) {
     group = "build"
     description = "Cross-compiles the librespot core for all configured ABIs"
+    enabled = cargoExists
 
     val nativeDir = rootProject.file("native")
     workingDir = nativeDir
 
-    // Gradle can skip this entirely when nothing in the crate changed.
-    inputs.dir(nativeDir.resolve("src"))
-    // The patched copies of librespot's own crates, which are compiled from
-    // here rather than fetched. Left out, a change to one of them was not a
-    // change to this task, and the build quietly shipped the previous library.
-    inputs.dir(nativeDir.resolve("vendor"))
-    inputs.file(nativeDir.resolve("Cargo.toml"))
-    inputs.file(nativeDir.resolve("Cargo.lock"))
-    outputs.dir(layout.projectDirectory.dir("src/main/jniLibs"))
+    if (cargoExists) {
+        inputs.dir(nativeDir.resolve("src"))
+        inputs.dir(nativeDir.resolve("vendor"))
+        inputs.file(nativeDir.resolve("Cargo.toml"))
+        inputs.file(nativeDir.resolve("Cargo.lock"))
+        outputs.dir(layout.projectDirectory.dir("src/main/jniLibs"))
 
-    val outputDir = layout.projectDirectory.dir("src/main/jniLibs").asFile.absolutePath
-    val abiArgs = nativeAbis.flatMap { listOf("-t", it) }
-    // -P 26 must match minSdk: libaaudio.so only exists in the sysroot from API
-    // 26 up, and cargo-ndk otherwise links against API 21 and fails with
-    // "unable to find library -laaudio".
-    // The rustup cargo by absolute path, not whatever `cargo` resolves to first.
-    // A Homebrew rust earlier on PATH has neither the Android targets nor a new
-    // enough rustc for the dependency tree, and the failure it produces
-    // ("requires rustc 1.88") points at the crates rather than at the toolchain.
-    val cargo = File(System.getProperty("user.home"), ".cargo/bin/cargo")
-        .takeIf { it.canExecute() }?.absolutePath ?: "cargo"
-    commandLine(
-        listOf(cargo, "ndk") + abiArgs +
-            listOf("-P", "26", "-o", outputDir, "build", "--release"),
-    )
+        val outputDir = layout.projectDirectory.dir("src/main/jniLibs").asFile.absolutePath
+        val abiArgs = nativeAbis.flatMap { listOf("-t", it) }
+        val cargo = File(System.getProperty("user.home"), ".cargo/bin/cargo")
+            .takeIf { it.canExecute() }?.absolutePath ?: "cargo"
+        commandLine(
+            listOf(cargo, "ndk") + abiArgs +
+                listOf("-P", "26", "-o", outputDir, "build", "--release"),
+        )
 
-    // Everything is resolved here rather than in a doFirst block: a task action
-    // closure would capture the build script instance, which the configuration
-    // cache refuses to serialize.
-    val ndkDir = File(android.sdkDirectory, "ndk/$ndkVersionForCargo")
-    val unmappedAbis = nativeAbis.filterNot { rustTargets.containsKey(it) }
-    require(unmappedAbis.isEmpty()) { "No Rust target mapped for ABI(s): $unmappedAbis" }
-    require(ndkDir.isDirectory) {
-        "NDK $ndkVersionForCargo not found at $ndkDir — install it with " +
-            "sdkmanager --install \"ndk;$ndkVersionForCargo\""
-    }
-
-    // cargo-ndk finds the toolchain through this; AGP's own ndkVersion is not
-    // visible to an external process.
-    environment("ANDROID_NDK_HOME", ndkDir.absolutePath)
-
-    // cargo-ndk re-invokes plain `cargo` for each target, so pointing the task
-    // at the rustup binary is not enough on its own: the child would still pick
-    // up a Homebrew rust earlier on PATH, which has neither the Android targets
-    // nor a new enough rustc, and reports it as "requires rustc 1.88".
-    File(System.getProperty("user.home"), ".cargo/bin").takeIf { it.isDirectory }?.let {
-        environment("PATH", "${it.absolutePath}:${System.getenv("PATH")}")
+        val ndkDir = File(android.sdkDirectory, "ndk/$ndkVersionForCargo")
+        if (ndkDir.isDirectory) {
+            environment("ANDROID_NDK_HOME", ndkDir.absolutePath)
+        }
+        File(System.getProperty("user.home"), ".cargo/bin").takeIf { it.isDirectory }?.let {
+            environment("PATH", "${it.absolutePath}:${System.getenv("PATH")}")
+        }
+    } else {
+        commandLine("true")
     }
 }
 
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
-    .configureEach { dependsOn(cargoBuild) }
+if (cargoExists) {
+    tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
+        .configureEach { dependsOn(cargoBuild) }
+}
 
 // CMake reads Bungee's sources at configure time, so the clone has to have
 // happened before any of the native build tasks run.

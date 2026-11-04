@@ -71,6 +71,7 @@ fun GlassProgressBar(
     trackColor: Color,
     modifier: Modifier = Modifier,
     backdrop: Backdrop? = null,
+    markerMs: Long? = null,
     /**
      * Where the finger is, in milliseconds, while it holds the bar; null once
      * the bar is showing playback again. For the time beside it, which would
@@ -125,6 +126,8 @@ fun GlassProgressBar(
             thumbSize = DpSize(THUMB_HELD, THUMB_HELD),
             thumbRestScale = 14f / 36f,
             thumbPressedScale = 1f,
+            markerMs = markerMs,
+            durationMs = durationMs,
             // As tall as the held thumb, or the part of it past the slider's
             // edge was cut off and it came out flattened underneath; but
             // taking the old bar's 28dp in the column, so nothing around it
@@ -184,6 +187,27 @@ fun GlassProgressBar(
                 .clip(RoundedCornerShape(50))
                 .background(trackColor),
         )
+        if (markerMs != null && durationMs > 0L) {
+            val markerFraction = (markerMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+            if (markerFraction < 1f) {
+                Box(
+                    Modifier
+                        .padding(vertical = 11.dp)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(accentColor.copy(alpha = 0.40f))
+                        .fillMaxHeight()
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            val startX = (constraints.maxWidth * markerFraction).roundToInt()
+                            val width = constraints.maxWidth - startX
+                            layout(width, placeable.height) {
+                                placeable.place(startX, 0)
+                            }
+                        },
+                )
+            }
+        }
         Box(
             Modifier
                 .padding(vertical = 11.dp)

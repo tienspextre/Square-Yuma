@@ -30,8 +30,10 @@ import androidx.compose.ui.unit.dp
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.fill.MusicNotes
 import com.adamglin.phosphoricons.fill.SpotifyLogo
 import com.adamglin.phosphoricons.fill.YoutubeLogo
+import com.adamglin.phosphoricons.fill.Broadcast
 import com.adamglin.phosphoricons.regular.CaretRight
 import dev.lelonio.square.R
 import dev.lelonio.square.backend.BackendId
@@ -88,6 +90,20 @@ fun BackendChoiceScreen(onChoose: (BackendId) -> Unit) {
                     Modifier.padding(top = 32.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    SourceCard(
+                        logo = PhosphorIcons.Fill.MusicNotes,
+                        title = stringResource(R.string.backend_local),
+                        description = "Play offline FLAC, WAV, ALAC, and MP3 files with 24/32-bit audiophile sound, hardware offload, and Smart Automix.",
+                        needs = "Offline: zero login or streaming account required.",
+                        onClick = { onChoose(BackendId.LOCAL) },
+                    )
+                    SourceCard(
+                        logo = PhosphorIcons.Fill.Broadcast,
+                        title = stringResource(R.string.backend_subsonic),
+                        description = stringResource(R.string.subsonic_choice_note),
+                        needs = stringResource(R.string.subsonic_choice_needs),
+                        onClick = { onChoose(BackendId.SUBSONIC) },
+                    )
                     SourceCard(
                         logo = PhosphorIcons.Fill.SpotifyLogo,
                         title = stringResource(R.string.backend_spotify),

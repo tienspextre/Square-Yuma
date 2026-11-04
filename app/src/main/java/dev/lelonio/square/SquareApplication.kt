@@ -332,8 +332,32 @@ class SquareApplication : Application(), ImageLoaderFactory {
         dev.lelonio.square.backend.youtube.YouTubeBackend(youtubeAccount)
     }
 
+    val localBackend: dev.lelonio.square.backend.local.LocalMusicBackend by lazy {
+        dev.lelonio.square.backend.local.LocalMusicBackend(this)
+    }
+
+    val subsonicPreferences: dev.lelonio.square.backend.subsonic.SubsonicPreferences by lazy {
+        dev.lelonio.square.backend.subsonic.SubsonicPreferences(this)
+    }
+
+    val offlineTrackStore: dev.lelonio.square.backend.subsonic.OfflineTrackStore by lazy {
+        dev.lelonio.square.backend.subsonic.OfflineTrackStore(this)
+    }
+
+    val subsonicClient: dev.lelonio.square.backend.subsonic.SubsonicClient by lazy {
+        dev.lelonio.square.backend.subsonic.SubsonicClient(sharedHttpClient, subsonicPreferences)
+    }
+
+    val subsonicDownloadManager: dev.lelonio.square.backend.subsonic.SubsonicDownloadManager by lazy {
+        dev.lelonio.square.backend.subsonic.SubsonicDownloadManager(this, sharedHttpClient, subsonicClient, offlineTrackStore)
+    }
+
+    val subsonicBackend: dev.lelonio.square.backend.subsonic.SubsonicBackend by lazy {
+        dev.lelonio.square.backend.subsonic.SubsonicBackend(subsonicClient, offlineTrackStore, subsonicDownloadManager)
+    }
+
     /**
-     * Whichever of the two the user picked.
+     * Whichever backend the user picked.
      *
      * Read afresh each time rather than held: the setting can change while the
      * app is running, and a cached backend would keep answering as the old one.
@@ -343,5 +367,7 @@ class SquareApplication : Application(), ImageLoaderFactory {
         get() = when (preferences.backend.value) {
             dev.lelonio.square.backend.BackendId.SPOTIFY -> spotifyBackend
             dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC -> youtubeBackend
+            dev.lelonio.square.backend.BackendId.LOCAL -> localBackend
+            dev.lelonio.square.backend.BackendId.SUBSONIC -> subsonicBackend
         }
 }

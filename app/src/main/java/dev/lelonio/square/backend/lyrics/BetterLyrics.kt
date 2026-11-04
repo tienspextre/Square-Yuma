@@ -24,25 +24,38 @@ object BetterLyrics {
 
     private val http = OkHttpClient()
 
+    private val ENDPOINTS = listOf(
+        "getLyrics",
+        "kugou/getLyrics",
+        "qq/getLyrics",
+    )
+
     suspend fun lyrics(title: String, artist: String, durationMs: Long): Lyrics? =
         withContext(Dispatchers.IO) {
             val cleaned = title.songTitle()
             if (cleaned.isBlank()) return@withContext null
-            val url = buildString {
-                append(API_URL).append("?s=").append(encode(cleaned))
-                append("&a=").append(encode(artist.primaryArtist()))
-                if (durationMs > 0) append("&d=").append(durationMs / 1000)
+            val primary = artist.primaryArtist()
+
+            for (endpoint in ENDPOINTS) {
+                val url = buildString {
+                    append(BASE_URL).append(endpoint).append("?s=").append(encode(cleaned))
+                    append("&a=").append(encode(primary))
+                    if (durationMs > 0) append("&d=").append(durationMs / 1000)
+                }
+                val body = get(url) ?: continue
+                val ttml = runCatching { JSONObject(body).optString("ttml") }.getOrNull()
+                    ?.takeIf { it.startsWith("<") } ?: continue
+                val parsed = Ttml.parse(ttml)
+                if (parsed != null && parsed.lines.isNotEmpty()) {
+                    android.util.Log.i(
+                        TAG,
+                        "[$endpoint] $cleaned: ${parsed.lines.size} lines, " +
+                            "${parsed.lines.count { it.words.isNotEmpty() }} timed by word",
+                    )
+                    return@withContext parsed
+                }
             }
-            val body = get(url) ?: return@withContext null
-            val ttml = runCatching { JSONObject(body).optString("ttml") }.getOrNull()
-                ?.takeIf { it.startsWith("<") } ?: return@withContext null
-            val parsed = Ttml.parse(ttml)
-            android.util.Log.i(
-                TAG,
-                "$cleaned: ${parsed?.lines?.size ?: 0} lines, " +
-                    "${parsed?.lines?.count { it.words.isNotEmpty() } ?: 0} timed by word",
-            )
-            parsed?.takeIf { it.lines.isNotEmpty() }
+            null
         }
 
     /** Null on anything but a 200, which includes the 404 for "no match". */
@@ -61,7 +74,7 @@ object BetterLyrics {
 
     private const val TAG = "BetterLyrics"
 
-    private const val API_URL = "https://lyrics-api.boidu.dev/getLyrics"
+    private const val BASE_URL = "https://lyrics-api.boidu.dev/"
 
     private const val USER_AGENT = "Square (Android music player)"
 }

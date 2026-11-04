@@ -36,3 +36,4 @@ dependencyResolutionManagement {
 rootProject.name = "Spot"
 include(":app")
 include(":innertube")
+include(":core:audio-dsp")

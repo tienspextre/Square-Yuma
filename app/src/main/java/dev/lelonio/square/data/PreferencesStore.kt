@@ -339,7 +339,7 @@ class PreferencesStore(context: Context) {
 
     private val _backend = MutableStateFlow(
         runCatching { dev.lelonio.square.backend.BackendId.valueOf(prefs.getString(KEY_BACKEND, null) ?: "") }
-            .getOrDefault(dev.lelonio.square.backend.BackendId.SPOTIFY),
+            .getOrDefault(dev.lelonio.square.backend.BackendId.LOCAL),
     )
 
     /** Which [dev.lelonio.square.backend.MusicBackend] the app plays through. */

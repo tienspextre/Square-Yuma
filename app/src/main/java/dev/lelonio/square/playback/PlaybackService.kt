@@ -353,6 +353,11 @@ class PlaybackService : MediaLibraryService() {
     private val playbackHost = object : dev.lelonio.square.backend.PlaybackHost {
         override val context get() = this@PlaybackService
         override val looper get() = mainLooper
+        override fun onActivePlayerChanged(player: androidx.media3.common.Player) {
+            redrawButtons()
+            // The room follows the deck that is now audible.
+            followReverb()
+        }
     }
 
     override fun onCreate() {
@@ -578,8 +583,11 @@ class PlaybackService : MediaLibraryService() {
                 AudioEffects.speed,
                 AudioEffects.pitch,
             ) { speed, pitch -> speed to pitch }.collect { (speed, pitch) ->
-                (player as? androidx.media3.exoplayer.ExoPlayer)?.playbackParameters =
-                    androidx.media3.common.PlaybackParameters(speed, pitch)
+                val target = player
+                // The dual-deck engine is not an ExoPlayer; its override sets both decks.
+                if (target is androidx.media3.exoplayer.ExoPlayer || target is dev.lelonio.square.playback.engine.YumaDualDeckPlayer) {
+                    target.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
+                }
             }
         }
 
@@ -760,6 +768,7 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun exoOf(player: androidx.media3.common.Player?): androidx.media3.exoplayer.ExoPlayer? =
         player as? androidx.media3.exoplayer.ExoPlayer
+            ?: (player as? dev.lelonio.square.playback.engine.YumaDualDeckPlayer)?.forwardingPlayer?.activePlayer as? androidx.media3.exoplayer.ExoPlayer
             ?: (player as? androidx.media3.common.ForwardingPlayer)?.wrappedPlayer as? androidx.media3.exoplayer.ExoPlayer
 
     /** Puts the room on the player in front, or takes it off the one leaving. */
@@ -780,6 +789,8 @@ class PlaybackService : MediaLibraryService() {
     private fun kindFor(backendId: dev.lelonio.square.backend.BackendId) = when (backendId) {
         dev.lelonio.square.backend.BackendId.SPOTIFY -> PlayerKind.SPOTIFY
         dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC -> PlayerKind.YOUTUBE
+        dev.lelonio.square.backend.BackendId.LOCAL -> PlayerKind.LOCAL
+        dev.lelonio.square.backend.BackendId.SUBSONIC -> PlayerKind.LOCAL
     }
 
     /**
@@ -985,6 +996,18 @@ class PlaybackService : MediaLibraryService() {
                     AudioEffects.pitch.value,
                 )
             }
+        }
+
+        dev.lelonio.square.backend.BackendId.LOCAL,
+        dev.lelonio.square.backend.BackendId.SUBSONIC -> {
+            librespot = null
+            (if (backendId == dev.lelonio.square.backend.BackendId.LOCAL) container.localBackend else container.subsonicBackend)
+                .createPlayer(playbackHost).also { built ->
+                    built.playbackParameters = androidx.media3.common.PlaybackParameters(
+                        AudioEffects.speed.value,
+                        AudioEffects.pitch.value,
+                    )
+                }
         }
     }.also { playerKind = kindFor(backendId) }
 
@@ -1754,6 +1777,8 @@ class PlaybackService : MediaLibraryService() {
                     val source = when (container.preferences.backend.value) {
                         dev.lelonio.square.backend.BackendId.SPOTIFY -> dev.lelonio.square.data.ListeningStore.Source.SPOTIFY
                         dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC -> dev.lelonio.square.data.ListeningStore.Source.YOUTUBE_MUSIC
+                        dev.lelonio.square.backend.BackendId.LOCAL -> dev.lelonio.square.data.ListeningStore.Source.LOCAL
+                        dev.lelonio.square.backend.BackendId.SUBSONIC -> dev.lelonio.square.data.ListeningStore.Source.SUBSONIC
                     }
                     val account = container.listeningStore.ownerOf(source)
                     if (account != owner) { sampler.reset(); owner = account }
@@ -1905,6 +1930,8 @@ class PlaybackService : MediaLibraryService() {
             val backend = when (backendId) {
                 dev.lelonio.square.backend.BackendId.SPOTIFY -> container.spotifyBackend
                 dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC -> container.youtubeBackend
+                dev.lelonio.square.backend.BackendId.LOCAL -> container.localBackend
+                dev.lelonio.square.backend.BackendId.SUBSONIC -> container.subsonicBackend
             }
             if (saved.tracks.none { backend.owns(it.uri) }) return
         }

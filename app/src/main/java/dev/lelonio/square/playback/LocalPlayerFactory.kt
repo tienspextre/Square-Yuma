@@ -21,40 +21,7 @@ import dev.lelonio.square.data.LocalLibrary
 @OptIn(UnstableApi::class)
 object LocalPlayerFactory {
 
-    fun create(host: PlaybackHost): Player = ExoPlayer.Builder(host.context, renderers(host))
-        .setMediaSourceFactory(
-            DefaultMediaSourceFactory(
-                ResolvingDataSource.Factory(
-                    DefaultDataSource.Factory(host.context),
-                    // The queue carries `local:track:<id>`, which is an
-                    // identity rather than a location: it survives being
-                    // written to disk and read back next week, where a
-                    // `content://` URI is only meaningful while the row it
-                    // points at still exists. The location is worked out here,
-                    // at the moment of opening the file.
-                    ResolvingDataSource.Resolver { spec ->
-                        val uri = spec.uri.toString()
-                        if (LocalLibrary.isLocal(uri)) {
-                            spec.buildUpon().setUri(LocalLibrary.contentUri(uri)).build()
-                        } else {
-                            spec
-                        }
-                    },
-                ),
-            ),
-        )
-        .setHandleAudioBecomingNoisy(true)
-        // Ducks and pauses for whatever else wants the speaker, as the YouTube
-        // player does; the Spotify path gets this from its own output.
-        .setAudioAttributes(
-            androidx.media3.common.AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                .build(),
-            /* handleAudioFocus = */ true,
-        )
-        .setLooper(host.looper)
-        .build()
+    fun create(host: PlaybackHost): Player = dev.lelonio.square.playback.engine.YumaDualDeckPlayer(host)
 
     /**
      * The sink, with the app's own vocoder in its chain.

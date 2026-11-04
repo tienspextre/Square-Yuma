@@ -85,6 +85,8 @@ fun LiquidSlider(
     // half the pane it sits in is what hangs the refraction shader.
     thumbRestScale: Float = 1f,
     thumbPressedScale: Float = 1.5f,
+    markerMs: Long? = null,
+    durationMs: Long = 0L,
 ) {
 
     val trackBackdrop = rememberLayerBackdrop()
@@ -239,6 +241,27 @@ fun LiquidSlider(
                     .height(6f.dp)
                     .fillMaxWidth()
             )
+
+            if (markerMs != null && durationMs > 0L) {
+                val markerFraction = (markerMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                if (markerFraction < 1f) {
+                    Box(
+                        Modifier
+                            .clip(ContinuousCapsule())
+                            .background(accentColor.copy(alpha = 0.38f))
+                            .height(6f.dp)
+                            .fillMaxWidth()
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                val startX = (constraints.maxWidth * markerFraction).fastRoundToInt()
+                                val width = constraints.maxWidth - startX
+                                layout(width, placeable.height) {
+                                    placeable.place(startX, 0)
+                                }
+                            }
+                    )
+                }
+            }
 
             Box(
                 Modifier

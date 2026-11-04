@@ -28,16 +28,20 @@ interface NativeEvents {
  */
 object NativeBridge {
 
-    init {
+    val isLoaded: Boolean = runCatching {
         System.loadLibrary("squarecore")
-    }
+        true
+    }.onFailure {
+        android.util.Log.i("NativeBridge", "squarecore not loaded, using local audiophile engine")
+    }.getOrDefault(false)
 
     /**
      * Publishes the application [android.content.Context] to the native side so
      * cpal can open an AAudio stream. Call once, before [start].
      */
-    fun initContext(context: android.content.Context) =
-        nativeInitContext(context.applicationContext)
+    fun initContext(context: android.content.Context) {
+        if (isLoaded) runCatching { nativeInitContext(context.applicationContext) }
+    }
 
     /**
      * Registers the object the native sink writes PCM to.
@@ -194,30 +198,40 @@ object NativeBridge {
      * Lets the playing track run to its own end instead of crossfading into the
      * next one. Set by the sleep timer while it waits for the end of a track.
      */
-    fun setHoldEnd(enabled: Boolean) = nativeSetHoldEnd(enabled)
+    fun setHoldEnd(enabled: Boolean) {
+        if (isLoaded) runCatching { nativeSetHoldEnd(enabled) }
+    }
 
     /**
      * What the sleep timer is doing, for the state the account's other devices
      * read: -1 none, 0 the end of the track, otherwise its end in epoch
      * milliseconds. See SleepTimer and the engine's sleep_timer.
      */
-    fun setSleepTimer(value: Long) = nativeSetSleepTimer(value)
+    fun setSleepTimer(value: Long) {
+        if (isLoaded) runCatching { nativeSetSleepTimer(value) }
+    }
 
     /**
      * Which file on this phone each local entry of a Spotify playlist is, as a
      * JSON object of `spotify:local:` URIs to paths. The engine plays those
      * entries from the files; see MainViewModel.withDeviceFiles.
      */
-    fun setLocalFiles(json: String) = nativeSetLocalFiles(json)
+    fun setLocalFiles(json: String) {
+        if (isLoaded) runCatching { nativeSetLocalFiles(json) }
+    }
 
     /**
      * Appends an item to one of the user's playlists through the playlist
      * service: how a local file goes in, which the Web API refuses. Blocking.
      */
-    fun addToPlaylist(playlistUri: String, itemUri: String) = nativeAddToPlaylist(playlistUri, itemUri)
+    fun addToPlaylist(playlistUri: String, itemUri: String) {
+        if (isLoaded) runCatching { nativeAddToPlaylist(playlistUri, itemUri) }
+    }
 
     /** Takes an item out of a playlist the same way; for local files. Blocking. */
-    fun removeFromPlaylist(playlistUri: String, itemUri: String) = nativeRemoveFromPlaylist(playlistUri, itemUri)
+    fun removeFromPlaylist(playlistUri: String, itemUri: String) {
+        if (isLoaded) runCatching { nativeRemoveFromPlaylist(playlistUri, itemUri) }
+    }
 
     /**
      * How long a track the listener changes away from dissolves into the one
@@ -226,7 +240,9 @@ object NativeBridge {
      * Apart from the crossfade, which is the end of a track running into the
      * next one on its own.
      */
-    fun setSkipFade(ms: Int) = nativeSetSkipFade(ms)
+    fun setSkipFade(ms: Int) {
+        if (isLoaded) runCatching { nativeSetSkipFade(ms) }
+    }
 
     /**
      * The language Spotify should answer in, on a session already running.
@@ -350,7 +366,7 @@ object NativeBridge {
         variables: String,
         language: String,
         appVersion: String,
-    ): String = nativeGatewayQuery(operation, hash, variables, language, appVersion)
+    ): String = if (isLoaded) runCatching { nativeGatewayQuery(operation, hash, variables, language, appVersion) }.getOrDefault("") else ""
 
     /**
      * The account's saved tracks, as raw JSON from Spotify's gateway.
@@ -365,13 +381,13 @@ object NativeBridge {
         language: String,
         hash: String,
         appVersion: String,
-    ): String = nativeLikedSongs(variables, language, hash, appVersion)
+    ): String = if (isLoaded) runCatching { nativeLikedSongs(variables, language, hash, appVersion) }.getOrDefault("") else ""
 
     /** This device's own Connect id, which is what says "here" rather than "there". */
     fun deviceId(): String = runCatching { nativeDeviceId() }.getOrDefault("")
 
     /** What the account is playing and where, as JSON; `{}` when nothing is. */
-    fun remoteState(): String = nativeRemoteState()
+    fun remoteState(): String = if (isLoaded) runCatching { nativeRemoteState() }.getOrDefault("{}") else "{}"
 
     /**
      * What this device is playing, as `{"contextUri": …, "trackUri": …}`.
@@ -391,13 +407,13 @@ object NativeBridge {
      * A token good for spclient, taken from the engine rather than the app's
      * own sign-in, which lapses while playback goes on working.
      */
-    fun accessToken(): String? = runCatching { nativeAccessToken() }.getOrNull()
+    fun accessToken(): String? = if (isLoaded) runCatching { nativeAccessToken() }.getOrNull() else null
 
     fun trackVideo(uri: String): String? =
-        runCatching { nativeTrackVideo(uri) }.getOrNull()?.takeIf { it != "null" }
+        if (isLoaded) runCatching { nativeTrackVideo(uri) }.getOrNull()?.takeIf { it != "null" } else null
 
     /** Every device the account can see, this one included, as a JSON array. */
-    fun remoteDevices(): String = nativeRemoteDevices()
+    fun remoteDevices(): String = if (isLoaded) runCatching { nativeRemoteDevices() }.getOrDefault("[]") else "[]"
 
     /**
      * Sends one command to another device.
@@ -408,26 +424,32 @@ object NativeBridge {
      *
      * Blocking. Never call it from the main thread.
      */
-    fun remoteCommand(deviceId: String, body: String) = nativeRemoteCommand(deviceId, body)
+    fun remoteCommand(deviceId: String, body: String) {
+        if (isLoaded) runCatching { nativeRemoteCommand(deviceId, body) }
+    }
 
     /** Volume in librespot's raw 0..65535 range, on another device. */
-    fun remoteVolume(deviceId: String, volume: Int) = nativeRemoteVolume(deviceId, volume)
+    fun remoteVolume(deviceId: String, volume: Int) {
+        if (isLoaded) runCatching { nativeRemoteVolume(deviceId, volume) }
+    }
 
-    fun shutdown() = nativeShutdown()
+    fun shutdown() {
+        if (isLoaded) runCatching { nativeShutdown() }
+    }
 
     // --- Catalogue, served by the access point rather than api.spotify.com ---
 
     /** Logged-in account name. */
-    fun username(): String = nativeUsername()
+    fun username(): String = if (isLoaded) runCatching { nativeUsername() }.getOrDefault("") else ""
 
     /** URI of the account's "Liked Songs" pseudo-playlist. */
-    fun collectionUri(): String = nativeCollectionUri()
+    fun collectionUri(): String = if (isLoaded) runCatching { nativeCollectionUri() }.getOrDefault("") else ""
 
     /** The account's own playlists, as raw JSON from the access point. */
-    fun rootlist(): String = nativeRootlist()
+    fun rootlist(): String = if (isLoaded) runCatching { nativeRootlist() }.getOrDefault("[]") else "[]"
 
     /** JSON array of track URIs contained in a playlist, album or collection. */
-    fun contextTracks(contextUri: String): String = nativeContextTracks(contextUri)
+    fun contextTracks(contextUri: String): String = if (isLoaded) runCatching { nativeContextTracks(contextUri) }.getOrDefault("[]") else "[]"
 
     /**
      * Display metadata for the given tracks.
@@ -436,10 +458,10 @@ object NativeBridge {
      * @return JSON array of objects; tracks that cannot be resolved are omitted,
      *   so the result may be shorter than the input
      */
-    fun tracksMetadata(urisJson: String): String = nativeTracksMetadata(urisJson)
+    fun tracksMetadata(urisJson: String): String = if (isLoaded) runCatching { nativeTracksMetadata(urisJson) }.getOrDefault("[]") else "[]"
 
     /** Lyrics JSON for a track, or the string `null` when Spotify has none. */
-    fun lyrics(trackUri: String): String = nativeLyrics(trackUri)
+    fun lyrics(trackUri: String): String = if (isLoaded) runCatching { nativeLyrics(trackUri) }.getOrDefault("null") else "null"
 
     /**
      * The other Spotify ids for the same recording, and its ISRC.
@@ -603,7 +625,7 @@ object NativeBridge {
      * missing is the session and the Connect device, which is why nothing can
      * be streamed and everything already on the phone still plays.
      */
-    val isOffline: Boolean get() = nativeIsOffline()
+    val isOffline: Boolean get() = if (isLoaded) runCatching { nativeIsOffline() }.getOrDefault(true) else true
 
     /**
      * Whether the player may play anything that is not on the phone.
@@ -612,7 +634,9 @@ object NativeBridge {
      * switch, and a mode that still reaches for the network when a track is
      * missing is a label rather than a mode.
      */
-    fun setOfflineOnly(only: Boolean) = nativeSetOfflineOnly(only)
+    fun setOfflineOnly(only: Boolean) {
+        if (isLoaded) runCatching { nativeSetOfflineOnly(only) }
+    }
 
     /**
      * Where downloaded tracks are kept.
@@ -621,7 +645,9 @@ object NativeBridge {
      * store to a memory card. Until it is called the engine simply has no
      * downloads, so playback is unaffected by the order this happens in.
      */
-    fun setDownloadRoot(path: String) = nativeSetDownloadRoot(path)
+    fun setDownloadRoot(path: String) {
+        if (isLoaded) runCatching { nativeSetDownloadRoot(path) }
+    }
 
     /**
      * Downloads one track and returns the sidecar JSON that was written.
@@ -638,16 +664,19 @@ object NativeBridge {
      * @param bitrateKbps the quality to ask for; 96, 160 or 320
      */
     fun downloadTrack(trackUri: String, bitrateKbps: Int): String =
-        nativeDownloadTrack(trackUri, bitrateKbps)
+        if (isLoaded) runCatching { nativeDownloadTrack(trackUri, bitrateKbps) }.getOrDefault("") else ""
 
     /**
      * The sidecar of a downloaded track as JSON, or the string `null` when the
      * track is not downloaded.
      */
-    fun downloadState(trackUri: String): String = nativeDownloadState(trackUri)
+    fun downloadState(trackUri: String): String =
+        if (isLoaded) runCatching { nativeDownloadState(trackUri) }.getOrDefault("null") else "null"
 
     /** Deletes a download. Not being there is not an error. */
-    fun removeDownload(trackUri: String) = nativeRemoveDownload(trackUri)
+    fun removeDownload(trackUri: String) {
+        if (isLoaded) runCatching { nativeRemoveDownload(trackUri) }
+    }
 
     /**
      * Asks a download in progress to stop at the end of its current chunk.
@@ -656,7 +685,9 @@ object NativeBridge {
      * remainder — cancelling a queue because it started on mobile data should
      * not throw away what it already paid for.
      */
-    fun cancelDownload(trackUri: String) = nativeCancelDownload(trackUri)
+    fun cancelDownload(trackUri: String) {
+        if (isLoaded) runCatching { nativeCancelDownload(trackUri) }
+    }
 
     private external fun nativeUsername(): String
     private external fun nativeCollectionUri(): String

@@ -8,7 +8,7 @@ import dev.lelonio.square.data.SearchResults
 import kotlinx.coroutines.flow.StateFlow
 
 /** Which backend supplies catalogue and playback. */
-enum class BackendId { SPOTIFY, YOUTUBE_MUSIC }
+enum class BackendId { SPOTIFY, YOUTUBE_MUSIC, LOCAL, SUBSONIC }
 
 /** Where a [MusicBackend] stands with its own account/session. */
 sealed interface BackendAuthState {
@@ -269,4 +269,5 @@ interface MusicBackend {
 interface PlaybackHost {
     val context: android.content.Context
     val looper: android.os.Looper
+    fun onActivePlayerChanged(player: androidx.media3.common.Player) {}
 }
