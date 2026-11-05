@@ -15,9 +15,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -118,13 +125,32 @@ fun LyricsView(
         normal.copy(fontSize = (LYRICS_SP * 0.82f).sp, lineHeight = (LYRICS_SP * 0.82f * LINE_SPACING).sp)
     }
 
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        val viewportOffset = maxHeight * 0.32f
-        key(lyrics) {
+    key(lyrics) {
+        val listState = rememberLazyListState()
+        // Where the song was when the listener's finger took the list, until
+        // the list (fling included) stops: a line turning over mid-drag made
+        // the view scroll to it, which switched its springs back on under the
+        // finger and sent every line drifting. YumaPlayer freezes it the same way.
+        val held = remember { mutableIntStateOf(-1) }
+        LaunchedEffect(listState) {
+            snapshotFlow { listState.isScrollInProgress }.collect { if (!it) held.intValue = -1 }
+        }
+        val grab = remember(listState, currentPosition) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (source == NestedScrollSource.UserInput && held.intValue < 0) held.intValue = currentPosition()
+                    return Offset.Zero
+                }
+            }
+        }
+        val shown = remember(listState, currentPosition) {
+            { held.intValue.takeIf { it >= 0 && listState.isScrollInProgress } ?: currentPosition() }
+        }
+        BoxWithConstraints(modifier.fillMaxSize().nestedScroll(grab)) {
             KaraokeLyricsView(
-                listState = rememberLazyListState(),
+                listState = listState,
                 lyrics = synced,
-                currentPosition = currentPosition,
+                currentPosition = shown,
                 onLineClicked = { line: ISyncedLine -> onSeek(line.start.toLong()) },
                 onLinePressed = {},
                 textColor = Color.White,
@@ -134,7 +160,7 @@ fun LyricsView(
                 useBlurEffect = blur,
                 showTranslation = showTranslation,
                 showPhonetic = false,
-                offset = viewportOffset,
+                offset = maxHeight * 0.32f,
                 keepAliveZone = 72.dp,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
             )
