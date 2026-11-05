@@ -1102,6 +1102,7 @@ fun PlayerScreen(
                     TopBar(
                         backdrop = upperBackdrop,
                         panel = panel,
+                        inspects = state.mediaId?.let(::isFileTrack) == true,
                         source = state.source,
                         onOpenSource = state.contextUri?.let { uri ->
                             {
@@ -1455,11 +1456,20 @@ fun PlayerScreen(
                                 // controls. A panel that pushed the transport
                                 // around every time it opened was the reason
                                 // this screen never sat still.
-                                Stage.INFO -> CreditsView(
-                                    credits = credits,
-                                    loading = creditsLoading,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
+                                // A song that is a file (the NAS, the phone's
+                                // own) has no Spotify credits but has a file to
+                                // look into; everything else keeps its credits.
+                                Stage.INFO -> state.mediaId
+                                    ?.takeIf(::isFileTrack)
+                                    // Shaded deeper than the other panels:
+                                    // rows of figures over a bright cover
+                                    // did not read.
+                                    ?.let { InspectView(it, modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) }
+                                    ?: CreditsView(
+                                        credits = credits,
+                                        loading = creditsLoading,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
 
                                 Stage.EFFECTS -> Box(
                                     Modifier.fillMaxSize(),
@@ -2173,6 +2183,8 @@ fun VideoSurface(player: Player, attachKey: Any? = null, modifier: Modifier = Mo
 private fun TopBar(
     backdrop: Backdrop,
     panel: PlayerPanel,
+    /** The ⓘ slot shows the file rather than credits; see InspectView. */
+    inspects: Boolean,
     /** Where the queue came from: "Estate 2025", "Ricerca". */
     source: String,
     /** Opens that place, when it is one; null leaves the line as a caption. */
@@ -2203,7 +2215,7 @@ private fun TopBar(
             targetState = when (panel) {
                 PlayerPanel.LYRICS -> stringResource(R.string.lyrics)
                 PlayerPanel.EFFECTS -> stringResource(R.string.effects)
-                PlayerPanel.INFO -> stringResource(R.string.credits)
+                PlayerPanel.INFO -> stringResource(if (inspects) R.string.inspect else R.string.credits)
                 PlayerPanel.QUEUE -> stringResource(R.string.queued)
                 PlayerPanel.DEVICES -> stringResource(R.string.play_on)
                 PlayerPanel.ADD_TO_PLAYLIST -> stringResource(R.string.add_to_playlist)

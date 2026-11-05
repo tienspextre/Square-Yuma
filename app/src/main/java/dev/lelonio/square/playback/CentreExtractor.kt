@@ -243,63 +243,6 @@ class CentreExtractor {
         return 1f - amount * centred
     }
 
-    /**
-     * Radix-2, in place, iterative.
-     *
-     * Written out rather than pulled in: this runs on the audio thread a
-     * hundred and seventy times a second and the app has no other use for a
-     * transform, so a dependency would be all cost.
-     */
-    private fun fft(re: FloatArray, im: FloatArray, inverse: Boolean) {
-        var j = 0
-        for (i in 1 until WINDOW) {
-            var bit = WINDOW shr 1
-            while (j and bit != 0) {
-                j = j xor bit
-                bit = bit shr 1
-            }
-            j = j or bit
-            if (i < j) {
-                var t = re[i]; re[i] = re[j]; re[j] = t
-                t = im[i]; im[i] = im[j]; im[j] = t
-            }
-        }
-
-        var length = 2
-        while (length <= WINDOW) {
-            val angle = (if (inverse) 2.0 * PI else -2.0 * PI) / length
-            val stepReal = cos(angle).toFloat()
-            val stepImaginary = sin(angle).toFloat()
-            var i = 0
-            while (i < WINDOW) {
-                var wr = 1f
-                var wi = 0f
-                for (k in 0 until length / 2) {
-                    val ar = re[i + k]
-                    val ai = im[i + k]
-                    val br = re[i + k + length / 2] * wr - im[i + k + length / 2] * wi
-                    val bi = re[i + k + length / 2] * wi + im[i + k + length / 2] * wr
-                    re[i + k] = ar + br
-                    im[i + k] = ai + bi
-                    re[i + k + length / 2] = ar - br
-                    im[i + k + length / 2] = ai - bi
-                    val nextR = wr * stepReal - wi * stepImaginary
-                    wi = wr * stepImaginary + wi * stepReal
-                    wr = nextR
-                }
-                i += length
-            }
-            length = length shl 1
-        }
-
-        if (inverse) {
-            for (i in 0 until WINDOW) {
-                re[i] /= WINDOW
-                im[i] /= WINDOW
-            }
-        }
-    }
-
     private fun clamp(value: Float): Short {
         val scaled = value * SCALE
         return when {
@@ -338,5 +281,64 @@ class CentreExtractor {
 
         /** Hann at three-quarters overlap sums to 1.5; this takes that back out. */
         const val NORMALISE = 2f / 3f
+    }
+}
+
+/**
+ * Radix-2, in place, iterative.
+ *
+ * Written out rather than pulled in: this runs on the audio thread a
+ * hundred and seventy times a second, and the inspector's spectrogram is the
+ * only other use, so a dependency would be all cost. [re].size must be a power
+ * of two.
+ */
+internal fun fft(re: FloatArray, im: FloatArray, inverse: Boolean) {
+    val n = re.size
+    var j = 0
+    for (i in 1 until n) {
+        var bit = n shr 1
+        while (j and bit != 0) {
+            j = j xor bit
+            bit = bit shr 1
+        }
+        j = j or bit
+        if (i < j) {
+            var t = re[i]; re[i] = re[j]; re[j] = t
+            t = im[i]; im[i] = im[j]; im[j] = t
+        }
+    }
+
+    var length = 2
+    while (length <= n) {
+        val angle = (if (inverse) 2.0 * PI else -2.0 * PI) / length
+        val stepReal = cos(angle).toFloat()
+        val stepImaginary = sin(angle).toFloat()
+        var i = 0
+        while (i < n) {
+            var wr = 1f
+            var wi = 0f
+            for (k in 0 until length / 2) {
+                val ar = re[i + k]
+                val ai = im[i + k]
+                val br = re[i + k + length / 2] * wr - im[i + k + length / 2] * wi
+                val bi = re[i + k + length / 2] * wi + im[i + k + length / 2] * wr
+                re[i + k] = ar + br
+                im[i + k] = ai + bi
+                re[i + k + length / 2] = ar - br
+                im[i + k + length / 2] = ai - bi
+                val nextR = wr * stepReal - wi * stepImaginary
+                wi = wr * stepImaginary + wi * stepReal
+                wr = nextR
+            }
+            i += length
+        }
+        length = length shl 1
+    }
+
+    if (inverse) {
+        for (i in 0 until n) {
+            re[i] /= n
+            im[i] /= n
+        }
     }
 }

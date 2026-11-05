@@ -344,8 +344,10 @@ class YumaDualDeckPlayer private constructor(
             val uri = if (offlineUri != null) {
                 offlineUri
             } else {
-                mediaItem.localConfiguration?.uri
-                    ?: if (LocalLibrary.isLocal(mediaId)) LocalLibrary.contentUri(mediaId) else null
+                // A phone file's item URI is its `local:track:` id, which no
+                // resolver opens: the analysis failed for every one of them.
+                (if (LocalLibrary.isLocal(mediaId)) LocalLibrary.contentUri(mediaId) else null)
+                    ?: mediaItem.localConfiguration?.uri
                     ?: runCatching { android.net.Uri.parse(mediaId) }.getOrNull()
                     ?: return@launch
             }

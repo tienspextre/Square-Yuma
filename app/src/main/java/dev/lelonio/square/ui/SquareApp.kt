@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -139,6 +140,8 @@ import com.adamglin.phosphoricons.regular.LinkSimple
 import com.adamglin.phosphoricons.regular.PencilSimple
 import com.adamglin.phosphoricons.regular.PushPin
 import com.adamglin.phosphoricons.regular.Plus
+import com.adamglin.phosphoricons.regular.Waveform
+import com.adamglin.phosphoricons.regular.X
 import com.adamglin.phosphoricons.regular.Queue
 import com.adamglin.phosphoricons.regular.SpotifyLogo
 import com.adamglin.phosphoricons.regular.YoutubeLogo
@@ -783,6 +786,7 @@ fun SquareApp(
     // The open track menu, if any. Held here because the menu is drawn above
     // everything the app puts over its screens.
     var trackMenu by remember { mutableStateOf<TrackMenuRequest?>(null) }
+    var inspecting by remember { mutableStateOf<CatalogTrack?>(null) }
     // The playlist a long press opened the actions for.
     var playlistMenu by remember { mutableStateOf<CatalogPlaylist?>(null) }
     // What the menu may offer for the playlist it is open on. Defaults say yes,
@@ -3685,6 +3689,32 @@ fun SquareApp(
                 LaunchedEffect(trackMenu) { trackMenu?.let { lastMenu = it } }
                 val menu = trackMenu ?: lastMenu
                 val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                inspecting?.let { track ->
+                    androidx.compose.ui.window.Dialog(
+                        onDismissRequest = { inspecting = null },
+                        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+                    ) {
+                        // Opaque: the theme's surface is see-through glass,
+                        // which left the page under it showing through.
+                        androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface.copy(alpha = 1f)) {
+                            Column(Modifier.fillMaxSize().systemBarsPadding()) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(start = 8.dp, end = 24.dp, top = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    androidx.compose.material3.IconButton(onClick = { inspecting = null }) {
+                                        androidx.compose.material3.Icon(PhosphorIcons.Regular.X, stringResource(R.string.close))
+                                    }
+                                    Column(Modifier.weight(1f)) {
+                                        Text(track.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Text(track.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    }
+                                }
+                                dev.lelonio.square.ui.player.InspectView(track.uri, track.localFile, Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
                 TrackSheet(
                     visible = trackMenu != null,
                     title = menu?.track?.name.orEmpty(),
@@ -3785,6 +3815,15 @@ fun SquareApp(
                             ) {
                                 trackMenu = null
                                 viewModel.toggleTrackDownload(menu.track)
+                            }
+                        }
+                        if (menu.track.uri.startsWith("subsonic:track:") ||
+                            dev.lelonio.square.data.LocalLibrary.isLocal(menu.track.uri) ||
+                            menu.track.localFile != null
+                        ) {
+                            TrackSheetAction(stringResource(R.string.inspect), PhosphorIcons.Regular.Waveform) {
+                                inspecting = menu.track
+                                trackMenu = null
                             }
                         }
                         if (viewModel.hasRadio(menu.track.uri)) TrackSheetAction(stringResource(R.string.radio), PhosphorIcons.Regular.Broadcast) {
