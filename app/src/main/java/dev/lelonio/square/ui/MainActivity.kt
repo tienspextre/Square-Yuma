@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
      * time.
      */
     private var link by mutableStateOf<LinkRequest?>(null)
+    private var openedFile: CatalogTrack? = null
 
     /** The screen's fastest mode while the app is on screen; see the class. */
     private val touchRefreshRate = TouchRefreshRate(this)
@@ -264,8 +265,28 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (intent.action != android.content.Intent.ACTION_VIEW) return
+        // An audio file opened from another app, as the phone's music player.
+        val file = intent.data?.takeIf { it.scheme == "content" || it.scheme == "file" }
+        if (file != null) {
+            lifecycleScope.launch {
+                openedFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    dev.lelonio.square.data.LocalLibrary.opened(applicationContext, file)
+                }
+                playOpenedFile()
+            }
+            return
+        }
         val uri = dev.lelonio.square.data.SpotifyLink.parse(intent.data) ?: return
         link = LinkRequest(uri, (link?.n ?: 0) + 1)
+    }
+
+    /** Plays the file another app opened, once there is a session to play it on. */
+    private fun playOpenedFile() {
+        val track = openedFile ?: return
+        if (controller == null) return
+        openedFile = null
+        play(listOf(track), 0)
+        openPlayer++
     }
 
     private fun android.content.Intent.opensPlayer(): Boolean =
@@ -288,6 +309,7 @@ class MainActivity : ComponentActivity() {
             {
                 // The activity may already be stopping by the time this lands.
                 controller = runCatching { future.get() }.getOrNull()
+                playOpenedFile()
                 // The floating window's own button has to say what it does now,
                 // and the system only redraws it when the parameters are set
                 // again.

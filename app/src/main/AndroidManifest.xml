@@ -76,6 +76,23 @@
             </intent-filter>
 
             <!--
+              The phone's music player: what Settings lists under the default
+              music app (Vivo builds that list from these), and what a file
+              manager offers for an audio file.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MUSIC_PLAYER" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="audio/*" />
+                <data android:scheme="file" android:mimeType="audio/*" />
+            </intent-filter>
+
+            <!--
               Spotify's own scheme. Nothing verifies these, so a phone with both
               apps installed simply asks which one, and a phone with only Square
               opens Square.

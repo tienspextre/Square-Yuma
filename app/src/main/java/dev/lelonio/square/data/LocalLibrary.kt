@@ -154,8 +154,45 @@ object LocalLibrary {
      * queue would be keeping a handle to a file that may since have been
      * deleted.
      */
-    fun contentUri(uri: String): android.net.Uri =
-        ContentUris.withAppendedId(collection(), idOfUri(uri))
+    fun contentUri(uri: String): android.net.Uri {
+        val rest = uri.removePrefix(PREFIX)
+        // A file opened from another app that the index does not know carries
+        // its own URI instead of an id; see [opened].
+        return rest.toLongOrNull()?.let { ContentUris.withAppendedId(collection(), it) }
+            ?: android.net.Uri.parse(rest)
+    }
+
+    /**
+     * An audio file another app asked Square to open (a file manager, a chat's
+     * attachment), as a track to play.
+     *
+     * One the index knows becomes that row when the library is readable, so it
+     * is the same song as on the shelf; any other keeps its URI behind [PREFIX], readable for as long as
+     * the app that sent it lets it be. Tags come from the file itself.
+     */
+    fun opened(context: Context, uri: android.net.Uri): CatalogTrack {
+        // The grant that came with the file is for its URI as sent; one rebuilt
+        // from the id is readable only with the library permission.
+        val id = if (uri.authority == MediaStore.AUTHORITY && granted(context)) runCatching { ContentUris.parseId(uri) }.getOrDefault(-1L) else -1L
+        val tags = android.media.MediaMetadataRetriever()
+        val read = runCatching { tags.setDataSource(context, uri) }.isSuccess
+        fun tag(key: Int) = if (read) runCatching { tags.extractMetadata(key) }.getOrNull()?.takeIf { it.isNotBlank() } else null
+        val name = tag(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE)
+            ?: runCatching {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { if (it.moveToFirst()) it.getString(0) else null }
+            }.getOrNull()?.substringBeforeLast('.')
+            ?: uri.lastPathSegment.orEmpty()
+        val track = CatalogTrack(
+            uri = PREFIX + if (id >= 0) id.toString() else uri.toString(),
+            name = name,
+            artist = tag(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(),
+            album = tag(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM).orEmpty(),
+            durationMs = tag(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L,
+        )
+        runCatching { tags.release() }
+        return track
+    }
 
     /**
      * Everything the index calls music, newest first.
