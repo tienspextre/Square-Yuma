@@ -56,6 +56,22 @@
 -keepclasseswithmembernames class dev.lelonio.square.playback.Stretcher { native <methods>; }
 -keep class dev.lelonio.square.playback.Stretcher { *; }
 
+# Yuma Audio DSP & Native C++ Analyzer JNI bindings
+-keep class moe.rukamori.archivetune.** { *; }
+-keepclasseswithmembernames class moe.rukamori.archivetune.playback.smart.TrackFeatures {
+    native <methods>;
+}
+
+# Subsonic models and serialization
+-keep class dev.lelonio.square.backend.subsonic.** { *; }
+-keepclassmembers class dev.lelonio.square.backend.subsonic.** {
+    *** Companion;
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# Dual-deck playback engine
+-keep class dev.lelonio.square.playback.engine.** { *; }
+
 # Preserve readable line numbers and stack traces in release builds
 -renamesourcefileattribute SourceFile
 -keepattributes SourceFile,LineNumberTable

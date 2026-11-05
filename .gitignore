@@ -33,3 +33,5 @@ keystore.properties
 *.har
 *.har.txt
 releases/
+*.apk
+.kotlin/

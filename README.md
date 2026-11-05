@@ -2,12 +2,16 @@
   <img src="docs/square.png" width="112" alt="">
 </p>
 
-<h1 align="center">Square</h1
+<h1 align="center">Square (Lossless & Yuma Edition)</h1>
 
 <p align="center">
-  An unofficial Android music client for Spotify Premium and YouTube Music,
-  built in Liquid Glass.
+  A high-performance Android music player combining Square's Liquid Glass UI with
+  YumaPlayer's Dual-Deck Audio Engine, smart Automix / Beat-matched Crossfade,
+  and Subsonic Bit-Perfect Lossless streaming.
 </p>
+
+> **Fork & Attribution:**  
+> This repository is a downstream fork of [Square](https://github.com/Lelonio/Square) by Lelonio, featuring the professional Dual-Deck audio engine, intelligent Automix planner, and C++ audio analyzer from [YumaPlayer (ArchiveTune)](https://github.com/rukamori/YumaPlayer) by rukamori.
 
 <p align="center">
   <a href="https://github.com/Lelonio/Square/releases/latest"><img src="https://img.shields.io/github/v/release/Lelonio/Square?label=release" alt="Latest release"></a>
@@ -33,23 +37,25 @@
 
 ## Features
 
-### Two sources, one app
-
+### Streaming Sources & Self-Hosted Lossless
+- **Subsonic / Navidrome**: 100% Bit-Perfect FLAC (16/24-bit Hi-Res) streaming from your self-hosted music server with OpenSubsonic REST API and full offline cache management.
 - **Spotify or YouTube Music**, chosen at first launch and switchable in the
-  settings. Home, search, the library and the player work the same on both.
+  settings. Home, search, the library and the player work the same on all backends.
 - **Spotify**: your own account, with its playlists, library and Connect
   devices. Needs Premium.
 - **YouTube Music**: the whole catalogue and the music videos, with no account
   needed. Sign in with Google to bring in your playlists, albums and followed
   artists.
 
-### Player
-
+### Dual-Deck Player & Smart Automix (Yuma Engine)
+- **Dual-Deck Engine (Deck A & Deck B)**: Pre-buffers standby tracks 6–10s ahead for zero-gap playback.
+- **Beat-Matched Automix & Frequency-Safe Crossfade**: Dynamic volume ramping and DJ high-pass filtering (`DjFilterAudioProcessor`) to eliminate bass muddiness during transitions.
+- **Interactive Automix Badge**: Real-time transition progress, pulse indicator, and target track preview.
+- **Debounced Scrubbing**: Smooth seeking on the LiquidSlider without jitter or re-trigger conflicts.
 - The cover or the song's looping canvas video behind the controls.
 - Music videos: switch from the song to its video in place, without losing the
   queue or the position, and keep watching in picture-in-picture.
 - Radio from any song, and autoplay of similar songs when the queue ends.
-- Crossfade between songs, with an option to skip trailing silence.
 - Sleep timer: after 5 to 60 minutes or at the end of the song, fading out
   before it stops.
 
@@ -189,6 +195,7 @@ development on [Ko-fi](https://ko-fi.com/lelonio).
 
 | Project | Licence | How it is used |
 | --- | --- | --- |
+| [YumaPlayer (ArchiveTune)](https://github.com/rukamori/YumaPlayer) | GPL-3.0 / AGPL-3.0 | The Dual-Deck audio engine (`:core:audio-dsp`), smart Automix/Crossfade transition planner, DJ filter audio processor, Accompanist lyrics UI, and C++ audio analyzer. |
 | [librespot](https://github.com/librespot-org/librespot) | MIT | The Spotify engine. `librespot-core`, `librespot-playback` and `librespot-connect` are vendored with local patches. |
 | [Spotify Web Playback SDK](https://developer.spotify.com/documentation/web-playback-sdk) | Spotify Developer Terms | Playback for accounts Spotify refuses audio keys, through the listener's own developer app. |
 | [Metrolist](https://github.com/mostafaalagamy/Metrolist) | GPL-3.0 | Its InnerTube client, vendored as [`innertube/`](innertube/), because it is published nowhere else. Powers the signed-in YouTube Music library. |

@@ -50,8 +50,8 @@ android {
         // cpal's Android host is AAudio, which the ndk crate gates at API 26.
         minSdk = 29 // Accompanist lyrics-ui (the synced-lyrics view) declares 29; YumaPlayer forces it onto 26 instead.
         targetSdk = 35
-        versionCode = 61
-        versionName = "2.7.0"
+        versionCode = 1
+        versionName = "1.0.0"
         buildConfigField("boolean", "VERBOSE_LOG", "false")
 
         // Bungee only for the ABIs that ship; see the splits below.
@@ -123,6 +123,8 @@ android {
          */
         create("dev") {
             initWith(getByName("release"))
+            // The Yuma modules (:core:audio-dsp) have only debug and release.
+            matchingFallbacks += listOf("release")
             isMinifyEnabled = false
             isShrinkResources = false
             // This build type is release-shaped, so BuildConfig.DEBUG is false
@@ -183,6 +185,11 @@ android {
         // dependencies ship, without the Rust core: installable on an x86
         // device, and closing at once there.
         jniLibs.excludes += listOf("lib/x86/**", "lib/x86_64/**")
+        // Dex compressed in the APK. From minSdk 28 AGP stores it raw so the
+        // phone can map it in place, which nearly tripled the file passed
+        // around (44 MB to 122 MB when minSdk went to 29); the phone compiles
+        // it ahead of time on install either way.
+        dex.useLegacyPackaging = true
     }
 }
 
