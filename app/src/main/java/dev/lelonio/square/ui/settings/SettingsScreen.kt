@@ -1349,7 +1349,7 @@ private fun BackendSection() {
     val chosen by store.backend.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.backend)) {
-        BackendId.entries.forEachIndexed { index, backend ->
+        listOf(BackendId.SUBSONIC, BackendId.LOCAL).forEachIndexed { index, backend ->
             if (index > 0) RowDivider()
             ChoiceRow(
                 label = stringResource(

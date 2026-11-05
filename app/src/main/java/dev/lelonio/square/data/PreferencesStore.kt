@@ -337,15 +337,20 @@ class PreferencesStore(context: Context) {
         prefs.edit().putBoolean(KEY_PLAYER_OPEN, value).apply()
     }
 
+    // NAS and the phone's own files are the only sources the app offers now: a
+    // Spotify or YouTube Music pick from an older version, or none, reads as NAS.
     private val _backend = MutableStateFlow(
         runCatching { dev.lelonio.square.backend.BackendId.valueOf(prefs.getString(KEY_BACKEND, null) ?: "") }
-            .getOrDefault(dev.lelonio.square.backend.BackendId.LOCAL),
+            .getOrNull()
+            .takeIf { it == dev.lelonio.square.backend.BackendId.LOCAL }
+            ?: dev.lelonio.square.backend.BackendId.SUBSONIC,
     )
 
     /** Which [dev.lelonio.square.backend.MusicBackend] the app plays through. */
     val backend: StateFlow<dev.lelonio.square.backend.BackendId> = _backend.asStateFlow()
 
     fun setBackend(value: dev.lelonio.square.backend.BackendId) {
+        if (value != dev.lelonio.square.backend.BackendId.SUBSONIC && value != dev.lelonio.square.backend.BackendId.LOCAL) return
         _backend.value = value
         _backendChosen.value = true
         prefs.edit().putString(KEY_BACKEND, value.name).apply()

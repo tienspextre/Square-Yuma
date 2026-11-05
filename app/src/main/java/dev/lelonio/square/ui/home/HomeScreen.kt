@@ -63,7 +63,6 @@ import androidx.compose.ui.unit.lerp
 import dev.lelonio.square.ui.glass.backdrop.Backdrop
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
-import com.adamglin.phosphoricons.regular.ArrowsLeftRight
 import com.adamglin.phosphoricons.regular.HardDrives
 import com.adamglin.phosphoricons.regular.SpotifyLogo
 import com.adamglin.phosphoricons.regular.YoutubeLogo
@@ -173,8 +172,6 @@ fun HomeScreen(
     youtubeSignedIn: Boolean = true,
     onYouTubeSignIn: () -> Unit = {},
     /** Signed out of Spotify: play from the other source instead. */
-    onUseYouTube: () -> Unit = {},
-    onSwitchSource: () -> Unit = {},
     /**
      * Spotify's own personalised shelves, empty when the gateway said nothing.
      *
@@ -211,7 +208,6 @@ fun HomeScreen(
             onPlayTrending = onPlayTrending,
             onOpenPlaylist = onOpenPlaylist,
             onOpenSettings = onOpenSettings,
-            onSwitchSource = onSwitchSource,
             onPickChip = onPickYouTubeChip,
             onLoadMore = onLoadMoreYouTube,
             signedIn = youtubeSignedIn,
@@ -233,7 +229,7 @@ fun HomeScreen(
                 modifier = Modifier.padding(horizontal = 40.dp),
             )
             GlassAction(stringResource(R.string.log_in_with_spotify), backdrop, onLogIn)
-            dev.lelonio.square.ui.components.SignedOutOptions(onUseYouTube, onOpenSettings)
+            dev.lelonio.square.ui.components.SignedOutOptions(onOpenSettings)
         }
 
         MainViewModel.UiState.Connecting,
@@ -329,7 +325,6 @@ fun HomeScreen(
                     avatarUrl = state.avatarUrl,
                     service = R.string.backend_spotify,
                     serviceIcon = PhosphorIcons.Regular.SpotifyLogo,
-                    onSwitchSource = onSwitchSource,
                     collapse = { collapse },
                     // The chip that is lit is the one that was tapped. It used
                     // to follow whichever section the scroll had reached, which
@@ -631,7 +626,6 @@ private fun Header(
     @StringRes service: Int,
     /** Its mark, so the source is recognisable before the line is read. */
     serviceIcon: androidx.compose.ui.graphics.vector.ImageVector,
-    onSwitchSource: () -> Unit,
     /**
      * How far collapsed, as a lambda rather than a value.
      *
@@ -713,10 +707,6 @@ private fun Header(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .clickable(
-                            onClickLabel = stringResource(if (service == R.string.backend_spotify) R.string.backend_youtube else R.string.backend_spotify),
-                            onClick = onSwitchSource,
-                        )
                         .layout { measurable, constraints ->
                             val placeable = measurable.measure(constraints)
                             val height = ((1f - collapse()) * placeable.height).toInt()
@@ -746,12 +736,6 @@ private fun Header(
                         color = InkDim,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                    Icon(
-                        PhosphorIcons.Regular.ArrowsLeftRight,
-                        contentDescription = null,
-                        tint = InkDim,
-                        modifier = Modifier.padding(start = 6.dp).size(14.dp),
                     )
                 }
                 // The app's own name, at the size the account name used to be.
@@ -1329,7 +1313,6 @@ private fun YouTubeHome(
     onPlayTrending: (List<CatalogTrack>, Int) -> Unit,
     onOpenPlaylist: (CatalogPlaylist) -> Unit,
     onOpenSettings: () -> Unit,
-    onSwitchSource: () -> Unit,
     onPickChip: (dev.lelonio.square.backend.HomeChip?) -> Unit,
     onLoadMore: () -> Unit,
     signedIn: Boolean,
@@ -1364,7 +1347,6 @@ private fun YouTubeHome(
                 // Nothing scrolls under it here, so it stays as it opens.
                 collapse = { 0f },
                 onOpenSettings = onOpenSettings,
-                onSwitchSource = onSwitchSource,
                 backendId = backendId,
             )
         }
@@ -1390,7 +1372,6 @@ private fun YouTubeHome(
             backdrop = backdrop,
             collapse = { collapse },
             onOpenSettings = onOpenSettings,
-            onSwitchSource = onSwitchSource,
             backendId = backendId,
         )
 
@@ -1608,7 +1589,6 @@ private fun YouTubeHeader(
     backdrop: Backdrop,
     collapse: () -> Float,
     onOpenSettings: () -> Unit,
-    onSwitchSource: () -> Unit,
     backendId: BackendId = BackendId.YOUTUBE_MUSIC,
     modifier: Modifier = Modifier,
 ) {
@@ -1628,7 +1608,6 @@ private fun YouTubeHeader(
         avatarUrl = null,
         service = service,
         serviceIcon = serviceIcon,
-        onSwitchSource = onSwitchSource,
         collapse = collapse,
         highlighted = Feed.entries.first(),
         backdrop = backdrop,

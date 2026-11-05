@@ -158,7 +158,6 @@ fun LibraryScreen(
     signInHint: Boolean = false,
     onSignIn: () -> Unit = {},
     /** Signed out of Spotify: the other source, and the settings; see SignedOutOptions. */
-    onUseYouTube: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     listeningEvents: List<dev.lelonio.square.data.ListeningEvent>? = null,
     /** Whether those were played from Spotify, rather than YouTube Music. */
@@ -180,7 +179,7 @@ fun LibraryScreen(
                 modifier = Modifier.padding(horizontal = 40.dp),
             )
             GlassAction(stringResource(R.string.log_in_with_spotify), backdrop, onLogIn)
-            dev.lelonio.square.ui.components.SignedOutOptions(onUseYouTube, onOpenSettings)
+            dev.lelonio.square.ui.components.SignedOutOptions(onOpenSettings)
         }
 
         MainViewModel.UiState.Connecting,

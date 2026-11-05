@@ -2868,11 +2868,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * sent.
      */
     fun openLink(uri: String) = viewModelScope.launch {
-        // A Spotify link is a Spotify page. Arriving on the other backend, it
-        // would resolve against a catalogue that has never heard of it.
-        if (container.activeBackend.id != BackendId.SPOTIFY) {
-            container.preferences.setBackend(BackendId.SPOTIFY)
-        }
         // No name and no picture: the page asks for both itself, and shows the
         // list without waiting for either.
         openContext(uri, "")

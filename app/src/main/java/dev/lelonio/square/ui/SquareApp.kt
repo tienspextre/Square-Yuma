@@ -166,7 +166,6 @@ import dev.lelonio.square.ui.player.rememberPlaybackState
 import dev.lelonio.square.ui.player.rememberPositionMs
 import dev.lelonio.square.ui.player.rememberQueue
 import dev.lelonio.square.ui.search.SearchScreen
-import dev.lelonio.square.ui.onboarding.BackendChoiceScreen
 import dev.lelonio.square.ui.onboarding.OnboardingScreen
 import dev.lelonio.square.ui.settings.SettingsScreen
 import dev.lelonio.square.ui.theme.footToneFor
@@ -910,8 +909,6 @@ fun SquareApp(
         (context.applicationContext as dev.lelonio.square.SquareApplication).preferences
     }
 
-    /** False only until the source has been picked once; see BackendChoiceScreen. */
-    val backendChosen by preferences.backendChosen.collectAsStateWithLifecycle()
     val backend by preferences.backend.collectAsStateWithLifecycle()
     val youtubeHome by viewModel.youtubeHome.collectAsStateWithLifecycle()
     val sourceNew by viewModel.sourceNew.collectAsStateWithLifecycle()
@@ -1741,16 +1738,6 @@ fun SquareApp(
                                 onLoadMoreYouTube = viewModel::loadMoreYouTubeHome,
                                 youtubeSignedIn = if (backend == dev.lelonio.square.backend.BackendId.SUBSONIC) true else youtubeAccountName != null,
                                 onYouTubeSignIn = { showYouTubeLogin = true },
-                                onSwitchSource = {
-                                    preferences.setBackend(
-                                        if (backend == dev.lelonio.square.backend.BackendId.SPOTIFY)
-                                            dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC
-                                        else dev.lelonio.square.backend.BackendId.SPOTIFY,
-                                    )
-                                },
-                                onUseYouTube = {
-                                    preferences.setBackend(dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC)
-                                },
                                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                                 friends = friends,
                                 onOpenFriends = {
@@ -1985,9 +1972,6 @@ fun SquareApp(
                                 signInHint = backend == dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC &&
                                     youtubeAccountName == null,
                                 onSignIn = { showYouTubeLogin = true },
-                                onUseYouTube = {
-                                    preferences.setBackend(dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC)
-                                },
                                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                                 onOpenArtist = { artist ->
                                     viewModel.openContext(
@@ -4043,9 +4027,7 @@ fun SquareApp(
                     }
                 }
 
-                if (!backendChosen) {
-                    BackendChoiceScreen(onChoose = preferences::setBackend)
-                } else if (
+                if (
                     // Every step of it is Spotify's setup — the Premium
                     // account, the login, the registered application — so on
                     // YouTube Music it would be five screens of instructions
