@@ -3787,6 +3787,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * what was asked for here: the queue following a kept playlist on its own
      * has nobody to tell.
      */
+    // ponytail: once per install. Every launch would bring back a song removed from Downloads
+    // whose file Android would not let us delete (it belongs to the old install).
+    private val relinkPrefs get() = container.getSharedPreferences("subsonic_relink", 0)
+
+    fun hasLeftoverDownloads(): Boolean =
+        !relinkPrefs.getBoolean("done", false) &&
+            container.preferences.backend.value == dev.lelonio.square.backend.BackendId.SUBSONIC &&
+            container.subsonicBackend.hasLeftovers()
+
+    /** Downloads left in Music/Square by an earlier install, back under Downloads. */
+    fun relinkDownloads() {
+        if (!dev.lelonio.square.data.LocalLibrary.granted(container)) return
+        viewModelScope.launch {
+            // Done only once the server answers: offline, the next launch tries again.
+            if (container.subsonicClient.ping().isFailure) return@launch
+            val found = runCatching { container.subsonicBackend.relink(container) }
+                .onFailure { android.util.Log.w("SubsonicDownload", "relink failed: ${it.message}") }
+                .getOrDefault(emptyList())
+            relinkPrefs.edit().putBoolean("done", true).apply()
+            if (found.isEmpty()) return@launch
+            // Each goes through the queue like a fresh download: it finds the file already
+            // indexed, marks it done, and fetches its cover and lyrics for offline.
+            found.forEach { container.downloads.addSingle(it) }
+            DownloadService.start(container)
+        }
+    }
+
     private fun startRequestedDownloads() {
         val app = getApplication<android.app.Application>()
         if (container.downloadQueue.waitsForWifi()) {

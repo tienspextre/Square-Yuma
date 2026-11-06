@@ -231,7 +231,10 @@ class SubsonicDownloadManager(
             ?: throw IOException("Cannot create folder $name")
     }
 
-    // Keeps Vietnamese and every other script; strips only what file systems reject.
-    private fun safeName(raw: String, max: Int, fallback: String): String =
-        raw.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trimEnd('.').take(max).ifBlank { fallback }
+    companion object {
+        // Keeps Vietnamese and every other script; strips only what file systems reject.
+        // Also how SubsonicBackend.relink reads a file's path back, so the two must agree.
+        internal fun safeName(raw: String, max: Int, fallback: String): String =
+            raw.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trimEnd('.').take(max).ifBlank { fallback }
+    }
 }

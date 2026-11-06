@@ -1379,6 +1379,11 @@ fun SquareApp(
             onAnswered = viewModel::onLocalPermissionAnswered,
         )
 
+        // Downloads an earlier install left in Music/Square: they belong to that install, so
+        // reading them back needs the audio permission, asked for only when the folder is there.
+        val askToRelink = rememberLocalAudioPermission(onAnswered = viewModel::relinkDownloads)
+        LaunchedEffect(Unit) { if (viewModel.hasLeftoverDownloads()) askToRelink() }
+
         // What folds the bar, and what tells the glass the page is moving. Built
         // here rather than beside the bar because both of those are read at the
         // top of the app: the glass configuration is provided from this scope.
