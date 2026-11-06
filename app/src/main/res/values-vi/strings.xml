@@ -632,6 +632,9 @@
     <string name="widget_open_app">Mở Square</string>
     <string name="animated_cover_source">Nguồn</string>
     <string name="animated_cover_spotify">Spotify (Canvas)</string>
+    <string name="canvas_spotify_account">Tài khoản Spotify cho Canvas</string>
+    <string name="canvas_spotify_sign_in">Đăng nhập Spotify (tài khoản free là đủ)</string>
+    <string name="canvas_spotify_note">Chỉ dùng để tìm bài trên Spotify và lấy Canvas, không phát nhạc từ Spotify. Bài nào không có Canvas sẽ dùng ảnh động của Apple Music.</string>
     <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Giao diện</string>
     <string name="theme_system">Theo điện thoại</string>

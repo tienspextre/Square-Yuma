@@ -1111,12 +1111,19 @@ fun SquareApp(
             coverSource == dev.lelonio.square.data.PreferencesStore.CoverSource.SPOTIFY &&
             uri.startsWith("subsonic:track:")
         ) {
-            // A NAS song has no Spotify Canvas: the album's moving artwork from
-            // Apple stands in for it, the copy kept with a download first.
+            // A NAS song's Canvas: the same song's on Spotify when a Spotify
+            // account (free is enough) is signed in, else the album's moving
+            // artwork from Apple; the copy kept with a download first.
             if (remote == null) awaitAudible(localState)
             canvas = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 dev.lelonio.square.download.DownloadExtras.localCanvas(uri)
-            } ?: if (offlineNow) null else dev.lelonio.square.data.MotionCanvas.find(playback.title, playback.artist)
+            } ?: if (offlineNow) null else (
+                dev.lelonio.square.data.SpotifyCanvas.find(
+                    context.applicationContext as dev.lelonio.square.SquareApplication,
+                    playback.title,
+                    playback.artist,
+                ) ?: dev.lelonio.square.data.MotionCanvas.find(playback.title, playback.artist)
+            )
         }
     }
 
@@ -1998,6 +2005,7 @@ fun SquareApp(
                                 onConnectWebApi = viewModel::connectWebApi,
                                 onDisconnectWebApi = viewModel::disconnectWebApi,
                                 onLogOut = viewModel::logOut,
+                                onLogIn = viewModel::logIn,
                                 onShowTutorial = { showTutorial = true },
                                 language = language,
                                 onLanguage = setLanguage,

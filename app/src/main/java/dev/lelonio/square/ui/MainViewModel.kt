@@ -2348,6 +2348,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // The engine's own credential too, or the next launch would log itself
         // back in with it and signing out would mean nothing.
         dev.lelonio.square.auth.EngineCredentials.clear(getApplication())
+        dev.lelonio.square.data.SpotifyCanvas.forget()
         container.recentStore.clear()
         listeningSync?.cancel()
         lastListeningSync = 0L

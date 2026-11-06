@@ -147,6 +147,8 @@ fun SettingsScreen(
     onDisconnectWebApi: () -> Unit,
     onLogOut: () -> Unit,
     onShowTutorial: () -> Unit,
+    /** Spotify sign-in, kept only for Canvas; see SpotifyCanvas. */
+    onLogIn: () -> Unit = {},
     /** The chosen language tag, empty for the phone's own. */
     language: String,
     onLanguage: (String) -> Unit,
@@ -594,7 +596,7 @@ fun SettingsScreen(
 
         // On either source: Apple's moving covers play over YouTube Music too.
         if (shown == SettingsPage.Playback && "covers" in openGroups) groupItem("canvas", Group.COVERS) {
-            CanvasSection(backdrop)
+            CanvasSection(backdrop, signedIn = remember(state) { app.tokenStore.isLoggedIn }, onLogIn)
         }
 
         if (shown == SettingsPage.Playback && "covers" in openGroups) groupEnd(Group.COVERS)
@@ -1675,7 +1677,7 @@ private fun YouTubeAccountSection(onSignIn: () -> Unit, onChannelChange: () -> U
  * turns this off stops paying for a video on every track as well as seeing one.
  */
 @Composable
-private fun CanvasSection(backdrop: Backdrop) {
+private fun CanvasSection(backdrop: Backdrop, signedIn: Boolean, onLogIn: () -> Unit) {
     val context = LocalContext.current
     val store = remember(context) {
         (context.applicationContext as dev.lelonio.square.SquareApplication).preferences
@@ -1706,6 +1708,31 @@ private fun CanvasSection(backdrop: Backdrop) {
                     ),
                     selected = choice == source,
                 ) { store.setAnimatedCoverSource(choice) }
+            }
+        }
+        if (source == dev.lelonio.square.data.PreferencesStore.CoverSource.SPOTIFY) {
+            // Held here as well, so signing out shows at once rather than on
+            // the next change of state.
+            var account by remember(signedIn) { mutableStateOf(signedIn) }
+            Section(stringResource(R.string.canvas_spotify_account)) {
+                if (account) {
+                    ActionRow(stringResource(R.string.log_out), destructive = true) {
+                        // The Spotify credentials only: the full sign-out also
+                        // clears the listening history the NAS home is built on.
+                        account = false
+                        val app = context.applicationContext as dev.lelonio.square.SquareApplication
+                        app.tokenStore.clear()
+                        dev.lelonio.square.data.SpotifyCanvas.forget()
+                    }
+                } else {
+                    ActionRow(stringResource(R.string.canvas_spotify_sign_in), destructive = false, onClick = onLogIn)
+                }
+                Text(
+                    stringResource(R.string.canvas_spotify_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkDim,
+                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
+                )
             }
         }
     }

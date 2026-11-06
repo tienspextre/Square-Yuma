@@ -655,6 +655,9 @@
     <string name="widget_open_app">Open Square</string>
     <string name="animated_cover_source">Source</string>
     <string name="animated_cover_spotify">Spotify (Canvas)</string>
+    <string name="canvas_spotify_account">Spotify account for Canvas</string>
+    <string name="canvas_spotify_sign_in">Sign in to Spotify (a free account is enough)</string>
+    <string name="canvas_spotify_note">Only used to find each song on Spotify and fetch its Canvas. Nothing plays from Spotify. Songs without one fall back to Apple Music.</string>
     <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Theme</string>
     <string name="theme_system">Same as the phone</string>
