@@ -154,7 +154,7 @@ class PathfinderKeys(context: Context) {
         const val HASH_LENGTH = 64
 
         const val URL =
-            "https://raw.githubusercontent.com/${dev.lelonio.square.update.Updater.REPO}" +
+            "https://raw.githubusercontent.com/Lelonio/Square" +
                 "/master/pathfinder.json"
 
         /** What was true when this version was built; see the note above. */
