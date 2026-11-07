@@ -1,0 +1,33 @@
+<launch4jConfig>
+  <headerType>gui</headerType>
+  <jar>desktopApp/build/compose/jars/Square-Yuma-linux-x64-1.0.0.jar</jar>
+  <dontWrapJar>false</dontWrapJar>
+  <outfile>desktopApp/build/compose/jars/Square-Yuma.exe</outfile>
+  <errTitle>Square-Yuma</errTitle>
+  <chdir>.</chdir>
+  <priority>normal</priority>
+  <downloadUrl>https://adoptium.net/temurin/releases/?version=21</downloadUrl>
+  <supportUrl>https://github.com/tienspextre/Square-Yuma</supportUrl>
+  <stayAlive>false</stayAlive>
+  <restartOnCrash>false</restartOnCrash>
+  <jre>
+    <path>%JAVA_HOME%;%PATH%</path>
+    <bundledJre64Bit>false</bundledJre64Bit>
+    <bundledJreAsFallback>false</bundledJreAsFallback>
+    <minVersion>17.0.0</minVersion>
+    <jdkPreference>preferJre</jdkPreference>
+    <runtimeBits>64/32</runtimeBits>
+  </jre>
+  <versionInfo>
+    <fileVersion>1.0.0.0</fileVersion>
+    <txtFileVersion>1.0.0</txtFileVersion>
+    <fileDescription>Square &amp; Yuma Desktop — Liquid Glass Lossless &amp; Automix Music Player</fileDescription>
+    <copyright>GPL-3.0 / AGPL-3.0</copyright>
+    <productVersion>1.0.0.0</productVersion>
+    <txtProductVersion>1.0.0</txtProductVersion>
+    <productName>Square-Yuma</productName>
+    <companyName>Square-Yuma Open Source</companyName>
+    <internalName>Square-Yuma</internalName>
+    <originalFilename>Square-Yuma.exe</originalFilename>
+  </versionInfo>
+</launch4jConfig>

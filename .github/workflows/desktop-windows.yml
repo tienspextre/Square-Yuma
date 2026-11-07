@@ -1,0 +1,89 @@
+name: Desktop Windows & Linux Builds
+
+on:
+  push:
+    tags: ['yuma-*', 'v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Windows Executable & MSI Installer
+        run: |
+          .\gradlew.bat :desktopApp:packageMsi :desktopApp:packageExe :desktopApp:packageUberJarForCurrentOS --stacktrace
+
+      - name: Collect Windows Binaries
+        shell: bash
+        run: |
+          mkdir -p dist-windows
+          find desktopApp/build/compose/binaries -type f \( -name "*.msi" -o -name "*.exe" \) -exec cp {} dist-windows/ \;
+          cp desktopApp/build/compose/jars/*.jar dist-windows/ 2>/dev/null || true
+          ls -la dist-windows/
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          for f in dist-windows/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f to release $tag..."
+              gh release upload "$tag" "$f" --clobber || true
+            fi
+          done
+
+  build-linux-cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Linux Packages
+        run: |
+          ./gradlew :desktopApp:packageDeb :desktopApp:packageAppImage :desktopApp:packageUberJarForCurrentOS --stacktrace
+
+      - name: Collect Linux Binaries
+        run: |
+          mkdir -p dist-linux
+          find desktopApp/build/compose/binaries -type f \( -name "*.deb" -o -name "*.AppImage" \) -exec cp {} dist-linux/ \;
+          ls -la dist-linux/
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          for f in dist-linux/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f to release $tag..."
+              gh release upload "$tag" "$f" --clobber || true
+            fi
+          done
