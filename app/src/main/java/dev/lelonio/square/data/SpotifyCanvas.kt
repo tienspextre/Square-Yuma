@@ -36,10 +36,9 @@ object SpotifyCanvas {
         val key = "${title.lowercase()}\u0000${artist.lowercase()}"
         found[key]?.let { return it.getOrNull() }
         val result = runCatching {
+            val uri = trackUri(app, key, title, artist) ?: return@runCatching null
             val token = app.tokenStore.validAccessToken()
-            withContext(Dispatchers.IO) {
-                match(token, title, artist)?.let { canvas(token, it) }
-            }
+            withContext(Dispatchers.IO) { canvas(token, uri) }
         }.onFailure { android.util.Log.i(TAG, "spotify canvas for $title: ${it.message}") }
         // A failure is not remembered: a lapsed token or a dropped connection
         // is worth another try on the next song.
@@ -49,6 +48,69 @@ object SpotifyCanvas {
     }
 
     fun forget() = found.clear()
+
+    // ------------------------------------------------- the listener's own app
+
+    /*
+     * Finding a song is a Web API search, and the client id the app signs in with is Spotify's
+     * own, shared by every librespot-based app: its search quota is spent, and every search
+     * answers 429. The Canvas request itself is not limited. So the search goes through an app
+     * the listener registers on developer.spotify.com, by client credentials (no sign-in, no
+     * redirect), and only the Canvas uses the signed-in account.
+     */
+
+    private fun ownPrefs(app: android.content.Context) = app.getSharedPreferences("spotify_canvas_app", 0)
+
+    // ponytail: the secret sits in the app's private prefs, unencrypted, like the NAS password.
+    fun ownApp(app: android.content.Context): Pair<String, String>? {
+        val p = ownPrefs(app)
+        val id = p.getString("id", "").orEmpty()
+        val secret = p.getString("secret", "").orEmpty()
+        return (id to secret).takeIf { id.isNotBlank() && secret.isNotBlank() }
+    }
+
+    fun setOwnApp(app: android.content.Context, id: String, secret: String) {
+        ownPrefs(app).edit().putString("id", id.trim()).putString("secret", secret.trim()).apply()
+        appToken = null
+    }
+
+    /** Whether Spotify accepts the pair; said in Settings right after saving. */
+    suspend fun checkOwnApp(id: String, secret: String): Boolean =
+        runCatching { withContext(Dispatchers.IO) { requestAppToken(id.trim(), secret.trim()) } }.isSuccess
+
+    @Volatile private var appToken: Pair<String, Long>? = null
+
+    private fun ownToken(app: android.content.Context): String? {
+        val (id, secret) = ownApp(app) ?: return null
+        appToken?.takeIf { it.second > System.currentTimeMillis() + 60_000 }?.let { return it.first }
+        return requestAppToken(id, secret).also { appToken = it }.first
+    }
+
+    private fun requestAppToken(id: String, secret: String): Pair<String, Long> {
+        val body = okhttp3.FormBody.Builder().add("grant_type", "client_credentials").build()
+        val answer = call(
+            Request.Builder().url("https://accounts.spotify.com/api/token")
+                .header("Authorization", okhttp3.Credentials.basic(id, secret))
+                .post(body).build(),
+        )
+        val json = JSONObject(String(answer))
+        return json.getString("access_token") to System.currentTimeMillis() + json.optLong("expires_in", 3600) * 1000
+    }
+
+    /**
+     * The song's track on Spotify: searched for once, then remembered on disk, so a song costs
+     * one search ever. A failed search (429, no connection) is not remembered.
+     */
+    private suspend fun trackUri(app: SquareApplication, key: String, title: String, artist: String): String? {
+        val saved = app.getSharedPreferences("spotify_canvas_tracks", 0)
+        if (saved.contains(key)) return saved.getString(key, null)?.ifEmpty { null }
+        val uri = withContext(Dispatchers.IO) {
+            val token = ownToken(app) ?: app.tokenStore.validAccessToken()
+            match(token, title, artist)
+        }
+        saved.edit().putString(key, uri.orEmpty()).apply()
+        return uri
+    }
 
     /** The first track by the artist asked for, else the first track. */
     private fun match(token: String, title: String, artist: String): String? {

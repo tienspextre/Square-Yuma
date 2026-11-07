@@ -753,4 +753,12 @@
     <string name="download_rescan_done">Tìm lại được %1$d bài trong Music/Square</string>
     <string name="download_rescan_failed">Không kết nối được NAS để nhận lại bài</string>
     <string name="download_rescan_no_permission">Cần cho phép đọc nhạc để tìm bài trong Music/Square</string>
+    <string name="canvas_spotify_app">Ứng dụng Spotify của bạn (để tìm bài)</string>
+    <string name="canvas_spotify_app_note">Spotify giới hạn tìm bài với tài khoản đăng nhập ở trên, nên việc tìm bài dùng một ứng dụng của riêng bạn. Trên developer.spotify.com/dashboard: Create app, tên tuỳ ý, Redirect URI http://127.0.0.1:8888/callback, chọn Web API. Rồi chép Client ID và Client secret vào đây.</string>
+    <string name="canvas_spotify_client_id">Client ID</string>
+    <string name="canvas_spotify_client_secret">Client secret</string>
+    <string name="canvas_spotify_open_dashboard">Mở Spotify dashboard</string>
+    <string name="canvas_spotify_app_checking">Đang kiểm tra…</string>
+    <string name="canvas_spotify_app_ok">Spotify đã chấp nhận ứng dụng. Canvas sẽ được tìm từ bài tiếp theo.</string>
+    <string name="canvas_spotify_app_bad">Spotify từ chối Client ID / secret này.</string>
 </resources>

@@ -50,6 +50,7 @@ import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.ArrowLeft
 import com.adamglin.phosphoricons.regular.Check
+import com.adamglin.phosphoricons.regular.ArrowSquareOut
 import com.adamglin.phosphoricons.regular.TextAa
 import com.adamglin.phosphoricons.regular.ArrowUpRight
 import com.adamglin.phosphoricons.regular.CaretDown
@@ -1734,6 +1735,88 @@ private fun CanvasSection(backdrop: Backdrop, signedIn: Boolean, onLogIn: () -> 
                     color = InkDim,
                     modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
                 )
+            }
+            SpotifyOwnAppSection()
+        }
+    }
+}
+
+/**
+ * The listener's own Spotify app, which the Canvas search goes through: the client id the app
+ * signs in with shares its search quota with every librespot-based app and is always over it.
+ * See SpotifyCanvas.
+ */
+@Composable
+private fun SpotifyOwnAppSection() {
+    val context = LocalContext.current
+    val saved = remember { dev.lelonio.square.data.SpotifyCanvas.ownApp(context) }
+    var idDraft by remember { mutableStateOf(saved?.first.orEmpty()) }
+    var secretDraft by remember { mutableStateOf(saved?.second.orEmpty()) }
+    var stored by remember { mutableStateOf(saved) }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Section(stringResource(R.string.canvas_spotify_app)) {
+        Text(
+            stringResource(R.string.canvas_spotify_app_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = InkDim,
+            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp),
+        )
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+            androidx.compose.material3.OutlinedTextField(
+                value = idDraft,
+                onValueChange = { idDraft = it },
+                label = { Text(stringResource(R.string.canvas_spotify_client_id)) },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            androidx.compose.material3.OutlinedTextField(
+                value = secretDraft,
+                onValueChange = { secretDraft = it },
+                label = { Text(stringResource(R.string.canvas_spotify_client_secret)) },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            )
+        }
+        RowDivider()
+        ActionRow(
+            stringResource(R.string.canvas_spotify_open_dashboard),
+            destructive = false,
+            icon = PhosphorIcons.Regular.ArrowSquareOut,
+        ) {
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://developer.spotify.com/dashboard"))
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+        if ((idDraft.trim() to secretDraft.trim()) != stored && idDraft.isNotBlank() && secretDraft.isNotBlank()) {
+            RowDivider()
+            ActionRow(
+                stringResource(if (checking) R.string.canvas_spotify_app_checking else R.string.save),
+                destructive = false,
+                icon = PhosphorIcons.Regular.Check,
+            ) {
+                if (checking) return@ActionRow
+                checking = true
+                scope.launch {
+                    val ok = dev.lelonio.square.data.SpotifyCanvas.checkOwnApp(idDraft, secretDraft)
+                    checking = false
+                    if (ok) {
+                        dev.lelonio.square.data.SpotifyCanvas.setOwnApp(context, idDraft, secretDraft)
+                        stored = idDraft.trim() to secretDraft.trim()
+                    }
+                    android.widget.Toast.makeText(
+                        context,
+                        if (ok) R.string.canvas_spotify_app_ok else R.string.canvas_spotify_app_bad,
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
             }
         }
     }
