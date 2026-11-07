@@ -26,7 +26,7 @@ jobs:
 
       - name: Build Windows Executable & MSI Installer
         run: |
-          .\gradlew.bat :desktopApp:packageMsi :desktopApp:packageExe :desktopApp:packageUberJarForCurrentOS --stacktrace
+          .\gradlew.bat :desktopApp:packageMsi :desktopApp:packageExe :desktopApp:createDistributable :desktopApp:packageUberJarForCurrentOS --stacktrace
 
       - name: Collect Windows Binaries
         shell: bash
@@ -34,6 +34,20 @@ jobs:
           mkdir -p dist-windows
           find desktopApp/build/compose/binaries -type f \( -name "*.msi" -o -name "*.exe" \) -exec cp {} dist-windows/ \;
           cp desktopApp/build/compose/jars/*.jar dist-windows/ 2>/dev/null || true
+          
+          # Create standalone portable ZIP with bundled JRE and FFmpeg
+          appDir=$(find desktopApp/build/compose/binaries/main/app -type d -name "Square-Yuma" 2>/dev/null | head -n 1)
+          if [ -d "$appDir" ]; then
+            echo "Creating Windows Portable ZIP from $appDir..."
+            mkdir -p /tmp/ffmpeg-win
+            curl -sSL "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz" -o /tmp/ffmpeg-win/ffmpeg.gz
+            gzip -d /tmp/ffmpeg-win/ffmpeg.gz
+            cp /tmp/ffmpeg-win/ffmpeg "$appDir/ffmpeg.exe" 2>/dev/null || true
+            cp /tmp/ffmpeg-win/ffmpeg "$appDir/app/ffmpeg.exe" 2>/dev/null || true
+            parentDir=$(dirname "$appDir")
+            (cd "$parentDir" && zip -r -9 "/tmp/Square-Yuma-1.1.1-Windows-Portable.zip" "Square-Yuma")
+            cp /tmp/Square-Yuma-1.1.1-Windows-Portable.zip dist-windows/
+          fi
           ls -la dist-windows/
 
       - name: Upload Windows Artifacts
