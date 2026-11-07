@@ -1,6 +1,7 @@
 # Build output
 build/
 app/build/
+desktopApp/build/
 .gradle/
 local.properties
 
