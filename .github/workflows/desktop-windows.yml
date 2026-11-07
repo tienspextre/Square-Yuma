@@ -45,8 +45,7 @@ jobs:
             cp /tmp/ffmpeg-win/ffmpeg "$appDir/ffmpeg.exe" 2>/dev/null || true
             cp /tmp/ffmpeg-win/ffmpeg "$appDir/app/ffmpeg.exe" 2>/dev/null || true
             parentDir=$(dirname "$appDir")
-            (cd "$parentDir" && zip -r -9 "/tmp/Square-Yuma-1.1.1-Windows-Portable.zip" "Square-Yuma")
-            cp /tmp/Square-Yuma-1.1.1-Windows-Portable.zip dist-windows/
+            powershell.exe -Command "Compress-Archive -Path '$appDir' -DestinationPath 'dist-windows/Square-Yuma-1.1.1-Windows-Portable.zip' -Force"
           fi
           ls -la dist-windows/
 
