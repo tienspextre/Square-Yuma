@@ -136,7 +136,7 @@ class Updater(context: Context) {
             if (!response.isSuccessful) error("HTTP ${response.code}")
             val body = json.parseToJsonElement(response.body?.string().orEmpty()) as? JsonObject
                 ?: return null
-            val tag = body["tag_name"]?.jsonPrimitive?.content?.removePrefix("v") ?: return null
+            val tag = body["tag_name"]?.jsonPrimitive?.content?.removePrefix("yuma-")?.removePrefix("v") ?: return null
             val apks = (body["assets"] as? JsonArray)
                 ?.filterIsInstance<JsonObject>()
                 ?.filter { it["name"]?.jsonPrimitive?.content?.endsWith(".apk") == true }
@@ -145,7 +145,7 @@ class Updater(context: Context) {
             // the order it prefers them, then the universal, then whatever
             // there is, for a release that ships a single APK.
             fun named(part: String) = apks.firstOrNull {
-                it["name"]?.jsonPrimitive?.content?.contains(part) == true
+                it["name"]?.jsonPrimitive?.content?.contains(part, ignoreCase = true) == true
             }
             val asset = android.os.Build.SUPPORTED_ABIS.firstNotNullOfOrNull(::named)
                 ?: named("universal")
@@ -302,7 +302,7 @@ class Updater(context: Context) {
     companion object {
         private const val TAG = "Updater"
 
-        const val REPO = "Lelonio/Square"
+        const val REPO = "tienspextre/Square-Yuma"
 
         /** Told apart from a network failure so the UI can offer the way out. */
         const val REASON_PERMISSION = "permission"
