@@ -354,6 +354,18 @@ class SquareApplication : Application(), ImageLoaderFactory {
         dev.lelonio.square.backend.subsonic.SubsonicDownloadManager(this, sharedHttpClient, subsonicClient, offlineTrackStore, subsonicPreferences)
     }
 
+    /**
+     * Downloads in Music/Square the index does not know (an earlier install's) put back under
+     * Downloads. Each goes through the queue like a fresh download: it finds the file already
+     * indexed, marks it done, and fetches its cover and lyrics for offline. Returns how many.
+     */
+    suspend fun relinkDownloads(): Int {
+        val found = subsonicBackend.relink(this)
+        found.filterNot { downloads.isWanted(it.uri) }.forEach { downloads.addSingle(it) }
+        if (found.isNotEmpty()) dev.lelonio.square.download.DownloadService.start(this)
+        return found.size
+    }
+
     val subsonicBackend: dev.lelonio.square.backend.subsonic.SubsonicBackend by lazy {
         dev.lelonio.square.backend.subsonic.SubsonicBackend(subsonicClient, offlineTrackStore, subsonicDownloadManager)
     }

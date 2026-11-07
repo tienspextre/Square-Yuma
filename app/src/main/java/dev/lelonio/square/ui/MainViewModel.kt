@@ -3800,17 +3800,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun relinkDownloads() {
         if (!dev.lelonio.square.data.LocalLibrary.granted(container)) return
         viewModelScope.launch {
-            // Done only once the server answers: offline, the next launch tries again.
+            // Done only once the server answers: offline, the next chance tries again.
             if (container.subsonicClient.ping().isFailure) return@launch
-            val found = runCatching { container.subsonicBackend.relink(container) }
+            runCatching { container.relinkDownloads() }
                 .onFailure { android.util.Log.w("SubsonicDownload", "relink failed: ${it.message}") }
-                .getOrDefault(emptyList())
             relinkPrefs.edit().putBoolean("done", true).apply()
-            if (found.isEmpty()) return@launch
-            // Each goes through the queue like a fresh download: it finds the file already
-            // indexed, marks it done, and fetches its cover and lyrics for offline.
-            found.forEach { container.downloads.addSingle(it) }
-            DownloadService.start(container)
         }
     }
 

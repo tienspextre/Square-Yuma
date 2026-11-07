@@ -92,60 +92,35 @@ class SubsonicBackend(
      * back to its song on the server by the path it was saved under, Artist/Album/Title.ext
      * (see SubsonicDownloadManager.publish). Returns the songs found.
      */
-    // ponytail: matched by album search then title; a file under "Unknown Album" or renamed by
-    // hand is not found. Tag reading (or a sidecar with the song id) if that ever matters.
+    // ponytail: matched by path, not tags; a file under "Unknown Album" or renamed by hand is
+    // not found. Tag reading (or a sidecar with the song id) if that ever matters.
     suspend fun relink(context: android.content.Context): List<CatalogTrack> = withContext(Dispatchers.IO) {
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return@withContext emptyList()
         val safe = SubsonicDownloadManager.Companion::safeName
         val known = offlineStore.records.value.values.map { it.localFilePath }.toSet()
-        val media = android.provider.MediaStore.Audio.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        data class Left(val uri: String, val artist: String, val album: String, val title: String, val ext: String, val size: Long)
-        val left = mutableListOf<Left>()
-        context.contentResolver.query(
-            media,
-            arrayOf(
-                android.provider.MediaStore.Audio.Media._ID,
-                android.provider.MediaStore.Audio.Media.RELATIVE_PATH,
-                android.provider.MediaStore.Audio.Media.DISPLAY_NAME,
-                android.provider.MediaStore.Audio.Media.SIZE,
-            ),
-            "${android.provider.MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?",
-            arrayOf("${android.os.Environment.DIRECTORY_MUSIC}/Square/%"),
-            null,
-        )?.use { c ->
-            while (c.moveToNext()) {
-                // Music / Square / Artist / Album
-                val dirs = c.getString(1).orEmpty().trimEnd('/').split('/')
-                val name = c.getString(2).orEmpty()
-                val uri = android.content.ContentUris.withAppendedId(media, c.getLong(0)).toString()
-                if (dirs.size != 4 || uri in known) continue
-                left += Left(uri, dirs[2], dirs[3], name.substringBeforeLast('.'), name.substringAfterLast('.', ""), c.getLong(3))
-            }
-        }
+        val left = downloadManager.onDevice().filter { it.uri !in known }
+        fun CatalogTrack.matches(file: SubsonicDownloadManager.DeviceFile) =
+            safe(name, 100, "") == file.title &&
+                safe(artist, 60, "Unknown Artist") == file.artist &&
+                safe(album, 60, "Unknown Album") == file.album
         val found = mutableListOf<CatalogTrack>()
         for ((album, files) in left.groupBy { it.album }) {
+            // The whole album in two calls, rather than a search per song.
             val songs = client.search(album).getOrNull()?.album.orEmpty()
                 .filter { safe(it.name, 60, "Unknown Album") == album }
                 .flatMap { client.getAlbum(it.id).getOrNull().orEmpty() }
                 .map { it.toCatalogTrack(client, offlineStore) }
             for (file in files) {
-                val track = songs.firstOrNull {
-                    safe(it.name, 100, "") == file.title && safe(it.artist, 60, "Unknown Artist") == file.artist
-                } ?: continue
-                offlineStore.saveRecord(
-                    OfflineTrackRecord(
-                        subsonicId = track.uri.removePrefix("subsonic:track:"),
-                        trackUri = track.uri,
-                        localFilePath = file.uri,
-                        title = track.name,
-                        artist = track.artist,
-                        album = track.album,
-                        durationMs = track.durationMs,
-                        coverArtUrl = track.artworkUrl,
-                        fileSize = file.size,
-                        format = file.ext,
-                    ),
-                )
+                val track = songs.firstOrNull { it.matches(file) }
+                    ?: client.search(file.title).getOrNull()?.song.orEmpty()
+                        .map { it.toCatalogTrack(client, offlineStore) }
+                        .firstOrNull { it.matches(file) }
+                    ?: continue
+                // Downloaded again by this install before it knew of the old file: the copy
+                // it made ("Title (1).flac") is this install's own, so it can go.
+                offlineStore.records.value[track.uri]?.localFilePath
+                    ?.takeIf { it.startsWith("content://media/") }
+                    ?.let { runCatching { context.contentResolver.delete(android.net.Uri.parse(it), null, null) } }
+                offlineStore.saveRecord(downloadManager.recordOf(track, file))
                 found += track.copy(localFile = file.uri)
             }
         }

@@ -767,4 +767,9 @@
     <string name="inspect_encoder">Encoder</string>
     <string name="inspect_block_size">Block size</string>
     <string name="inspect_cover">Embedded cover</string>
+    <string name="download_rescan">Rescan downloaded songs</string>
+    <string name="download_rescan_running">Scanning Music/Square…</string>
+    <string name="download_rescan_done">Found %1$d songs in Music/Square</string>
+    <string name="download_rescan_failed">Could not reach the NAS to match the songs</string>
+    <string name="download_rescan_no_permission">Allow music access to find the songs in Music/Square</string>
 </resources>

@@ -99,6 +99,7 @@ import com.adamglin.phosphoricons.regular.Image
 import com.adamglin.phosphoricons.regular.Gear
 import com.adamglin.phosphoricons.regular.BatteryCharging
 import com.adamglin.phosphoricons.regular.Broom
+import com.adamglin.phosphoricons.regular.MagnifyingGlass
 import com.adamglin.phosphoricons.regular.ArrowsInLineHorizontal
 import com.adamglin.phosphoricons.regular.Pause
 import com.adamglin.phosphoricons.regular.Playlist
@@ -455,10 +456,10 @@ fun SettingsScreen(
             StorageChart()
         }
 
-        if (shown == SettingsPage.Downloads && showSpotify && !sdkPlayback) groupHeading(Group.DOWNLOADS, open = "downloads" in openGroups) { toggleGroup("downloads") }
+        if (shown == SettingsPage.Downloads && !sdkPlayback) groupHeading(Group.DOWNLOADS, open = "downloads" in openGroups) { toggleGroup("downloads") }
 
-        if (shown == SettingsPage.Downloads && showSpotify && !sdkPlayback && "downloads" in openGroups) groupItem("downloads", Group.DOWNLOADS) {
-            DownloadsSection(backdrop)
+        if (shown == SettingsPage.Downloads && !sdkPlayback && "downloads" in openGroups) groupItem("downloads", Group.DOWNLOADS) {
+            DownloadsSection(backdrop, nas = !showSpotify)
         }
 
         // The bitrate is librespot's; ExoPlayer takes what YouTube serves.
@@ -601,7 +602,7 @@ fun SettingsScreen(
 
         if (shown == SettingsPage.Playback && "covers" in openGroups) groupEnd(Group.COVERS)
 
-        if (shown == SettingsPage.Downloads && showSpotify && !sdkPlayback && "downloads" in openGroups) groupEnd(Group.DOWNLOADS)
+        if (shown == SettingsPage.Downloads && !sdkPlayback && "downloads" in openGroups) groupEnd(Group.DOWNLOADS)
 
         if (shown == SettingsPage.Downloads) groupHeading(Group.CLEANUP, open = "cleanup" in openGroups) { toggleGroup("cleanup") }
 
@@ -2174,7 +2175,7 @@ private fun Licences() {
  * almost always how much room this is taking.
  */
 @Composable
-private fun DownloadsSection(backdrop: Backdrop) {
+private fun DownloadsSection(backdrop: Backdrop, nas: Boolean) {
     val context = LocalContext.current
     val app = remember(context) {
         context.applicationContext as dev.lelonio.square.SquareApplication
@@ -2217,18 +2218,21 @@ private fun DownloadsSection(backdrop: Backdrop) {
         RowDivider()
         InfoRow(stringResource(R.string.downloaded_tracks), files.size.toString())
 
-        RowDivider()
-        Text(
-            stringResource(R.string.download_quality),
-            style = MaterialTheme.typography.labelLarge,
-            color = InkDim,
-            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp),
-        )
-        dev.lelonio.square.data.DownloadQuality.entries.forEach { entry ->
-            ChoiceRow(
-                label = stringResource(entry.label),
-                selected = entry == quality,
-            ) { settings.setQuality(entry) }
+        // The NAS keeps the server's original file: the bitrate choice is Spotify's.
+        if (!nas) {
+            RowDivider()
+            Text(
+                stringResource(R.string.download_quality),
+                style = MaterialTheme.typography.labelLarge,
+                color = InkDim,
+                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp),
+            )
+            dev.lelonio.square.data.DownloadQuality.entries.forEach { entry ->
+                ChoiceRow(
+                    label = stringResource(entry.label),
+                    selected = entry == quality,
+                ) { settings.setQuality(entry) }
+            }
         }
 
         RowDivider()
@@ -2283,6 +2287,36 @@ private fun DownloadsSection(backdrop: Backdrop) {
             backdrop = backdrop,
             onChange = settings::setOfflineMode,
         )
+
+        // Songs an earlier install downloaded to Music/Square, which an uninstall leaves
+        // behind with nothing indexing them. Also done on its own once after a reinstall.
+        if (nas) {
+            var rescanning by remember { mutableStateOf(false) }
+            val app = context.applicationContext as dev.lelonio.square.SquareApplication
+            val askAudio = dev.lelonio.square.ui.rememberLocalAudioPermission {
+                if (!dev.lelonio.square.data.LocalLibrary.granted(context)) {
+                    android.widget.Toast.makeText(context, R.string.download_rescan_no_permission, android.widget.Toast.LENGTH_LONG).show()
+                    return@rememberLocalAudioPermission
+                }
+                rescanning = true
+                scope.launch {
+                    val found = runCatching { app.relinkDownloads() }.getOrDefault(-1)
+                    rescanning = false
+                    android.widget.Toast.makeText(
+                        context,
+                        if (found < 0) context.getString(R.string.download_rescan_failed)
+                        else context.getString(R.string.download_rescan_done, found),
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+            RowDivider()
+            ActionRow(
+                stringResource(if (rescanning) R.string.download_rescan_running else R.string.download_rescan),
+                destructive = false,
+                icon = PhosphorIcons.Regular.MagnifyingGlass,
+            ) { if (!rescanning) askAudio() }
+        }
 
         // Always offered, unlike the retry above: the music being here is not
         // the same as its covers and words being here, and a song kept by an

@@ -95,6 +95,16 @@ class SubsonicDownloadManager(
         val album = safeName(track.album, 60, "Unknown Album")
         val title = safeName(track.name, 100, "Track_$songId")
 
+        // Already in Music/Square, from an earlier install or an earlier try: index that file
+        // rather than download it again beside itself as "Title (1)".
+        if (prefs.downloadTreeUri.value == null) {
+            onDevice("$artist/$album").firstOrNull { it.title == title }?.let { file ->
+                val record = recordOf(track, file)
+                store.saveRecord(record)
+                return@withContext record
+            }
+        }
+
         // Downloaded to private scratch first, then published in one go: a half-written file
         // never shows up in the device's Music library, and a failure leaves nothing behind.
         val partFile = File(context.cacheDir, "subsonic_dl_$songId.part")
@@ -212,6 +222,63 @@ class SubsonicDownloadManager(
         src.copyTo(target, overwrite = true)
         return target.absolutePath
     }
+
+    /** A file in Music/Square, by the parts of the path it was saved under. */
+    data class DeviceFile(val uri: String, val artist: String, val album: String, val title: String, val ext: String, val size: Long)
+
+    /**
+     * The audio files in Music/Square, or in one Artist/Album folder of it. Files an earlier
+     * install made are listed only with the audio permission; without it, only this install's.
+     */
+    fun onDevice(folder: String? = null): List<DeviceFile> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        val media = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val root = "${Environment.DIRECTORY_MUSIC}/Square/"
+        val out = mutableListOf<DeviceFile>()
+        runCatching {
+            context.contentResolver.query(
+                media,
+                arrayOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.RELATIVE_PATH,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.SIZE,
+                ),
+                if (folder == null) "${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?" else "${MediaStore.Audio.Media.RELATIVE_PATH} = ?",
+                arrayOf(if (folder == null) "$root%" else "$root$folder/"),
+                null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    // Music / Square / Artist / Album
+                    val dirs = c.getString(1).orEmpty().trimEnd('/').split('/')
+                    if (dirs.size != 4) continue
+                    val name = c.getString(2).orEmpty()
+                    out += DeviceFile(
+                        uri = android.content.ContentUris.withAppendedId(media, c.getLong(0)).toString(),
+                        artist = dirs[2],
+                        album = dirs[3],
+                        title = name.substringBeforeLast('.'),
+                        ext = name.substringAfterLast('.', ""),
+                        size = c.getLong(3),
+                    )
+                }
+            }
+        }.onFailure { android.util.Log.w("SubsonicDownload", "Music/Square unreadable: ${it.message}") }
+        return out
+    }
+
+    fun recordOf(track: CatalogTrack, file: DeviceFile) = OfflineTrackRecord(
+        subsonicId = track.uri.removePrefix("subsonic:track:"),
+        trackUri = track.uri,
+        localFilePath = file.uri,
+        title = track.name,
+        artist = track.artist,
+        album = track.album,
+        durationMs = track.durationMs,
+        coverArtUrl = track.artworkUrl,
+        fileSize = file.size,
+        format = file.ext,
+    )
 
     private fun findOrCreateDir(tree: Uri, parent: Uri, name: String): Uri {
         val resolver = context.contentResolver

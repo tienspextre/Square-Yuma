@@ -748,4 +748,9 @@
     <string name="inspect_encoder">Bộ mã hoá</string>
     <string name="inspect_block_size">Kích thước block</string>
     <string name="inspect_cover">Ảnh bìa nhúng</string>
+    <string name="download_rescan">Quét lại nhạc đã tải</string>
+    <string name="download_rescan_running">Đang quét Music/Square…</string>
+    <string name="download_rescan_done">Tìm lại được %1$d bài trong Music/Square</string>
+    <string name="download_rescan_failed">Không kết nối được NAS để nhận lại bài</string>
+    <string name="download_rescan_no_permission">Cần cho phép đọc nhạc để tìm bài trong Music/Square</string>
 </resources>

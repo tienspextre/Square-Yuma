@@ -387,7 +387,7 @@ private const val DAILY_TURN = 7
  * still needs to hear that the answer is yes so the shelf can fill itself in.
  */
 @Composable
-private fun rememberLocalAudioPermission(onAnswered: () -> Unit): () -> Unit {
+internal fun rememberLocalAudioPermission(onAnswered: () -> Unit): () -> Unit {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -1382,7 +1382,14 @@ fun SquareApp(
         // Downloads an earlier install left in Music/Square: they belong to that install, so
         // reading them back needs the audio permission, asked for only when the folder is there.
         val askToRelink = rememberLocalAudioPermission(onAnswered = viewModel::relinkDownloads)
-        LaunchedEffect(Unit) { if (viewModel.hasLeftoverDownloads()) askToRelink() }
+        // Keyed on the NAS login too: after a reinstall that is gone as well, so on the first
+        // launch there is no server to match against until the listener signs in again.
+        val nasApp = LocalContext.current.applicationContext as dev.lelonio.square.SquareApplication
+        val nasUser by nasApp.subsonicPreferences.username.collectAsStateWithLifecycle()
+        val nasPassword by nasApp.subsonicPreferences.password.collectAsStateWithLifecycle()
+        LaunchedEffect(nasUser, nasPassword) {
+            if (nasPassword.isNotEmpty() && viewModel.hasLeftoverDownloads()) askToRelink()
+        }
 
         // What folds the bar, and what tells the glass the page is moving. Built
         // here rather than beside the bar because both of those are read at the
