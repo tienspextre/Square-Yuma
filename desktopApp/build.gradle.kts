@@ -57,19 +57,23 @@ compose.desktop {
                 TargetFormat.Exe,
             )
             packageName = "Square-Yuma"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.1"
             description = "Square × Yuma Desktop — Liquid Glass Lossless & Automix Music Player"
             vendor = "Square-Yuma Open Source"
             modules("java.instrument", "java.management", "java.naming", "java.prefs", "java.sql", "java.xml", "jdk.unsupported")
 
             linux {
+                iconFile.set(project.file("src/jvmMain/resources/icon.png"))
                 shortcut = true
                 menuGroup = "AudioVideo;Audio;Player;"
             }
             windows {
+                iconFile.set(project.file("src/jvmMain/resources/icon.ico"))
                 shortcut = true
                 menuGroup = "Square-Yuma"
                 upgradeUuid = "8f45a23e-9a14-4d62-b8bc-91f8459e1201"
+                dirChooser = true
+                perUserInstall = false
             }
         }
     }
