@@ -34,7 +34,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -268,11 +271,21 @@ fun ImmersionStageView(
             // Scrubber LiquidSlider
             val safeDur = durationMs.coerceAtLeast(1L).toFloat()
             val curFrac = (positionMs.toFloat() / safeDur).coerceIn(0f, 1f)
+            var scrubFraction by remember { mutableStateOf<Float?>(null) }
+            val displayFrac = scrubFraction ?: curFrac
+            val displayMs = scrubFraction?.let { (it * safeDur).toLong() } ?: positionMs
             Column(modifier = Modifier.fillMaxWidth(0.92f)) {
                 LiquidSlider(
-                    value = { curFrac },
+                    value = { displayFrac },
                     onValueChange = { frac ->
-                        controller.player.seekTo((frac * safeDur).toLong())
+                        scrubFraction = frac
+                    },
+                    onValueChangeFinished = {
+                        val target = scrubFraction
+                        scrubFraction = null
+                        if (target != null) {
+                            controller.player.seekTo((target * safeDur).toLong())
+                        }
                     },
                     valueRange = 0f..1f,
                     visibilityThreshold = 0.001f,
@@ -284,12 +297,12 @@ fun ImmersionStageView(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = formatClockMs(positionMs),
+                        text = formatClockMs(displayMs),
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = InkDim,
                     )
                     Text(
-                        text = "-${formatClockMs((durationMs - positionMs).coerceAtLeast(0L))}",
+                        text = "-${formatClockMs((durationMs - displayMs).coerceAtLeast(0L))}",
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = InkDim,
                     )

@@ -284,143 +284,188 @@ class DesktopAudioDeck(
             var framesPlayed = 0L
             val startSec = startPositionMs / 1000.0
 
-            val playedWithFfmpeg = runCatching {
-                val spd = dspState.speed.coerceIn(0.5f, 1.5f)
-                val ptc = dspState.pitch.coerceIn(0.5f, 1.5f)
-                val filterChain = if (abs(spd - 1f) > 0.01f || abs(ptc - 1f) > 0.01f) {
-                    val asetrate = (targetRate * ptc).toInt()
-                    val atempo = (spd / ptc).coerceIn(0.5f, 2.0f)
-                    "asetrate=$asetrate,aresample=$targetRate,atempo=$atempo"
+            val cleanInput = try {
+                if (resolvedUrlOrPath.startsWith("file:")) {
+                    File(java.net.URI(resolvedUrlOrPath)).absolutePath
                 } else {
-                    "anull"
+                    resolvedUrlOrPath
                 }
-                val cmd = buildList {
-                    add("ffmpeg")
-                    add("-v"); add("error")
-                    if (startSec > 0.05) {
-                        add("-ss"); add(String.format(java.util.Locale.US, "%.3f", startSec))
+            } catch (_: Exception) {
+                resolvedUrlOrPath.removePrefix("file://").removePrefix("/")
+            }
+
+            val ffmpegBinary = DesktopFfmpegLocator.getFfmpegPath()
+
+            val playedWithFfmpeg = if (ffmpegBinary != null) {
+                runCatching {
+                    val spd = dspState.speed.coerceIn(0.5f, 1.5f)
+                    val ptc = dspState.pitch.coerceIn(0.5f, 1.5f)
+                    val filterChain = if (abs(spd - 1f) > 0.01f || abs(ptc - 1f) > 0.01f) {
+                        val asetrate = (targetRate * ptc).toInt()
+                        val atempo = (spd / ptc).coerceIn(0.5f, 2.0f)
+                        "asetrate=$asetrate,aresample=$targetRate,atempo=$atempo"
+                    } else {
+                        "anull"
                     }
-                    add("-i"); add(resolvedUrlOrPath.removePrefix("file://"))
-                    add("-vn")
-                    add("-af"); add(filterChain)
-                    add("-f"); add("s16le")
-                    add("-ac"); add("2")
-                    add("-ar"); add(targetRate.toString())
-                    add("pipe:1")
-                }
-                val proc = ProcessBuilder(cmd).start()
-                activeProcess = proc
-                val input = BufferedInputStream(proc.inputStream, 32768)
-                val rawBuf = ByteArray(4096)
-                val outBuf = ByteArray(4096)
-                val shortIn = ByteBuffer.wrap(rawBuf).order(ByteOrder.LITTLE_ENDIAN)
-                val shortOut = ByteBuffer.wrap(outBuf).order(ByteOrder.LITTLE_ENDIAN)
-
-                while (isActive && !stopRequested.get()) {
-                    if (isPaused.get()) {
-                        delay(20)
-                        continue
+                    val cmd = buildList {
+                        add(ffmpegBinary)
+                        add("-v"); add("error")
+                        if (cleanInput.startsWith("http://") || cleanInput.startsWith("https://")) {
+                            add("-reconnect"); add("1")
+                            add("-reconnect_streamed"); add("1")
+                            add("-reconnect_delay_max"); add("5")
+                        }
+                        if (startSec > 0.05) {
+                            add("-ss"); add(String.format(java.util.Locale.US, "%.3f", startSec))
+                        }
+                        add("-i"); add(cleanInput)
+                        add("-vn")
+                        add("-af"); add(filterChain)
+                        add("-f"); add("s16le")
+                        add("-ac"); add("2")
+                        add("-ar"); add(targetRate.toString())
+                        add("pipe:1")
                     }
-                    val read = input.read(rawBuf)
-                    if (read <= 0) break
-                    val aligned = read and 0xFFFC
-                    if (aligned <= 0) continue
+                    val proc = ProcessBuilder(cmd).start()
+                    activeProcess = proc
+                    val input = BufferedInputStream(proc.inputStream, 32768)
+                    val rawBuf = ByteArray(4096)
+                    val outBuf = ByteArray(4096)
+                    val shortIn = ByteBuffer.wrap(rawBuf).order(ByteOrder.LITTLE_ENDIAN)
+                    val shortOut = ByteBuffer.wrap(outBuf).order(ByteOrder.LITTLE_ENDIAN)
 
-                    val dsp = dspState
-                    biquad.updateLowPass(lowPassCutoffHz)
-                    biquad.updateLowShelf(bassGainDb + dsp.bassBoostDb.toDouble())
-                    val totalGain = (deckVolume * masterVolume).coerceIn(0f, 1.5f)
-                    val vocalCancel = dsp.vocalRemoval.coerceIn(0f, 1f)
-                    val revWet = dsp.reverb.coerceIn(0f, 1f)
+                    while (isActive && !stopRequested.get()) {
+                        if (isPaused.get()) {
+                            delay(20)
+                            continue
+                        }
+                        val read = input.read(rawBuf)
+                        if (read <= 0) break
+                        val aligned = read and 0xFFFC
+                        if (aligned <= 0) continue
 
-                    val numFrames = aligned / 4
-                    var bassAccum = 0f
-                    val bands = FloatArray(32)
+                        val dsp = dspState
+                        biquad.updateLowPass(lowPassCutoffHz)
+                        biquad.updateLowShelf(bassGainDb + dsp.bassBoostDb.toDouble())
+                        val totalGain = (deckVolume * masterVolume).coerceIn(0f, 1.5f)
+                        val vocalCancel = dsp.vocalRemoval.coerceIn(0f, 1f)
+                        val revWet = dsp.reverb.coerceIn(0f, 1f)
 
-                    for (f in 0 until numFrames) {
-                        val byteIdx = f * 4
-                        var l = shortIn.getShort(byteIdx) / 32768.0
-                        var r = shortIn.getShort(byteIdx + 2) / 32768.0
+                        val numFrames = aligned / 4
+                        var bassAccum = 0f
+                        val bands = FloatArray(32)
 
-                        // Karaoke center vocal cancellation (mid-side subtraction keeping sub-bass)
-                        if (vocalCancel > 0.01f) {
-                            val side = (l - r) * 0.75
-                            l = l * (1.0 - vocalCancel) + side * vocalCancel
-                            r = r * (1.0 - vocalCancel) - side * vocalCancel
+                        for (f in 0 until numFrames) {
+                            val byteIdx = f * 4
+                            var l = shortIn.getShort(byteIdx) / 32768.0
+                            var r = shortIn.getShort(byteIdx + 2) / 32768.0
+
+                            if (vocalCancel > 0.01f) {
+                                val side = (l - r) * 0.75
+                                l = l * (1.0 - vocalCancel) + side * vocalCancel
+                                r = r * (1.0 - vocalCancel) - side * vocalCancel
+                            }
+
+                            l = biquad.processLeft(l)
+                            r = biquad.processRight(r)
+
+                            if (revWet > 0.01f) {
+                                reverb.process(l.toFloat(), r.toFloat(), revWet, reverbPair)
+                                l = reverbPair[0].toDouble()
+                                r = reverbPair[1].toDouble()
+                            }
+
+                            val outL = (l * totalGain * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
+                            val outR = (r * totalGain * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
+                            shortOut.putShort(byteIdx, outL)
+                            shortOut.putShort(byteIdx + 2, outR)
+
+                            val mag = ((abs(l) + abs(r)) * 0.5).toFloat()
+                            bassAccum += mag
+                            bands[(f * 32) / numFrames] += mag
                         }
 
-                        l = biquad.processLeft(l)
-                        r = biquad.processRight(r)
+                        line?.write(outBuf, 0, aligned)
+                        framesPlayed += numFrames
+                        val currentPos = startPositionMs + ((framesPlayed * 1000L * dsp.speed) / targetRate).toLong()
+                        positionMsAtomic.set(currentPos)
 
-                        if (revWet > 0.01f) {
-                            reverb.process(l.toFloat(), r.toFloat(), revWet, reverbPair)
-                            l = reverbPair[0].toDouble()
-                            r = reverbPair[1].toDouble()
+                        if (onSpectrumSample != null && deckVolume > 0.25f) {
+                            val normFactor = (numFrames / 32f).coerceAtLeast(1f)
+                            for (b in 0 until 32) {
+                                bands[b] = (bands[b] / normFactor * 3.2f).coerceIn(0.04f, 1f)
+                            }
+                            val bassPulse = (bassAccum / numFrames.coerceAtLeast(1) * 2.8f).coerceIn(0f, 1f)
+                            onSpectrumSample.invoke(bands, bassPulse)
                         }
-
-                        val outL = (l * totalGain * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
-                        val outR = (r * totalGain * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
-                        shortOut.putShort(byteIdx, outL)
-                        shortOut.putShort(byteIdx + 2, outR)
-
-                        val mag = ((abs(l) + abs(r)) * 0.5).toFloat()
-                        bassAccum += mag
-                        bands[(f * 32) / numFrames] += mag
                     }
-
-                    line?.write(outBuf, 0, aligned)
-                    framesPlayed += numFrames
-                    val currentPos = startPositionMs + ((framesPlayed * 1000L * dsp.speed) / targetRate).toLong()
-                    positionMsAtomic.set(currentPos)
-
-                    if (onSpectrumSample != null && deckVolume > 0.25f) {
-                        val normFactor = (numFrames / 32f).coerceAtLeast(1f)
-                        for (b in 0 until 32) {
-                            bands[b] = (bands[b] / normFactor * 3.2f).coerceIn(0.04f, 1f)
-                        }
-                        val bassPulse = (bassAccum / numFrames.coerceAtLeast(1) * 2.8f).coerceIn(0f, 1f)
-                        onSpectrumSample.invoke(bands, bassPulse)
-                    }
-                }
-                framesPlayed > 0
-            }.getOrDefault(false)
+                    framesPlayed > 0
+                }.getOrDefault(false)
+            } else {
+                false
+            }
 
             if (!playedWithFfmpeg && !stopRequested.get()) {
-                // Pure JVM jFLAC fallback when FFmpeg is not installed on host OS
+                // Pure JVM JavaSound / AudioSystem SPI fallback
                 runCatching {
-                    val stream: InputStream = if (resolvedUrlOrPath.startsWith("http://") || resolvedUrlOrPath.startsWith("https://")) {
-                        URL(resolvedUrlOrPath).openStream()
+                    val rawStream: InputStream = if (cleanInput.startsWith("http://") || cleanInput.startsWith("https://")) {
+                        URL(cleanInput).openStream()
                     } else {
-                        FileInputStream(File(resolvedUrlOrPath.removePrefix("file://")))
+                        FileInputStream(File(cleanInput))
                     }
-                    stream.use { raw ->
-                        val decoder = FLACDecoder(BufferedInputStream(raw, 65536))
-                        decoder.addPCMProcessor(object : PCMProcessor {
-                            private var flacRate = 44100
-                            private var flacLine: SourceDataLine? = null
-                            override fun processStreamInfo(info: StreamInfo) {
-                                flacRate = info.sampleRate
-                                val fmt = AudioFormat(info.sampleRate.toFloat(), info.bitsPerSample, info.channels, true, false)
-                                flacLine = runCatching {
-                                    (AudioSystem.getLine(DataLine.Info(SourceDataLine::class.java, fmt)) as SourceDataLine).apply {
-                                        open(fmt, 16384)
-                                        start()
-                                    }
-                                }.getOrNull()
-                            }
+                    val bufferedIn = BufferedInputStream(rawStream, 65536)
+                    val audioIn = AudioSystem.getAudioInputStream(bufferedIn)
+                    val pcmFormat = AudioFormat(
+                        AudioFormat.Encoding.PCM_SIGNED,
+                        targetRate.toFloat(),
+                        16,
+                        2,
+                        4,
+                        targetRate.toFloat(),
+                        false
+                    )
+                    val decodedIn = if (audioIn.format.matches(pcmFormat)) {
+                        audioIn
+                    } else {
+                        AudioSystem.getAudioInputStream(pcmFormat, audioIn)
+                    }
 
-                            override fun processPCM(pcm: ByteData) {
-                                if (stopRequested.get()) throw InterruptedException()
-                                while (isPaused.get() && !stopRequested.get()) {
-                                    Thread.sleep(20)
-                                }
-                                flacLine?.write(pcm.data, 0, pcm.len)
-                                framesPlayed += pcm.len / 4
-                                positionMsAtomic.set(startPositionMs + (framesPlayed * 1000L) / flacRate.coerceAtLeast(1))
-                            }
-                        })
-                        decoder.decode()
+                    if (startPositionMs > 50L) {
+                        val skipBytes = (startPositionMs * targetRate * 4L) / 1000L
+                        decodedIn.skip(skipBytes)
                     }
+
+                    val rawBuf = ByteArray(4096)
+                    val outBuf = ByteArray(4096)
+                    val shortIn = ByteBuffer.wrap(rawBuf).order(ByteOrder.LITTLE_ENDIAN)
+                    val shortOut = ByteBuffer.wrap(outBuf).order(ByteOrder.LITTLE_ENDIAN)
+
+                    while (isActive && !stopRequested.get()) {
+                        if (isPaused.get()) {
+                            delay(20)
+                            continue
+                        }
+                        val read = decodedIn.read(rawBuf)
+                        if (read <= 0) break
+                        val aligned = read and 0xFFFC
+                        if (aligned <= 0) continue
+
+                        val numFrames = aligned / 4
+                        val totalGain = (deckVolume * masterVolume).coerceIn(0f, 1.5f)
+
+                        for (f in 0 until numFrames) {
+                            val byteIdx = f * 4
+                            val l = (shortIn.getShort(byteIdx) * totalGain).coerceIn(-32768f, 32767f).toInt().toShort()
+                            val r = (shortIn.getShort(byteIdx + 2) * totalGain).coerceIn(-32768f, 32767f).toInt().toShort()
+                            shortOut.putShort(byteIdx, l)
+                            shortOut.putShort(byteIdx + 2, r)
+                        }
+
+                        line?.write(outBuf, 0, aligned)
+                        framesPlayed += numFrames
+                        positionMsAtomic.set(startPositionMs + (framesPlayed * 1000L) / targetRate)
+                    }
+                    decodedIn.close()
                 }
             }
 
@@ -431,7 +476,13 @@ class DesktopAudioDeck(
             activeLine = null
             activeProcess = null
 
-            val finishedNaturally = !stopRequested.get()
+            val trackDur = currentTrack?.durationMs ?: 0L
+            val currentPos = positionMsAtomic.get()
+            val playedMs = (framesPlayed * 1000L) / targetRate
+            val finishedNaturally = !stopRequested.get() &&
+                framesPlayed > 0 &&
+                (trackDur <= 3000L || playedMs >= (trackDur - 3500L) || currentPos >= (trackDur - 3500L))
+
             isPlaying.set(false)
             if (finishedNaturally) {
                 onDeckCompleted(this@DesktopAudioDeck)

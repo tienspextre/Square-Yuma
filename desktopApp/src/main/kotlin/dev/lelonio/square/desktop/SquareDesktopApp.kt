@@ -1500,6 +1500,7 @@ private fun FloatingBottomTransportDock(
     val dockShape = ContinuousRoundedRectangle(26.dp)
     val safeDur = durationMs.coerceAtLeast(1L).toFloat()
     val curFrac = (positionMs.toFloat() / safeDur).coerceIn(0f, 1f)
+    var scrubFraction by remember { mutableStateOf<Float?>(null) }
 
     Row(
         modifier = modifier
@@ -1609,16 +1610,25 @@ private fun FloatingBottomTransportDock(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                val displayFrac = scrubFraction ?: curFrac
+                val displayMs = scrubFraction?.let { (it * safeDur).toLong() } ?: positionMs
                 Text(
-                    text = formatClockMs(positionMs),
+                    text = formatClockMs(displayMs),
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
                     color = InkDim,
                     modifier = Modifier.width(38.dp),
                 )
                 LiquidSlider(
-                    value = { curFrac },
+                    value = { displayFrac },
                     onValueChange = { frac ->
-                        controller.player.seekTo((frac * safeDur).toLong())
+                        scrubFraction = frac
+                    },
+                    onValueChangeFinished = {
+                        val target = scrubFraction
+                        scrubFraction = null
+                        if (target != null) {
+                            controller.player.seekTo((target * safeDur).toLong())
+                        }
                     },
                     valueRange = 0f..1f,
                     visibilityThreshold = 0.001f,
@@ -1761,9 +1771,18 @@ private fun MiniCubePlayerView(
                     maxLines = 1,
                 )
                 val safeDur = durationMs.coerceAtLeast(1L).toFloat()
+                var scrubFractionSidecar by remember { mutableStateOf<Float?>(null) }
+                val displayFrac = scrubFractionSidecar ?: (positionMs.toFloat() / safeDur).coerceIn(0f, 1f)
                 LiquidSlider(
-                    value = { (positionMs.toFloat() / safeDur).coerceIn(0f, 1f) },
-                    onValueChange = { controller.player.seekTo((it * safeDur).toLong()) },
+                    value = { displayFrac },
+                    onValueChange = { scrubFractionSidecar = it },
+                    onValueChangeFinished = {
+                        val target = scrubFractionSidecar
+                        scrubFractionSidecar = null
+                        if (target != null) {
+                            controller.player.seekTo((target * safeDur).toLong())
+                        }
+                    },
                     valueRange = 0f..1f,
                     visibilityThreshold = 0.001f,
                     backdrop = backdrop,
