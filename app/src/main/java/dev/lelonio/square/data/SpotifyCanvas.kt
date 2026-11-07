@@ -145,7 +145,8 @@ object SpotifyCanvas {
     }
 
     private fun call(request: Request): ByteArray = http.newCall(request).execute().use {
-        check(it.isSuccessful) { "HTTP ${it.code} from ${request.url.host}" }
+        // The body says why (a 403 names what the account is missing); never a credential.
+        check(it.isSuccessful) { "HTTP ${it.code} from ${request.url.host}: ${it.body?.string().orEmpty().take(200)}" }
         it.body!!.bytes()
     }
 
