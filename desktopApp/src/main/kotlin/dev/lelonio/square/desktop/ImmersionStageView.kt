@@ -59,6 +59,9 @@ import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Bold
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.bold.ArrowsInSimple
+import com.adamglin.phosphoricons.bold.Repeat
+import com.adamglin.phosphoricons.bold.RepeatOnce
+import com.adamglin.phosphoricons.bold.Shuffle
 import com.adamglin.phosphoricons.bold.Sliders
 import com.adamglin.phosphoricons.bold.Waveform
 import com.adamglin.phosphoricons.fill.MicrophoneStage
@@ -68,7 +71,9 @@ import com.adamglin.phosphoricons.fill.Play
 import com.adamglin.phosphoricons.fill.SkipBack
 import com.adamglin.phosphoricons.fill.SkipForward
 import com.adamglin.phosphoricons.fill.SpeakerHigh
+import com.adamglin.phosphoricons.fill.SpeakerSlash
 import dev.lelonio.square.data.CatalogTrack
+import dev.lelonio.square.playback.DesktopRepeatMode
 import dev.lelonio.square.playback.AudioDspState
 import dev.lelonio.square.playback.AutomixUiState
 import dev.lelonio.square.playback.DesktopDspPreset
@@ -124,8 +129,12 @@ fun ImmersionStageView(
 
     val positionState = rememberUpdatedState(positionMs)
 
+    val pulseReactive by controller.subsonicPrefs.pulseReactiveBackground.collectAsState()
+    val shuffleEnabled by controller.player.shuffleEnabled.collectAsState()
+    val repeatMode by controller.player.repeatMode.collectAsState()
+
     val artScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.0f + (bassPulse * 0.035f) else 0.94f,
+        targetValue = if (isPlaying && pulseReactive) 1.0f + (bassPulse * 0.035f) else 1.0f,
         animationSpec = tween(180),
         label = "artScale",
     )
@@ -133,7 +142,7 @@ fun ImmersionStageView(
     Row(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 36.dp, vertical = 24.dp),
+            .padding(horizontal = 36.dp, vertical = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(40.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -143,11 +152,11 @@ fun ImmersionStageView(
                 .weight(0.44f)
                 .fillMaxHeight(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            // Top bar: Return to 3-Pane Studio button + Automix live pill
+            // Top bar: Return to 3-Pane Studio button + Pulse Glow Toggle + Automix live pill
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -166,25 +175,67 @@ fun ImmersionStageView(
                     Text("Studio View", style = MaterialTheme.typography.bodySmall, color = Ink)
                 }
 
-                AutomixStatusPill(
-                    automix = automix,
-                    backdrop = backdrop,
-                    glassConfig = glassConfig,
-                    onClick = { controller.setImmersionTab(ImmersionRightTab.QUEUE) },
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // Quick Optional Toggle: Nhấp nháy nền theo nhạc
+                    val pulseShape = ContinuousCapsule()
+                    Row(
+                        modifier = Modifier
+                            .clip(pulseShape)
+                            .background(
+                                if (pulseReactive) MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                                else Color.White.copy(alpha = 0.06f)
+                            )
+                            .border(
+                                1.dp,
+                                if (pulseReactive) MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                                else Color.White.copy(alpha = 0.12f),
+                                pulseShape,
+                            )
+                            .clickable { controller.subsonicPrefs.setPulseReactiveBackground(!pulseReactive) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = PhosphorIcons.Bold.Waveform,
+                            contentDescription = null,
+                            tint = if (pulseReactive) MaterialTheme.colorScheme.primary else InkDim,
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            text = if (pulseReactive) "Pulse: BẬT" else "Pulse: TẮT",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            color = if (pulseReactive) Ink else InkDim,
+                        )
+                    }
+
+                    AutomixStatusPill(
+                        automix = automix,
+                        backdrop = backdrop,
+                        glassConfig = glassConfig,
+                        onClick = { controller.setImmersionTab(ImmersionRightTab.QUEUE) },
+                    )
+                }
             }
 
-            // Large Floating Album Art with Bass-Reactive Rim
-            val coverShape = ContinuousRoundedRectangle(28.dp)
+            // Large Floating Album Art with Optional Bass-Reactive Rim
+            val coverShape = ContinuousRoundedRectangle(26.dp)
             Box(
                 modifier = Modifier
-                    .widthIn(max = 360.dp)
-                    .fillMaxWidth(0.84f)
+                    .widthIn(max = 320.dp)
+                    .fillMaxWidth(0.80f)
                     .aspectRatio(1f)
                     .scale(artScale)
-                    .softShadow(coverShape, elevation = 32.dp, ambient = 0.25f, spot = 0.35f)
+                    .softShadow(coverShape, elevation = 28.dp, ambient = 0.22f, spot = 0.32f)
                     .clip(coverShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.22f + bassPulse * 0.25f), coverShape),
+                    .border(
+                        1.dp,
+                        Color.White.copy(alpha = if (pulseReactive) 0.22f + bassPulse * 0.25f else 0.22f),
+                        coverShape,
+                    ),
             ) {
                 DesktopArtworkImage(
                     artworkUrl = currentTrack?.artworkUrl,
@@ -194,45 +245,45 @@ fun ImmersionStageView(
                 )
             }
 
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(14.dp))
 
             // Track Metadata + Hi-Res Quality Badge
-            Text(
-                text = currentTrack?.name ?: "Select a track to begin listening",
-                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 24.sp),
-                color = Ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = buildString {
-                    append(currentTrack?.artist ?: "Square × Yuma Desktop")
-                    val alb = currentTrack?.album.orEmpty()
-                    if (alb.isNotBlank()) append(" — ").append(alb)
-                },
-                style = MaterialTheme.typography.titleMedium,
-                color = InkDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            // Clickable Lossless Quality Badge + Live 32-Band Mini Visualizer
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth(),
             ) {
+                Text(
+                    text = currentTrack?.name ?: "Select a track to begin listening",
+                    style = MaterialTheme.typography.headlineLarge.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold),
+                    color = Ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = buildString {
+                        append(currentTrack?.artist ?: "Square × Yuma Desktop")
+                        val alb = currentTrack?.album.orEmpty()
+                        if (alb.isNotBlank()) append(" — ").append(alb)
+                    },
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp),
+                    color = InkDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                // Clickable Lossless Quality Badge
                 val badgeShape = ContinuousCapsule()
                 Row(
                     modifier = Modifier
                         .liquidGlass(glassConfig, badgeShape, ownBackdrop = backdrop)
                         .clip(badgeShape)
                         .clickable { controller.setImmersionTab(ImmersionRightTab.INSPECT) }
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -240,33 +291,17 @@ fun ImmersionStageView(
                         imageVector = PhosphorIcons.Bold.Waveform,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(13.dp),
                     )
                     Text(
-                        text = currentTrack?.qualityBadge ?: "FLAC 24-bit / 96 kHz",
-                        style = MaterialTheme.typography.labelLarge,
+                        text = currentTrack?.qualityBadge ?: "FLAC 24-bit / 48 kHz",
+                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 11.sp),
                         color = Ink,
                     )
                 }
-
-                if (dspState.preset != DesktopDspPreset.OFF) {
-                    Row(
-                        modifier = Modifier
-                            .liquidGlass(glassConfig, badgeShape, ownBackdrop = backdrop)
-                            .clip(badgeShape)
-                            .clickable { controller.setImmersionTab(ImmersionRightTab.DSP) }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                    ) {
-                        Text(
-                            text = dspState.preset.label.uppercase(),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
 
             // Scrubber LiquidSlider
             val safeDur = durationMs.coerceAtLeast(1L).toFloat()
@@ -298,68 +333,113 @@ fun ImmersionStageView(
                 ) {
                     Text(
                         text = formatClockMs(displayMs),
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp),
                         color = InkDim,
                     )
                     Text(
                         text = "-${formatClockMs((durationMs - displayMs).coerceAtLeast(0L))}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp),
                         color = InkDim,
                     )
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // Transport Buttons (SkipBack, Play/Pause, SkipForward)
+            // Transport Buttons (Shuffle, SkipBack, Play/Pause, SkipForward, Repeat)
             Row(
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Shuffle Button
+                LiquidButton(
+                    onClick = { controller.player.toggleShuffle() },
+                    backdrop = backdrop,
+                    surfaceColor = if (shuffleEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f),
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Icon(
+                        imageVector = PhosphorIcons.Bold.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else InkDim,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                // Previous Button
                 LiquidButton(
                     onClick = { controller.player.skipPrevious() },
                     backdrop = backdrop,
-                    modifier = Modifier.size(50.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
-                    Icon(PhosphorIcons.Fill.SkipBack, contentDescription = "Previous", tint = Ink, modifier = Modifier.size(20.dp))
+                    Icon(PhosphorIcons.Fill.SkipBack, contentDescription = "Previous", tint = Ink, modifier = Modifier.size(19.dp))
                 }
 
+                // Play / Pause Button (Hero glass circle)
                 LiquidButton(
                     onClick = { controller.player.togglePlayPause() },
                     backdrop = backdrop,
                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                    modifier = Modifier.size(66.dp),
+                    modifier = Modifier.size(64.dp),
                 ) {
                     Icon(
                         imageVector = if (isPlaying) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play,
                         contentDescription = "Play/Pause",
                         tint = Ink,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(26.dp),
                     )
                 }
 
+                // Next Button
                 LiquidButton(
                     onClick = { controller.player.skipNext() },
                     backdrop = backdrop,
-                    modifier = Modifier.size(50.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
-                    Icon(PhosphorIcons.Fill.SkipForward, contentDescription = "Next", tint = Ink, modifier = Modifier.size(20.dp))
+                    Icon(PhosphorIcons.Fill.SkipForward, contentDescription = "Next", tint = Ink, modifier = Modifier.size(19.dp))
+                }
+
+                // Repeat Button
+                LiquidButton(
+                    onClick = { controller.player.toggleRepeat() },
+                    backdrop = backdrop,
+                    surfaceColor = if (repeatMode != DesktopRepeatMode.OFF) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f),
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (repeatMode == DesktopRepeatMode.ONE) PhosphorIcons.Bold.RepeatOnce else PhosphorIcons.Bold.Repeat,
+                            contentDescription = "Repeat",
+                            tint = if (repeatMode != DesktopRepeatMode.OFF) MaterialTheme.colorScheme.primary else InkDim,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // Volume LiquidSlider row
+            // Volume LiquidSlider row with mute toggle
+            var preMuteVol by remember { mutableStateOf(0.85f) }
             Row(
-                modifier = Modifier.fillMaxWidth(0.75f),
+                modifier = Modifier.fillMaxWidth(0.78f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Icon(
-                    imageVector = PhosphorIcons.Fill.SpeakerHigh,
-                    contentDescription = "Volume",
+                    imageVector = if (volume <= 0.001f) PhosphorIcons.Fill.SpeakerSlash else PhosphorIcons.Fill.SpeakerHigh,
+                    contentDescription = "Mute / Unmute",
                     tint = InkDim,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clickable {
+                            if (volume > 0.001f) {
+                                preMuteVol = volume
+                                controller.player.setMasterVolume(0f)
+                            } else {
+                                controller.player.setMasterVolume(if (preMuteVol > 0.05f) preMuteVol else 0.85f)
+                            }
+                        },
                 )
                 LiquidSlider(
                     value = { volume },
@@ -371,7 +451,7 @@ fun ImmersionStageView(
                 )
                 Text(
                     text = "${(volume * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp),
                     color = InkDim,
                     modifier = Modifier.width(36.dp),
                 )
@@ -416,18 +496,36 @@ fun ImmersionStageView(
                                 shape = pillShape,
                             )
                             .clickable { controller.setImmersionTab(tab) }
-                            .padding(vertical = 9.dp, horizontal = 10.dp),
+                            .padding(vertical = 9.dp, horizontal = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = "${tab.shortTag}  ${tab.label}",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            ),
-                            color = if (selected) Ink else InkDim,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            val icon = when (tab) {
+                                ImmersionRightTab.LYRICS -> PhosphorIcons.Fill.MicrophoneStage
+                                ImmersionRightTab.QUEUE -> PhosphorIcons.Bold.Shuffle
+                                ImmersionRightTab.DSP -> PhosphorIcons.Bold.Sliders
+                                ImmersionRightTab.INSPECT -> PhosphorIcons.Bold.Waveform
+                            }
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (selected) MaterialTheme.colorScheme.primary else InkDim,
+                                modifier = Modifier.size(13.dp),
+                            )
+                            Text(
+                                text = tab.label,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 11.5.sp,
+                                ),
+                                color = if (selected) Ink else InkDim,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }

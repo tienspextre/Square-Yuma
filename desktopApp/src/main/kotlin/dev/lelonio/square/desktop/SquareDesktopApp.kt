@@ -74,6 +74,9 @@ import com.adamglin.phosphoricons.bold.HardDrives
 import com.adamglin.phosphoricons.bold.House
 import com.adamglin.phosphoricons.bold.MagnifyingGlass
 import com.adamglin.phosphoricons.bold.Playlist
+import com.adamglin.phosphoricons.bold.Repeat
+import com.adamglin.phosphoricons.bold.RepeatOnce
+import com.adamglin.phosphoricons.bold.Shuffle
 import com.adamglin.phosphoricons.bold.SidebarSimple
 import com.adamglin.phosphoricons.bold.Sliders
 import com.adamglin.phosphoricons.bold.Sparkle
@@ -87,8 +90,10 @@ import com.adamglin.phosphoricons.fill.Shuffle
 import com.adamglin.phosphoricons.fill.SkipBack
 import com.adamglin.phosphoricons.fill.SkipForward
 import com.adamglin.phosphoricons.fill.SpeakerHigh
+import com.adamglin.phosphoricons.fill.SpeakerSlash
 import dev.lelonio.square.data.CatalogPlaylist
 import dev.lelonio.square.data.CatalogTrack
+import dev.lelonio.square.playback.DesktopRepeatMode
 import dev.lelonio.square.ui.components.DesktopArtworkImage
 import dev.lelonio.square.ui.glass.GlassEffectConfig
 import dev.lelonio.square.ui.glass.LiquidButton
@@ -144,10 +149,11 @@ fun SquareDesktopApp(
                         .fillMaxSize()
                         .layerBackdrop(appBackdrop),
                 ) {
+                    val pulseReactive by controller.subsonicPrefs.pulseReactiveBackground.collectAsState()
                     AmbientMeshBackground(
                         primaryColor = animatedPrimary,
                         secondaryColor = animatedSecondary,
-                        bassPulse = bassPulse,
+                        bassPulse = if (pulseReactive) bassPulse else 0f,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -1181,6 +1187,58 @@ private fun SettingsAndGlassStage(
             }
         }
 
+        // Dynamic Visual Effects Card ("Giao diện & Hiệu ứng động")
+        val pulseReactive by controller.subsonicPrefs.pulseReactiveBackground.collectAsState()
+        val showAlbumSpectrum by controller.subsonicPrefs.albumSpectrumOverlay.collectAsState()
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White.copy(alpha = 0.05f))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = "DYNAMIC VISUAL EFFECTS & SPECTRUM OVERLAYS",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                    Text("Nhấp nháy nền theo nhịp Bass (Pulsing Background)", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium), color = Ink)
+                    Text("Nền bập bùng, co giãn và phát sáng theo nhịp trống bài hát. Tắt đi để nền chuyển màu êm dịu, không gây chớp mắt.", style = MaterialTheme.typography.bodySmall, color = InkDim)
+                }
+                LiquidToggle(
+                    selected = { pulseReactive },
+                    onSelect = { controller.subsonicPrefs.setPulseReactiveBackground(it) },
+                    backdrop = backdrop,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                    Text("Bản đồ sóng nhạc trên ảnh Album bên phải (Spectrum Overlay)", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium), color = Ink)
+                    Text("Vẽ các cột phổ tần số âm thanh trực tiếp đè lên góc dưới của ảnh bìa album ở thanh bên phải Studio.", style = MaterialTheme.typography.bodySmall, color = InkDim)
+                }
+                LiquidToggle(
+                    selected = { showAlbumSpectrum },
+                    onSelect = { controller.subsonicPrefs.setAlbumSpectrumOverlay(it) },
+                    backdrop = backdrop,
+                )
+            }
+        }
+
         // Liquid Glass SkSL Shader Tuning Card
         Column(
             modifier = Modifier
@@ -1382,7 +1440,9 @@ private fun RightNowPlayingSidecar(
             )
         }
 
-        // Cover Art + Live Spectrum Overlay
+        val showAlbumSpectrum by controller.subsonicPrefs.albumSpectrumOverlay.collectAsState()
+
+        // Cover Art + Optional Live Spectrum Overlay ("bản đồ nhạc trên ảnh album bên phải")
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1395,22 +1455,51 @@ private fun RightNowPlayingSidecar(
                 modifier = Modifier.fillMaxSize(),
                 onPaletteLoaded = onPaletteLoaded,
             )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))
+
+            if (showAlbumSpectrum) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))
+                            )
                         )
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    LiveSpectrumBars(
+                        bands = spectrum,
+                        accent = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                }
+            }
+
+            // Quick toggle button on top-right of cover
+            val toggleShape = ContinuousCapsule()
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .clip(toggleShape)
+                    .background(if (showAlbumSpectrum) MaterialTheme.colorScheme.primary.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.45f))
+                    .clickable { controller.subsonicPrefs.setAlbumSpectrumOverlay(!showAlbumSpectrum) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                LiveSpectrumBars(
-                    bands = spectrum,
-                    accent = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.fillMaxSize(),
+                Icon(
+                    imageVector = PhosphorIcons.Bold.Waveform,
+                    contentDescription = "Toggle Spectrum Overlay",
+                    tint = Color.White,
+                    modifier = Modifier.size(11.dp),
+                )
+                Text(
+                    text = if (showAlbumSpectrum) "Sóng: BẬT" else "Sóng: TẮT",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = Color.White,
                 )
             }
         }
@@ -1563,10 +1652,27 @@ private fun FloatingBottomTransportDock(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
+            val shuffleEnabled by controller.player.shuffleEnabled.collectAsState()
+            val repeatMode by controller.player.repeatMode.collectAsState()
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                LiquidButton(
+                    onClick = { controller.player.toggleShuffle() },
+                    backdrop = backdrop,
+                    surfaceColor = if (shuffleEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f),
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = PhosphorIcons.Bold.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else InkDim,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+
                 LiquidButton(
                     onClick = { controller.player.skipPrevious() },
                     backdrop = backdrop,
@@ -1595,6 +1701,20 @@ private fun FloatingBottomTransportDock(
                     modifier = Modifier.size(38.dp),
                 ) {
                     Icon(PhosphorIcons.Fill.SkipForward, contentDescription = "Next", tint = Ink, modifier = Modifier.size(16.dp))
+                }
+
+                LiquidButton(
+                    onClick = { controller.player.toggleRepeat() },
+                    backdrop = backdrop,
+                    surfaceColor = if (repeatMode != DesktopRepeatMode.OFF) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f),
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = if (repeatMode == DesktopRepeatMode.ONE) PhosphorIcons.Bold.RepeatOnce else PhosphorIcons.Bold.Repeat,
+                        contentDescription = "Repeat",
+                        tint = if (repeatMode != DesktopRepeatMode.OFF) MaterialTheme.colorScheme.primary else InkDim,
+                        modifier = Modifier.size(15.dp),
+                    )
                 }
 
                 AutomixStatusPill(

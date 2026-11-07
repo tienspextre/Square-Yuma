@@ -44,10 +44,10 @@ enum class DesktopLayoutMode {
 }
 
 enum class ImmersionRightTab(val label: String, val shortTag: String) {
-    LYRICS("Karaoke Lyrics", "Aa"),
-    QUEUE("Automix Queue", "≡"),
-    DSP("Audio DSP", "🎚"),
-    INSPECT("Spectrogram", "ⓘ"),
+    LYRICS("Lyrics", "Karaoke"),
+    QUEUE("Queue", "Automix"),
+    DSP("Audio DSP", "Studio"),
+    INSPECT("Lossless Info", "FLAC"),
 }
 
 class DesktopMusicController {
@@ -136,6 +136,24 @@ class DesktopMusicController {
     private var localAllTracks: List<CatalogTrack> = emptyList()
 
     init {
+        // Restore shuffle & repeat preferences
+        if (subsonicPrefs.shuffleEnabled.value) {
+            player.setShuffleEnabled(true)
+        }
+        val restoredRepeat = runCatching { dev.lelonio.square.playback.DesktopRepeatMode.valueOf(subsonicPrefs.repeatMode.value) }.getOrDefault(dev.lelonio.square.playback.DesktopRepeatMode.OFF)
+        player.setRepeatMode(restoredRepeat)
+
+        scope.launch {
+            player.shuffleEnabled.collect {
+                subsonicPrefs.setShuffleEnabled(it)
+            }
+        }
+        scope.launch {
+            player.repeatMode.collect {
+                subsonicPrefs.setRepeatMode(it.name)
+            }
+        }
+
         refreshLibrary()
 
         // Automatically fetch word-synced / LRC lyrics whenever currentTrack changes

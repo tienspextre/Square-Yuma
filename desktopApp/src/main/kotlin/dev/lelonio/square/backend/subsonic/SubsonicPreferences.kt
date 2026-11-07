@@ -39,6 +39,10 @@ class SubsonicPreferences {
         const val KEY_TRANSCODE_CELLULAR = "subsonic_transcode_cellular"
         const val KEY_TRANSCODE_BITRATE = "subsonic_transcode_bitrate"
         const val KEY_LOCAL_FOLDER = "local_music_folder"
+        const val KEY_PULSE_REACTIVE_BACKGROUND = "visual_pulse_reactive_background"
+        const val KEY_ALBUM_SPECTRUM_OVERLAY = "visual_album_spectrum_overlay"
+        const val KEY_SHUFFLE_ENABLED = "playback_shuffle_enabled"
+        const val KEY_REPEAT_MODE = "playback_repeat_mode"
         const val DEFAULT_SERVER_URL = ""
         const val DEFAULT_USERNAME = ""
         const val DEFAULT_PASSWORD = ""
@@ -85,6 +89,26 @@ class SubsonicPreferences {
     )
     val localMusicFolder: StateFlow<String> = _localMusicFolder.asStateFlow()
 
+    private val _pulseReactiveBackground = MutableStateFlow(
+        storedJson.optBoolean(KEY_PULSE_REACTIVE_BACKGROUND, false)
+    )
+    val pulseReactiveBackground: StateFlow<Boolean> = _pulseReactiveBackground.asStateFlow()
+
+    private val _albumSpectrumOverlay = MutableStateFlow(
+        storedJson.optBoolean(KEY_ALBUM_SPECTRUM_OVERLAY, false)
+    )
+    val albumSpectrumOverlay: StateFlow<Boolean> = _albumSpectrumOverlay.asStateFlow()
+
+    private val _shuffleEnabled = MutableStateFlow(
+        storedJson.optBoolean(KEY_SHUFFLE_ENABLED, false)
+    )
+    val shuffleEnabled: StateFlow<Boolean> = _shuffleEnabled.asStateFlow()
+
+    private val _repeatMode = MutableStateFlow(
+        storedJson.optString(KEY_REPEAT_MODE, "OFF").ifBlank { "OFF" }
+    )
+    val repeatMode: StateFlow<String> = _repeatMode.asStateFlow()
+
     private fun save() {
         runCatching {
             storedJson.put(KEY_SERVER_URL, _serverUrl.value)
@@ -93,6 +117,10 @@ class SubsonicPreferences {
             storedJson.put(KEY_TRANSCODE_CELLULAR, _transcodeCellular.value)
             storedJson.put(KEY_TRANSCODE_BITRATE, _transcodeBitrate.value)
             storedJson.put(KEY_LOCAL_FOLDER, _localMusicFolder.value)
+            storedJson.put(KEY_PULSE_REACTIVE_BACKGROUND, _pulseReactiveBackground.value)
+            storedJson.put(KEY_ALBUM_SPECTRUM_OVERLAY, _albumSpectrumOverlay.value)
+            storedJson.put(KEY_SHUFFLE_ENABLED, _shuffleEnabled.value)
+            storedJson.put(KEY_REPEAT_MODE, _repeatMode.value)
             configFile.writeText(storedJson.toString(2))
         }
     }
@@ -130,6 +158,26 @@ class SubsonicPreferences {
 
     fun setLocalMusicFolder(value: String) {
         _localMusicFolder.value = value.trim()
+        save()
+    }
+
+    fun setPulseReactiveBackground(enabled: Boolean) {
+        _pulseReactiveBackground.value = enabled
+        save()
+    }
+
+    fun setAlbumSpectrumOverlay(enabled: Boolean) {
+        _albumSpectrumOverlay.value = enabled
+        save()
+    }
+
+    fun setShuffleEnabled(enabled: Boolean) {
+        _shuffleEnabled.value = enabled
+        save()
+    }
+
+    fun setRepeatMode(mode: String) {
+        _repeatMode.value = mode
         save()
     }
 

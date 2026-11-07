@@ -516,12 +516,30 @@ class DesktopAudioDeck(
  * Coordinates Deck A and Deck B, Yuma's Underwater DJ Filter & Bass-Swap crossfade,
  * debounced seeking, queue management, and real-time spectrum/bass glow telemetry.
  */
+enum class DesktopRepeatMode {
+    OFF, ALL, ONE;
+
+    fun next(): DesktopRepeatMode = when (this) {
+        OFF -> ALL
+        ALL -> ONE
+        ONE -> OFF
+    }
+}
+
 class DesktopDualDeckPlayer(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val streamUrlResolver: (CatalogTrack) -> String,
 ) {
+    private var originalQueue: List<CatalogTrack> = emptyList()
+
     private val _queue = MutableStateFlow<List<CatalogTrack>>(emptyList())
     val queue: StateFlow<List<CatalogTrack>> = _queue.asStateFlow()
+
+    private val _shuffleEnabled = MutableStateFlow(false)
+    val shuffleEnabled: StateFlow<Boolean> = _shuffleEnabled.asStateFlow()
+
+    private val _repeatMode = MutableStateFlow(DesktopRepeatMode.OFF)
+    val repeatMode: StateFlow<DesktopRepeatMode> = _repeatMode.asStateFlow()
 
     private val _currentIndex = MutableStateFlow(0)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
@@ -614,15 +632,57 @@ class DesktopDualDeckPlayer(
 
     private fun hasNextTrack(): Boolean {
         val q = _queue.value
-        return q.isNotEmpty() && _currentIndex.value + 1 < q.size
+        if (q.isEmpty()) return false
+        if (_repeatMode.value == DesktopRepeatMode.ALL || _repeatMode.value == DesktopRepeatMode.ONE) return true
+        return _currentIndex.value + 1 < q.size
+    }
+
+    fun toggleShuffle() {
+        val next = !_shuffleEnabled.value
+        _shuffleEnabled.value = next
+        val current = _currentTrack.value
+        if (next) {
+            val q = _queue.value
+            if (q.isNotEmpty()) {
+                val remaining = q.filter { it.uri != current?.uri }.shuffled()
+                _queue.value = if (current != null) listOf(current) + remaining else remaining
+                _currentIndex.value = 0
+            }
+        } else {
+            if (originalQueue.isNotEmpty()) {
+                _queue.value = originalQueue
+                _currentIndex.value = originalQueue.indexOfFirst { it.uri == current?.uri }.coerceAtLeast(0)
+            }
+        }
+    }
+
+    fun setShuffleEnabled(enabled: Boolean) {
+        if (_shuffleEnabled.value != enabled) toggleShuffle()
+    }
+
+    fun toggleRepeat() {
+        _repeatMode.value = _repeatMode.value.next()
+    }
+
+    fun setRepeatMode(mode: DesktopRepeatMode) {
+        _repeatMode.value = mode
     }
 
     fun playTrackList(tracks: List<CatalogTrack>, startIndex: Int = 0) {
         if (tracks.isEmpty()) return
+        originalQueue = tracks
         val idx = startIndex.coerceIn(0, tracks.lastIndex)
-        _queue.value = tracks
-        _currentIndex.value = idx
-        startTrackOnPrimary(tracks[idx], 0L)
+        if (_shuffleEnabled.value) {
+            val startTrack = tracks[idx]
+            val remaining = tracks.filterIndexed { i, _ -> i != idx }.shuffled()
+            _queue.value = listOf(startTrack) + remaining
+            _currentIndex.value = 0
+            startTrackOnPrimary(startTrack, 0L)
+        } else {
+            _queue.value = tracks
+            _currentIndex.value = idx
+            startTrackOnPrimary(tracks[idx], 0L)
+        }
     }
 
     fun playSingle(track: CatalogTrack) {
@@ -632,6 +692,7 @@ class DesktopDualDeckPlayer(
             startTrackOnPrimary(_queue.value[existingIdx], 0L)
         } else {
             val newQueue = listOf(track) + _queue.value
+            originalQueue = listOf(track) + originalQueue
             _queue.value = newQueue
             _currentIndex.value = 0
             startTrackOnPrimary(track, 0L)
@@ -659,8 +720,15 @@ class DesktopDualDeckPlayer(
 
     private fun startAutomixCrossfade(fadeDurationMs: Long) {
         val q = _queue.value
-        val nextIdx = _currentIndex.value + 1
-        if (nextIdx >= q.size) return
+        if (q.isEmpty()) return
+        if (_repeatMode.value == DesktopRepeatMode.ONE) return
+        val nextIdx = if (_currentIndex.value + 1 < q.size) {
+            _currentIndex.value + 1
+        } else if (_repeatMode.value == DesktopRepeatMode.ALL) {
+            0
+        } else {
+            return
+        }
 
         val outgoing = _currentTrack.value ?: return
         val incoming = q[nextIdx]
@@ -755,7 +823,10 @@ class DesktopDualDeckPlayer(
         if (deck !== primaryDeck) return
         if (_automixState.value.isMixing) return
         scope.launch {
-            if (hasNextTrack()) {
+            if (_repeatMode.value == DesktopRepeatMode.ONE) {
+                val cur = _currentTrack.value ?: return@launch
+                startTrackOnPrimary(cur, 0L)
+            } else if (hasNextTrack()) {
                 skipNext()
             } else {
                 _isPlaying.value = false
@@ -817,21 +888,50 @@ class DesktopDualDeckPlayer(
     fun skipNext() {
         val q = _queue.value
         if (q.isEmpty()) return
-        val nextIdx = (_currentIndex.value + 1) % q.size
-        _currentIndex.value = nextIdx
-        startTrackOnPrimary(q[nextIdx], 0L)
+        if (_repeatMode.value == DesktopRepeatMode.ONE) {
+            val cur = _currentTrack.value ?: q[_currentIndex.value]
+            startTrackOnPrimary(cur, 0L)
+            return
+        }
+        val nextIdx = _currentIndex.value + 1
+        if (nextIdx < q.size) {
+            _currentIndex.value = nextIdx
+            startTrackOnPrimary(q[nextIdx], 0L)
+        } else if (_repeatMode.value == DesktopRepeatMode.ALL) {
+            if (_shuffleEnabled.value && q.size > 1) {
+                _queue.value = q.shuffled()
+            }
+            _currentIndex.value = 0
+            startTrackOnPrimary(_queue.value[0], 0L)
+        } else {
+            _isPlaying.value = false
+            _bassPulse.value = 0f
+        }
     }
 
     fun skipPrevious() {
-        if (_positionMs.value > 4000L) {
+        if (_positionMs.value > 3000L) {
             seekTo(0L)
             return
         }
         val q = _queue.value
         if (q.isEmpty()) return
-        val prevIdx = if (_currentIndex.value - 1 >= 0) _currentIndex.value - 1 else q.lastIndex
-        _currentIndex.value = prevIdx
-        startTrackOnPrimary(q[prevIdx], 0L)
+        if (_repeatMode.value == DesktopRepeatMode.ONE) {
+            val cur = _currentTrack.value ?: q[_currentIndex.value]
+            startTrackOnPrimary(cur, 0L)
+            return
+        }
+        val prevIdx = _currentIndex.value - 1
+        if (prevIdx >= 0) {
+            _currentIndex.value = prevIdx
+            startTrackOnPrimary(q[prevIdx], 0L)
+        } else if (_repeatMode.value == DesktopRepeatMode.ALL) {
+            val last = q.lastIndex
+            _currentIndex.value = last
+            startTrackOnPrimary(q[last], 0L)
+        } else {
+            seekTo(0L)
+        }
     }
 
     fun setMasterVolume(vol: Float) {
