@@ -571,9 +571,6 @@
     <string name="widget_description">En cours de lecture, les commandes et tes playlists récentes</string>
     <string name="widget_nothing_playing">Rien en cours de lecture</string>
     <string name="widget_open_app">Ouvrir Square</string>
-    <string name="animated_cover_source">Source</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Thème</string>
     <string name="theme_system">Comme le téléphone</string>
     <string name="theme_light">Clair</string>

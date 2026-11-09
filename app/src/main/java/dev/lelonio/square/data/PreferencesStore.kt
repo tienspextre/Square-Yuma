@@ -89,7 +89,7 @@ class PreferencesStore(context: Context) {
     private val _canvasEnabled = MutableStateFlow(prefs.getBoolean(KEY_CANVAS, true))
 
     /**
-     * Whether covers move at all, from either source; see [animatedCoverSource].
+     * Whether covers move at all, from either source.
      *
      * On by default: it is the thing the player is built around. Off is for the
      * listener who wants the artwork and nothing moving, and it is not only a
@@ -193,26 +193,6 @@ class PreferencesStore(context: Context) {
     fun setThemeMode(value: ThemeMode) {
         _themeMode.value = value
         prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
-    }
-
-    /** Where the moving covers come from; see [animatedCoverSource]. */
-    enum class CoverSource { SPOTIFY, APPLE_MUSIC }
-
-    private val _animatedCoverSource = MutableStateFlow(
-        CoverSource.entries.firstOrNull { it.name == prefs.getString(KEY_COVER_SOURCE, null) } ?: CoverSource.SPOTIFY,
-    )
-
-    /**
-     * Which catalogue's moving covers are shown: Spotify's Canvas clips or
-     * Apple Music's animated artwork. One or the other, so turning Canvas
-     * off no longer left some records moving anyway, as Apple's motion did
-     * whenever there was no clip.
-     */
-    val animatedCoverSource: StateFlow<CoverSource> = _animatedCoverSource.asStateFlow()
-
-    fun setAnimatedCoverSource(value: CoverSource) {
-        _animatedCoverSource.value = value
-        prefs.edit().putString(KEY_COVER_SOURCE, value.name).apply()
     }
 
     private val _keepPlayingOnClose = MutableStateFlow(prefs.getBoolean(KEY_KEEP_PLAYING, false))
@@ -425,7 +405,6 @@ class PreferencesStore(context: Context) {
         const val KEY_DEVICE_ID = "device_id"
         const val KEY_ONBOARDED = "onboarded"
         const val KEY_CANVAS = "canvas_enabled"
-        const val KEY_COVER_SOURCE = "animated_cover_source"
         const val KEY_SYSTEM_FONT = "system_font"
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_YOUTUBE_QUALITY = "youtube_quality"

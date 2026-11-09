@@ -1102,14 +1102,6 @@ fun PlayerScreen(
                     TopBar(
                         backdrop = upperBackdrop,
                         panel = panel,
-                        inspects = state.mediaId?.let(::isFileTrack) == true,
-                        source = state.source,
-                        onOpenSource = state.contextUri?.let { uri ->
-                            {
-                                onCollapse()
-                                onOpenUri(uri, state.source.substringAfterLast("· ").trim())
-                            }
-                        },
                         onCollapse = onCollapse,
                         onOpenDevices = {
                             panel = if (panel == PlayerPanel.DEVICES) {
@@ -1124,7 +1116,6 @@ fun PlayerScreen(
                         onWatchVideo = onWatchVideo,
                         videoOn = videoOn,
                         modifier = barModifier,
-                        dj = isDjQueue(state.contextUri),
                     )
                     }
                     if (!sideways) topBar(Modifier.retreat(chrome))
@@ -2183,12 +2174,6 @@ fun VideoSurface(player: Player, attachKey: Any? = null, modifier: Modifier = Mo
 private fun TopBar(
     backdrop: Backdrop,
     panel: PlayerPanel,
-    /** The ⓘ slot shows the file rather than credits; see InspectView. */
-    inspects: Boolean,
-    /** Where the queue came from: "Estate 2025", "Ricerca". */
-    source: String,
-    /** Opens that place, when it is one; null leaves the line as a caption. */
-    onOpenSource: (() -> Unit)?,
     onCollapse: () -> Unit,
     onOpenDevices: () -> Unit,
     connectAvailable: Boolean,
@@ -2197,8 +2182,6 @@ private fun TopBar(
     onWatchVideo: (() -> Unit)?,
     videoOn: Boolean,
     modifier: Modifier = Modifier,
-    /** The DJ's queue: the source is marked as the DJ's; see DjMark. */
-    dj: Boolean = false,
 ) {
     Row(
         modifier
@@ -2209,65 +2192,10 @@ private fun TopBar(
         GlassButton(backdrop, onClick = onCollapse) {
             Icon(PhosphorIcons.Regular.CaretDown, contentDescription = stringResource(R.string.close))
         }
-        // Names whatever the middle of the screen is currently showing, so the
-        // switch below has a label without carrying one.
-        Crossfade(
-            targetState = when (panel) {
-                PlayerPanel.LYRICS -> stringResource(R.string.lyrics)
-                PlayerPanel.EFFECTS -> stringResource(R.string.effects)
-                PlayerPanel.INFO -> stringResource(if (inspects) R.string.inspect else R.string.credits)
-                PlayerPanel.QUEUE -> stringResource(R.string.queued)
-                PlayerPanel.DEVICES -> stringResource(R.string.play_on)
-                PlayerPanel.ADD_TO_PLAYLIST -> stringResource(R.string.add_to_playlist)
-                // The source in place of the words "in riproduzione", which
-                // said nothing the screen was not already saying. What is worth
-                // knowing here is where the track came from — the playlist you
-                // opened, the album, the search — and this is the one line of
-                // the player not already spoken for.
-                PlayerPanel.NONE -> source.ifBlank { stringResource(R.string.now_playing) }
-            },
-            animationSpec = tween(220),
-            label = "topBarTitle",
-            modifier = Modifier.weight(1f),
-        ) { title ->
-            // Only the source line is a way back, and only while it is the one
-            // being shown: the panel names above it are labels for what is on
-            // screen already.
-            val open = onOpenSource.takeIf { panel == PlayerPanel.NONE && source.isNotBlank() }
-            // Light, with a shadow, whichever way the phone is set.
-            //
-            // This line is the only text on the player with nothing behind it
-            // but the picture — the title and the transport sit on the field
-            // below the fade, and the buttons beside it have their own glass.
-            // Following the theme put black letters straight onto a Canvas in
-            // the light setting, and pausing made it worse, since the veil that
-            // dims a stopped clip was then darkening the very thing those
-            // letters needed to be lighter than. A photograph has no side to
-            // be on: what works over one is light type with a shadow under it.
-            if (dj && panel == PlayerPanel.NONE) {
-                // The DJ's queue: the mark alone says where the songs come
-                // from, and who is talking between them.
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    DjMark(color = Color.White, fontSize = 13.sp)
-                }
-            } else Text(
-                title,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        offset = Offset(0f, 1f),
-                        blurRadius = 14f,
-                    ),
-                ),
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (open != null) Modifier.plainClickable(open) else Modifier,
-                    ),
-            )
-        }
+        // The middle of the bar is left empty: the panel's name, and the source
+        // the track came from, said nothing the screen was not already saying.
+        // The buttons beside it keep their slots.
+        Spacer(Modifier.weight(1f))
         // Connect gets the permanent slot rather than hiding behind "more":
         // moving playback to another speaker is the thing you reach for while
         // the player is open, and the queue already has its own tab below.

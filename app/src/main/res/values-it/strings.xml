@@ -608,9 +608,6 @@
     <string name="widget_description">In riproduzione, i controlli e le tue playlist recenti</string>
     <string name="widget_nothing_playing">Niente in riproduzione</string>
     <string name="widget_open_app">Apri Square</string>
-    <string name="animated_cover_source">Sorgente</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Tema</string>
     <string name="theme_system">Come il telefono</string>
     <string name="theme_light">Chiaro</string>

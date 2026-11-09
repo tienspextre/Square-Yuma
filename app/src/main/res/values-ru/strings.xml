@@ -600,9 +600,6 @@
     <string name="widget_description">Что играет, управление и ваши недавние плейлисты</string>
     <string name="widget_nothing_playing">Ничего не играет</string>
     <string name="widget_open_app">Открыть Square</string>
-    <string name="animated_cover_source">Источник</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Тема</string>
     <string name="theme_system">Как в телефоне</string>
     <string name="theme_light">Светлая</string>

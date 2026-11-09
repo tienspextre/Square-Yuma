@@ -586,9 +586,6 @@
     <string name="widget_description">지금 재생 중인 곡, 컨트롤, 최근 플레이리스트</string>
     <string name="widget_nothing_playing">재생 중인 곡 없음</string>
     <string name="widget_open_app">Square 열기</string>
-    <string name="animated_cover_source">소스</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">테마</string>
     <string name="theme_system">휴대전화 설정과 동일</string>
     <string name="theme_light">라이트</string>

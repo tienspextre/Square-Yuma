@@ -630,12 +630,6 @@
     <string name="widget_description">Bài đang phát, các nút điều khiển và danh sách phát gần đây của bạn</string>
     <string name="widget_nothing_playing">Không có gì đang phát</string>
     <string name="widget_open_app">Mở Square</string>
-    <string name="animated_cover_source">Nguồn</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="canvas_spotify_account">Tài khoản Spotify cho Canvas</string>
-    <string name="canvas_spotify_sign_in">Đăng nhập Spotify (tài khoản free là đủ)</string>
-    <string name="canvas_spotify_note">Chỉ dùng để tìm bài trên Spotify và lấy Canvas, không phát nhạc từ Spotify. Bài nào không có Canvas sẽ dùng ảnh động của Apple Music.</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Giao diện</string>
     <string name="theme_system">Theo điện thoại</string>
     <string name="theme_light">Sáng</string>
@@ -753,12 +747,4 @@
     <string name="download_rescan_done">Tìm lại được %1$d bài trong Music/Square</string>
     <string name="download_rescan_failed">Không kết nối được NAS để nhận lại bài</string>
     <string name="download_rescan_no_permission">Cần cho phép đọc nhạc để tìm bài trong Music/Square</string>
-    <string name="canvas_spotify_app">Ứng dụng Spotify của bạn (để tìm bài)</string>
-    <string name="canvas_spotify_app_note">Spotify giới hạn tìm bài với tài khoản đăng nhập ở trên, nên việc tìm bài dùng một ứng dụng của riêng bạn. Trên developer.spotify.com/dashboard: Create app, tên tuỳ ý, Redirect URI http://127.0.0.1:8888/callback, chọn Web API. Rồi chép Client ID và Client secret vào đây.</string>
-    <string name="canvas_spotify_client_id">Client ID</string>
-    <string name="canvas_spotify_client_secret">Client secret</string>
-    <string name="canvas_spotify_open_dashboard">Mở Spotify dashboard</string>
-    <string name="canvas_spotify_app_checking">Đang kiểm tra…</string>
-    <string name="canvas_spotify_app_ok">Spotify đã chấp nhận ứng dụng. Canvas sẽ được tìm từ bài tiếp theo.</string>
-    <string name="canvas_spotify_app_bad">Spotify từ chối Client ID / secret này.</string>
 </resources>

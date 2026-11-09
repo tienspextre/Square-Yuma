@@ -584,9 +584,6 @@
     <string name="widget_description">Çalan şarkı, kontrolleri ve son çalma listelerin</string>
     <string name="widget_nothing_playing">Hiçbir şey çalmıyor</string>
     <string name="widget_open_app">Square’i aç</string>
-    <string name="animated_cover_source">Kaynak</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Tema</string>
     <string name="theme_system">Telefonla aynı</string>
     <string name="theme_light">Açık</string>

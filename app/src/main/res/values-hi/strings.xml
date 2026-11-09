@@ -586,9 +586,6 @@
     <string name="widget_description">अभी चल रहा गाना, उसके कंट्रोल और आपकी हाल की प्लेलिस्ट</string>
     <string name="widget_nothing_playing">कुछ नहीं चल रहा</string>
     <string name="widget_open_app">Square खोलें</string>
-    <string name="animated_cover_source">स्रोत</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">थीम</string>
     <string name="theme_system">फ़ोन के अनुसार</string>
     <string name="theme_light">हल्की</string>

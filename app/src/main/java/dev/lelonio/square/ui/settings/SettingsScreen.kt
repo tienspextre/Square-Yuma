@@ -149,8 +149,6 @@ fun SettingsScreen(
     onDisconnectWebApi: () -> Unit,
     onLogOut: () -> Unit,
     onShowTutorial: () -> Unit,
-    /** Spotify sign-in, kept only for Canvas; see SpotifyCanvas. */
-    onLogIn: () -> Unit = {},
     /** The chosen language tag, empty for the phone's own. */
     language: String,
     onLanguage: (String) -> Unit,
@@ -598,7 +596,7 @@ fun SettingsScreen(
 
         // On either source: Apple's moving covers play over YouTube Music too.
         if (shown == SettingsPage.Playback && "covers" in openGroups) groupItem("canvas", Group.COVERS) {
-            CanvasSection(backdrop, signedIn = remember(state) { app.tokenStore.isLoggedIn }, onLogIn)
+            CanvasSection(backdrop)
         }
 
         if (shown == SettingsPage.Playback && "covers" in openGroups) groupEnd(Group.COVERS)
@@ -1679,13 +1677,12 @@ private fun YouTubeAccountSection(onSignIn: () -> Unit, onChannelChange: () -> U
  * turns this off stops paying for a video on every track as well as seeing one.
  */
 @Composable
-private fun CanvasSection(backdrop: Backdrop, signedIn: Boolean, onLogIn: () -> Unit) {
+private fun CanvasSection(backdrop: Backdrop) {
     val context = LocalContext.current
     val store = remember(context) {
         (context.applicationContext as dev.lelonio.square.SquareApplication).preferences
     }
     val enabled by store.canvasEnabled.collectAsStateWithLifecycle()
-    val source by store.animatedCoverSource.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.canvas)) {
         DownloadSwitch(
@@ -1695,130 +1692,6 @@ private fun CanvasSection(backdrop: Backdrop, signedIn: Boolean, onLogIn: () -> 
             backdrop = backdrop,
             onChange = store::setCanvasEnabled,
         )
-    }
-    // Only with them on: off, nothing moves whichever it would have been.
-    if (enabled) {
-        Section(stringResource(R.string.animated_cover_source)) {
-            dev.lelonio.square.data.PreferencesStore.CoverSource.entries.forEachIndexed { index, choice ->
-                if (index > 0) RowDivider()
-                ChoiceRow(
-                    label = stringResource(
-                        when (choice) {
-                            dev.lelonio.square.data.PreferencesStore.CoverSource.SPOTIFY -> R.string.animated_cover_spotify
-                            dev.lelonio.square.data.PreferencesStore.CoverSource.APPLE_MUSIC -> R.string.animated_cover_apple
-                        },
-                    ),
-                    selected = choice == source,
-                ) { store.setAnimatedCoverSource(choice) }
-            }
-        }
-        if (source == dev.lelonio.square.data.PreferencesStore.CoverSource.SPOTIFY) {
-            // Held here as well, so signing out shows at once rather than on
-            // the next change of state.
-            var account by remember(signedIn) { mutableStateOf(signedIn) }
-            Section(stringResource(R.string.canvas_spotify_account)) {
-                if (account) {
-                    ActionRow(stringResource(R.string.log_out), destructive = true) {
-                        // The Spotify credentials only: the full sign-out also
-                        // clears the listening history the NAS home is built on.
-                        account = false
-                        val app = context.applicationContext as dev.lelonio.square.SquareApplication
-                        app.tokenStore.clear()
-                        dev.lelonio.square.data.SpotifyCanvas.forget()
-                    }
-                } else {
-                    ActionRow(stringResource(R.string.canvas_spotify_sign_in), destructive = false, onClick = onLogIn)
-                }
-                Text(
-                    stringResource(R.string.canvas_spotify_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = InkDim,
-                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
-                )
-            }
-            SpotifyOwnAppSection()
-        }
-    }
-}
-
-/**
- * The listener's own Spotify app, which the Canvas search goes through: the client id the app
- * signs in with shares its search quota with every librespot-based app and is always over it.
- * See SpotifyCanvas.
- */
-@Composable
-private fun SpotifyOwnAppSection() {
-    val context = LocalContext.current
-    val saved = remember { dev.lelonio.square.data.SpotifyCanvas.ownApp(context) }
-    var idDraft by remember { mutableStateOf(saved?.first.orEmpty()) }
-    var secretDraft by remember { mutableStateOf(saved?.second.orEmpty()) }
-    var stored by remember { mutableStateOf(saved) }
-    var checking by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-
-    Section(stringResource(R.string.canvas_spotify_app)) {
-        Text(
-            stringResource(R.string.canvas_spotify_app_note),
-            style = MaterialTheme.typography.bodySmall,
-            color = InkDim,
-            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp),
-        )
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
-            androidx.compose.material3.OutlinedTextField(
-                value = idDraft,
-                onValueChange = { idDraft = it },
-                label = { Text(stringResource(R.string.canvas_spotify_client_id)) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            androidx.compose.material3.OutlinedTextField(
-                value = secretDraft,
-                onValueChange = { secretDraft = it },
-                label = { Text(stringResource(R.string.canvas_spotify_client_secret)) },
-                singleLine = true,
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-            )
-        }
-        RowDivider()
-        ActionRow(
-            stringResource(R.string.canvas_spotify_open_dashboard),
-            destructive = false,
-            icon = PhosphorIcons.Regular.ArrowSquareOut,
-        ) {
-            runCatching {
-                context.startActivity(
-                    android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://developer.spotify.com/dashboard"))
-                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
-        }
-        if ((idDraft.trim() to secretDraft.trim()) != stored && idDraft.isNotBlank() && secretDraft.isNotBlank()) {
-            RowDivider()
-            ActionRow(
-                stringResource(if (checking) R.string.canvas_spotify_app_checking else R.string.save),
-                destructive = false,
-                icon = PhosphorIcons.Regular.Check,
-            ) {
-                if (checking) return@ActionRow
-                checking = true
-                scope.launch {
-                    val ok = dev.lelonio.square.data.SpotifyCanvas.checkOwnApp(idDraft, secretDraft)
-                    checking = false
-                    if (ok) {
-                        dev.lelonio.square.data.SpotifyCanvas.setOwnApp(context, idDraft, secretDraft)
-                        stored = idDraft.trim() to secretDraft.trim()
-                    }
-                    android.widget.Toast.makeText(
-                        context,
-                        if (ok) R.string.canvas_spotify_app_ok else R.string.canvas_spotify_app_bad,
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
-                }
-            }
-        }
     }
 }
 

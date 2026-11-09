@@ -653,12 +653,6 @@
     <string name="widget_description">Now playing, its controls and your recent playlists</string>
     <string name="widget_nothing_playing">Nothing playing</string>
     <string name="widget_open_app">Open Square</string>
-    <string name="animated_cover_source">Source</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="canvas_spotify_account">Spotify account for Canvas</string>
-    <string name="canvas_spotify_sign_in">Sign in to Spotify (a free account is enough)</string>
-    <string name="canvas_spotify_note">Only used to find each song on Spotify and fetch its Canvas. Nothing plays from Spotify. Songs without one fall back to Apple Music.</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Theme</string>
     <string name="theme_system">Same as the phone</string>
     <string name="theme_light">Light</string>
@@ -772,12 +766,4 @@
     <string name="download_rescan_done">Found %1$d songs in Music/Square</string>
     <string name="download_rescan_failed">Could not reach the NAS to match the songs</string>
     <string name="download_rescan_no_permission">Allow music access to find the songs in Music/Square</string>
-    <string name="canvas_spotify_app">Your Spotify app (to find songs)</string>
-    <string name="canvas_spotify_app_note">Spotify limits song search for the account sign-in above, so the search uses an app of your own. On developer.spotify.com/dashboard: Create app, any name, redirect URI http://127.0.0.1:8888/callback, tick Web API. Then copy its Client ID and Client secret here.</string>
-    <string name="canvas_spotify_client_id">Client ID</string>
-    <string name="canvas_spotify_client_secret">Client secret</string>
-    <string name="canvas_spotify_open_dashboard">Open Spotify dashboard</string>
-    <string name="canvas_spotify_app_checking">Checking…</string>
-    <string name="canvas_spotify_app_ok">Spotify accepted the app. Canvases will be found from the next song.</string>
-    <string name="canvas_spotify_app_bad">Spotify refused this Client ID / secret.</string>
 </resources>

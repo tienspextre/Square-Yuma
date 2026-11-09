@@ -571,9 +571,6 @@
     <string name="widget_description">Aktuelle Wiedergabe, Steuerung und deine letzten Playlists</string>
     <string name="widget_nothing_playing">Es läuft nichts</string>
     <string name="widget_open_app">Square öffnen</string>
-    <string name="animated_cover_source">Quelle</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Design</string>
     <string name="theme_system">Wie das Telefon</string>
     <string name="theme_light">Hell</string>

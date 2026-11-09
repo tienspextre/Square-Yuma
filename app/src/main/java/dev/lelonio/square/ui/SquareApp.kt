@@ -188,6 +188,7 @@ import kotlinx.coroutines.launch
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.fill.ArrowCircleDown
 import com.adamglin.phosphoricons.fill.Check
+import com.adamglin.phosphoricons.fill.Gear
 import com.adamglin.phosphoricons.fill.Play
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.Bold
@@ -360,7 +361,7 @@ private val BarHeight = 61.dp
 
 /** The pages that are somewhere you are, rather than somewhere you went. */
 private val TAB_ROUTES =
-    setOf(Routes.HOME, Routes.NEW, Routes.RADIO, Routes.LIBRARY, Routes.SEARCH)
+    setOf(Routes.HOME, Routes.LIBRARY, Routes.SETTINGS, Routes.SEARCH)
 
 /** How many stations the radio tab offers. Enough to scroll, few enough to read. */
 private const val RADIO_SEEDS = 36
@@ -1078,9 +1079,8 @@ fun SquareApp(
     // Turned off, no clip is ever asked for — which is the point of the switch:
     // it saves the video as well as hiding it.
     val canvasEnabled by preferences.canvasEnabled.collectAsStateWithLifecycle()
-    val coverSource by preferences.animatedCoverSource.collectAsStateWithLifecycle()
 
-    LaunchedEffect(playback.mediaId, playback.artist, backend, canvasEnabled, coverSource, offlineNow) {
+    LaunchedEffect(playback.mediaId, playback.artist, backend, canvasEnabled, offlineNow) {
         val uri = playback.mediaId
         canvas = null
         // Offline means offline, including for the things that are only
@@ -1089,7 +1089,6 @@ fun SquareApp(
         // that came down with the download.
         if (uri != null &&
             canvasEnabled &&
-            coverSource == dev.lelonio.square.data.PreferencesStore.CoverSource.SPOTIFY &&
             backend == dev.lelonio.square.backend.BackendId.SPOTIFY
         ) {
             // After the song, not beside it: a Canvas is a video, and fetching
@@ -1108,22 +1107,14 @@ fun SquareApp(
             } ?: if (offlineNow) null else Catalog.canvas(uri)
         } else if (uri != null &&
             canvasEnabled &&
-            coverSource == dev.lelonio.square.data.PreferencesStore.CoverSource.SPOTIFY &&
             uri.startsWith("subsonic:track:")
         ) {
-            // A NAS song's Canvas: the same song's on Spotify when a Spotify
-            // account (free is enough) is signed in, else the album's moving
-            // artwork from Apple; the copy kept with a download first.
+            // A NAS song's Canvas: the album's moving artwork from Apple Music;
+            // the copy kept with a download first.
             if (remote == null) awaitAudible(localState)
             canvas = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 dev.lelonio.square.download.DownloadExtras.localCanvas(uri)
-            } ?: if (offlineNow) null else (
-                dev.lelonio.square.data.SpotifyCanvas.find(
-                    context.applicationContext as dev.lelonio.square.SquareApplication,
-                    playback.title,
-                    playback.artist,
-                ) ?: dev.lelonio.square.data.MotionCanvas.find(playback.title, playback.artist)
-            )
+            } ?: if (offlineNow) null else dev.lelonio.square.data.MotionCanvas.find(playback.title, playback.artist)
         }
     }
 
@@ -1554,7 +1545,7 @@ fun SquareApp(
                 // Settings is not a place you listen from: it is a full page of
                 // its own, and the tab bar and the now-playing bar step out of
                 // the way for it instead of floating over a form.
-                val chromeHidden = route == Routes.SETTINGS
+                val chromeHidden = false
                 val chrome by animateFloatAsState(
                     if (chromeHidden) 0f else 1f,
                     tween(220),
@@ -2017,7 +2008,6 @@ fun SquareApp(
                                 onConnectWebApi = viewModel::connectWebApi,
                                 onDisconnectWebApi = viewModel::disconnectWebApi,
                                 onLogOut = viewModel::logOut,
-                                onLogIn = viewModel::logIn,
                                 onShowTutorial = { showTutorial = true },
                                 language = language,
                                 onLanguage = setLanguage,
@@ -2666,9 +2656,8 @@ fun SquareApp(
                             val tabRoutes = remember {
                                 listOf(
                                     Routes.HOME,
-                                    Routes.NEW,
-                                    Routes.RADIO,
                                     Routes.LIBRARY,
+                                    Routes.SETTINGS,
                                     Routes.SEARCH,
                                 )
                             }
@@ -2723,26 +2712,6 @@ fun SquareApp(
                                     navController.switchTab(Routes.HOME)
                                 }
                                 BarTab(
-                                    R.string.tab_new,
-                                    PhosphorIcons.Fill.SquaresFour,
-                                    activeTab == Routes.NEW,
-                                    tabAccent,
-                                    barInk,
-                                ) {
-                                    viewModel.clearPageHistory()
-                                    navController.switchTab(Routes.NEW)
-                                }
-                                BarTab(
-                                    R.string.tab_radio,
-                                    PhosphorIcons.Fill.Broadcast,
-                                    activeTab == Routes.RADIO,
-                                    tabAccent,
-                                    barInk,
-                                ) {
-                                    viewModel.clearPageHistory()
-                                    navController.switchTab(Routes.RADIO)
-                                }
-                                BarTab(
                                     R.string.library,
                                     PhosphorIcons.Fill.MusicNotes,
                                     activeTab == Routes.LIBRARY,
@@ -2751,6 +2720,16 @@ fun SquareApp(
                                 ) {
                                     viewModel.clearPageHistory()
                                     navController.switchTab(Routes.LIBRARY)
+                                }
+                                BarTab(
+                                    R.string.settings,
+                                    PhosphorIcons.Fill.Gear,
+                                    activeTab == Routes.SETTINGS,
+                                    tabAccent,
+                                    barInk,
+                                ) {
+                                    viewModel.clearPageHistory()
+                                    navController.switchTab(Routes.SETTINGS)
                                 }
                                 BarTab(
                                     R.string.search,
@@ -2846,72 +2825,6 @@ fun SquareApp(
                             },
                         )
                         tab(
-                            key = Routes.NEW,
-                            title = {
-                                Text(
-                                    stringResource(R.string.tab_new),
-                                    fontSize = 9.sp,
-                                    lineHeight = 11.sp,
-                                    style = LocalTextStyle.current.copy(
-                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
-                                            includeFontPadding = false,
-                                        ),
-                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
-                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
-                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
-                                        ),
-                                    ),
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (activeTab == Routes.NEW) tabAccent else barInk,
-                                )
-                            },
-                            icon = {
-                                Icon(
-                                    PhosphorIcons.Fill.SquaresFour,
-                                    contentDescription = stringResource(R.string.tab_new),
-                                    tint = if (activeTab == Routes.NEW) tabAccent else barInk,
-                                    modifier = Modifier.size(TabIcon),
-                                )
-                            },
-                            onClick = {
-                                viewModel.clearPageHistory()
-                                navController.switchTab(Routes.NEW)
-                            },
-                        )
-                        tab(
-                            key = Routes.RADIO,
-                            title = {
-                                Text(
-                                    stringResource(R.string.tab_radio),
-                                    fontSize = 9.sp,
-                                    lineHeight = 11.sp,
-                                    style = LocalTextStyle.current.copy(
-                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
-                                            includeFontPadding = false,
-                                        ),
-                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
-                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
-                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
-                                        ),
-                                    ),
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (activeTab == Routes.RADIO) tabAccent else barInk,
-                                )
-                            },
-                            icon = {
-                                Icon(
-                                    PhosphorIcons.Fill.Broadcast,
-                                    contentDescription = stringResource(R.string.tab_radio),
-                                    tint = if (activeTab == Routes.RADIO) tabAccent else barInk,
-                                    modifier = Modifier.size(TabIcon),
-                                )
-                            },
-                            onClick = {
-                                viewModel.clearPageHistory()
-                                navController.switchTab(Routes.RADIO)
-                            },
-                        )
-                        tab(
                             key = Routes.LIBRARY,
                             title = {
                                 Text(
@@ -2942,6 +2855,39 @@ fun SquareApp(
                             onClick = {
                                 viewModel.clearPageHistory()
                                 navController.switchTab(Routes.LIBRARY)
+                            },
+                        )
+                        tab(
+                            key = Routes.SETTINGS,
+                            title = {
+                                Text(
+                                    stringResource(R.string.settings),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false,
+                                        ),
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                                        ),
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeTab == Routes.SETTINGS) tabAccent else barInk,
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    PhosphorIcons.Fill.Gear,
+                                    contentDescription = stringResource(R.string.settings),
+                                    tint = if (activeTab == Routes.SETTINGS) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
+                            },
+                            onClick = {
+                                viewModel.clearPageHistory()
+                                navController.switchTab(Routes.SETTINGS)
                             },
                         )
                         // Search is one of the places, so it is registered like
@@ -3285,12 +3231,9 @@ fun SquareApp(
                                 catalogPalette = nowPlayingArt?.inkPalette.orEmpty(),
                                 onClipColumns = { clipColumns = it },
                                 coverHeroUrl = nowPlayingArt?.heroUrl,
-                                // Apple's moving cover only when that is the
-                                // source chosen, and moving covers are on.
-                                coverMotionUrl = nowPlayingArt?.motionUrl.takeIf {
-                                    canvasEnabled &&
-                                        coverSource == dev.lelonio.square.data.PreferencesStore.CoverSource.APPLE_MUSIC
-                                },
+                                // Apple's moving cover only when moving covers
+                                // are on.
+                                coverMotionUrl = nowPlayingArt?.motionUrl.takeIf { canvasEnabled },
                                 coverSquareUrl = nowPlayingArt?.coverUrl,
                                 // Spotify's cover is the fallback, not the
                                 // first draft: while the catalogue is still

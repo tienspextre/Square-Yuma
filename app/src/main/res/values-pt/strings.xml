@@ -571,9 +571,6 @@
     <string name="widget_description">O que está tocando, os controles e suas playlists recentes</string>
     <string name="widget_nothing_playing">Nada tocando</string>
     <string name="widget_open_app">Abrir o Square</string>
-    <string name="animated_cover_source">Fonte</string>
-    <string name="animated_cover_spotify">Spotify (Canvas)</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">Tema</string>
     <string name="theme_system">Igual ao telemóvel</string>
     <string name="theme_light">Claro</string>

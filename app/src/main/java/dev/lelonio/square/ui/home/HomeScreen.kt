@@ -778,24 +778,6 @@ private fun Header(
                 FriendFaces(friends, onOpenFriends)
             }
 
-            dev.lelonio.square.ui.components.ProfilePicture(
-                url = avatarUrl,
-                name = name,
-                size = 46.dp,
-                modifier = Modifier
-                    .padding(start = 14.dp)
-                    // Measured from the scroll rather than sized in
-                    // composition; see the note on `collapse`.
-                    .layout { measurable, _ ->
-                        val side = lerp(46.dp, 36.dp, collapse()).roundToPx()
-                        val placeable = measurable.measure(Constraints.fixed(side, side))
-                        layout(side, side) { placeable.place(0, 0) }
-                    }
-                    .clip(CircleShape)
-                    .pressable(onOpenSettings, pressedScale = 0.90f)
-                    .softShadow(CircleShape, elevation = 10.dp),
-                decodeSize = 46.dp,
-            )
         }
 
         // The chips carry the header's bottom margin with them; without them

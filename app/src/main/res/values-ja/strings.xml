@@ -627,9 +627,6 @@
     <string name="widget_description">再生中の曲と操作ボタン、最近のプレイリスト</string>
     <string name="widget_nothing_playing">再生中の曲はありません</string>
     <string name="widget_open_app">Squareを開く</string>
-    <string name="animated_cover_source">取得元</string>
-    <string name="animated_cover_spotify">Spotify（Canvas）</string>
-    <string name="animated_cover_apple">Apple Music</string>
     <string name="theme_title">テーマ</string>
     <string name="theme_system">端末の設定に従う</string>
     <string name="theme_light">ライト</string>
