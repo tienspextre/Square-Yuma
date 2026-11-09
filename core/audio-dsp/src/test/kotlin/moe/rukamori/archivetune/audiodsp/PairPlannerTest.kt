@@ -13,19 +13,22 @@ class PairPlannerTest {
     private fun track(
         length: Double, bpm: Double, key: String, sings: (Double) -> Boolean,
         outCues: List<Pair<Double, String>> = emptyList(), inCues: List<Double> = listOf(0.0),
+        confidence: Double = 0.9, low: Double = 0.2,
     ): String {
         val bar = 4 * 60.0 / bpm
         val curve = JSONArray()
+        val lowCurve = JSONArray()
         val mask = JSONArray()
         var t = 0.0
         while (t < length) {
+            lowCurve.put(JSONObject().put("t", t).put("e", low))
             curve.put(JSONObject().put("t", t).put("e", 0.8)); mask.put(if (sings(t)) 0.9 else 0.1); t += 1.0
         }
         return JSONObject()
-            .put("bpm", bpm).put("beatConfidence", 0.9).put("key", key).put("contentEndTime", length)
+            .put("bpm", bpm).put("beatConfidence", confidence).put("key", key).put("contentEndTime", length)
             .put("downbeats", JSONArray(generateSequence(0.0) { it + bar }.takeWhile { it < length }.toList()))
             .put("phraseBoundaries", JSONArray(generateSequence(0.0) { it + bar * 8 }.takeWhile { it < length }.toList()))
-            .put("energyCurve", curve).put("vocalActivityMask", mask)
+            .put("energyCurve", curve).put("lowEnergyCurve", lowCurve).put("vocalActivityMask", mask)
             .put("mixOutCandidates", JSONArray(outCues.map { JSONObject().put("t", it.first).put("s", 0.9).put("y", it.second) }))
             .put("mixInCandidates", JSONArray(inCues.map { JSONObject().put("t", it).put("s", 0.8).put("y", "pickup") }))
             .toString()
@@ -57,13 +60,59 @@ class PairPlannerTest {
     }
 
     @Test
-    fun farTemposFadeInsteadOfStretching() {
+    fun farTemposGetAFilterSweepInsteadOfAStretch() {
         val out = MixFeatures.parse(track(200.0, 90.0, "C major", { false }))!!
         val inc = MixFeatures.parse(track(200.0, 128.0, "C major", { false }))!!
         val plan = PairPlanner.plan(out, inc, 200_000L, 6000L, true)!!
         assertEquals(TransitionTier.PLAIN_CROSSFADE, plan.tier)
+        assertEquals(MixStyle.FILTER_SWEEP, plan.style)
         assertEquals(1f, plan.incomingTempoRatio)
+        assertEquals(10_667L, plan.durationMs) // 16 beats at 90 BPM
+        assertEquals(0.5, plan.swapAt, 1e-9) // beat 8 of 16
+    }
+
+    @Test
+    fun twoKicksAtTheJoinGetABassHandoff() {
+        val out = MixFeatures.parse(track(200.0, 90.0, "C major", { false }, low = 0.9))!!
+        val inc = MixFeatures.parse(track(200.0, 128.0, "C major", { false }, low = 0.9))!!
+        val plan = PairPlanner.plan(out, inc, 200_000L, 6000L, true)!!
+        assertEquals(MixStyle.BASS_HANDOFF, plan.style)
+        assertEquals(7.0 / 16.0, plan.swapAt, 1e-9) // 0.43 rounded onto beat 7
+    }
+
+    @Test
+    fun noGridMeansEqualPowerWithVocalSeparation() {
+        val out = MixFeatures.parse(track(200.0, 120.0, "C major", { true }, confidence = 0.1))!!
+        val inc = MixFeatures.parse(track(200.0, 120.0, "C major", { true }, confidence = 0.1))!!
+        val plan = PairPlanner.plan(out, inc, 200_000L, 6000L, true)!!
+        assertEquals(MixStyle.EQUAL_POWER, plan.style)
         assertEquals(6_000L, plan.durationMs)
+        assertTrue(plan.vocalClash > 0.9)
+        val (o, i) = MixStyles.shape(MixStyle.EQUAL_POWER, 0.5f, plan.swapAt, plan.swapWidth, plan.vocalClash)
+        assertTrue(o.lowPassHz < 6000.0 && i.highPassHz > 30.0)
+    }
+
+    @Test
+    fun sweepShapesHandTheLowEndOverOnce() {
+        val (o0, i0) = MixStyles.shape(MixStyle.FILTER_SWEEP, 0.1f, 0.5, 0.03, 0.0)
+        assertEquals(0.0, o0.bassDb, 1e-9); assertEquals(MixStyles.CUT_DB, i0.bassDb, 1e-9)
+        assertTrue(i0.highPassHz > 500.0)
+        val (o1, i1) = MixStyles.shape(MixStyle.FILTER_SWEEP, 0.9f, 0.5, 0.03, 0.0)
+        assertEquals(MixStyles.CUT_DB, o1.bassDb, 1e-9); assertEquals(0.0, i1.bassDb, 1e-9)
+        assertTrue(o1.lowPassHz < 500.0 && i1.highPassHz <= MixStyles.OFF_HZ + 1e-6)
+        assertTrue(o1.gain < 0.3f && i1.gain > 0.9f)
+    }
+
+    @Test
+    fun liveSpokenAndAlbumRules() {
+        assertTrue(TransitionRules.isSpokenOrLive("Song (Live at Wembley)", "", ""))
+        assertTrue(TransitionRules.isSpokenOrLive("Intro", "", "Live: At The Hall"))
+        assertTrue(TransitionRules.isSpokenOrLive("Episode 3", "My Podcast", ""))
+        assertTrue(!TransitionRules.isSpokenOrLive("Live It Up", "", ""))
+        val album = listOf("A" to "X", "A" to "X", "A" to "X")
+        assertTrue(TransitionRules.isAlbumPlaythrough(album, shuffled = false))
+        assertTrue(!TransitionRules.isAlbumPlaythrough(album, shuffled = true))
+        assertTrue(!TransitionRules.isAlbumPlaythrough(album + ("B" to "X"), shuffled = false))
     }
 
     @Test

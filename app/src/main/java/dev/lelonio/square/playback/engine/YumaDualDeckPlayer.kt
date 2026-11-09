@@ -41,6 +41,7 @@ import moe.rukamori.archivetune.audiodsp.MixFeatures
 import moe.rukamori.archivetune.audiodsp.PairPlanner
 import moe.rukamori.archivetune.audiodsp.TrackAnalysisResult
 import moe.rukamori.archivetune.audiodsp.TransitionPlanner
+import moe.rukamori.archivetune.audiodsp.TransitionRules
 import moe.rukamori.archivetune.audiodsp.TransitionTier
 import moe.rukamori.archivetune.audiodsp.requiredStartBufferMs
 import moe.rukamori.archivetune.playback.engine.ExoDeck
@@ -547,6 +548,12 @@ class YumaDualDeckPlayer private constructor(
 
                 val crossfadeSec = AudioEffects.crossfadeSeconds.value
                 val automixEnabled = AudioEffects.smartAutomix.value
+                // An album played through, or live / spoken material, is left to Media3's gapless
+                // advance: mixing it would be an edit the record didn't ask for.
+                if (automixEnabled && leaveAlone(currentMediaItem, nextMediaItem)) {
+                    if (preparedStandbyIndex != C.INDEX_UNSET) releaseStandby()
+                    continue
+                }
                 if (!automixEnabled && crossfadeSec <= 0) {
                     if (preparedStandbyIndex != C.INDEX_UNSET) releaseStandby()
                     continue
@@ -655,6 +662,33 @@ class YumaDualDeckPlayer private constructor(
             }
         }
     }
+
+    private fun leaveAlone(cur: MediaItem, next: MediaItem): Boolean {
+        val a = cur.mediaMetadata
+        val b = next.mediaMetadata
+        fun live(m: androidx.media3.common.MediaMetadata) = TransitionRules.isSpokenOrLive(
+            m.title?.toString().orEmpty(), m.artist?.toString().orEmpty(), m.albumTitle?.toString().orEmpty(),
+        )
+        if (live(a) || live(b)) return true
+        val active = activeDeck.player
+        val key = active.mediaItemCount to active.shuffleModeEnabled
+        if (albumQueueKey != key) {
+            albumQueueKey = key
+            albumQueue = TransitionRules.isAlbumPlaythrough(
+                (0 until active.mediaItemCount).map { i ->
+                    active.getMediaItemAt(i).mediaMetadata.let { m ->
+                        m.albumTitle?.toString() to (m.albumArtist ?: m.artist)?.toString()
+                    }
+                },
+                active.shuffleModeEnabled,
+            )
+        }
+        return albumQueue
+    }
+
+    // ponytail: keyed on queue size + shuffle only; a same-size queue swap re-reads on the next change.
+    private var albumQueueKey: Pair<Int, Boolean>? = null
+    private var albumQueue = false
 
     private fun startCrossfade(nextIndex: Int, plan: AutomixPlan) {
         if (isCrossfading) return
@@ -977,6 +1011,7 @@ class YumaDualDeckPlayer private constructor(
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>) {
+        albumQueueKey = null
         beforeSeek()
         forwardingPlayer.setMediaItems(mediaItems)
         activeDeck.player.shuffleFromCurrent()
@@ -984,6 +1019,7 @@ class YumaDualDeckPlayer private constructor(
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
+        albumQueueKey = null
         beforeSeek()
         forwardingPlayer.setMediaItems(mediaItems, resetPosition)
         activeDeck.player.shuffleFromCurrent()
@@ -991,6 +1027,7 @@ class YumaDualDeckPlayer private constructor(
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) {
+        albumQueueKey = null
         beforeSeek()
         forwardingPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
         activeDeck.player.shuffleFromCurrent()

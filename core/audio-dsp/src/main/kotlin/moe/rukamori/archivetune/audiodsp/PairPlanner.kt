@@ -29,7 +29,11 @@ class MixFeatures(
     val coveredFrom: Double,
     /** The ending's own tempo when a model tracked it there; the outgoing side reads this. */
     val bpmTail: Double = 0.0,
+    /** Parallel to [curveT]: energy below 250 Hz against the track's own reference (kick and bass). */
+    val lowEnergy: DoubleArray = DoubleArray(0),
 ) {
+    fun lowEnergyAt(t: Double) = if (lowEnergy.size == curveT.size) at(t, lowEnergy) else 0.0
+
     val outBpm: Double get() = bpmTail.takeIf { it > 0.0 } ?: bpm
 
     val hasGrid: Boolean get() = bpm > 0.0 && beatConfidence >= MIN_BEAT_CONFIDENCE && downbeats.size >= 4
@@ -111,6 +115,7 @@ class MixFeatures(
                 outCues = f.outCues,
                 coveredFrom = f.coveredFrom,
                 bpmTail = m.optDouble("tailBpm", 0.0).takeIf { gridOk && it > 0.0 } ?: 0.0,
+                lowEnergy = f.lowEnergy,
             )
         }.getOrDefault(f)
 
@@ -121,8 +126,8 @@ class MixFeatures(
 
             fun nums(o: JSONObject, name: String, shift: Double) =
                 o.optJSONArray(name)?.let { a -> DoubleArray(a.length()) { a.optDouble(it) + shift } } ?: DoubleArray(0)
-            fun curve(o: JSONObject, shift: Double): Pair<DoubleArray, DoubleArray> {
-                val a = o.optJSONArray("energyCurve") ?: JSONArray()
+            fun curve(o: JSONObject, shift: Double, name: String = "energyCurve"): Pair<DoubleArray, DoubleArray> {
+                val a = o.optJSONArray(name) ?: JSONArray()
                 return DoubleArray(a.length()) { a.getJSONObject(it).optDouble("t") + shift } to
                     DoubleArray(a.length()) { a.getJSONObject(it).optDouble("e") }
             }
@@ -138,9 +143,11 @@ class MixFeatures(
 
             val (ht, he) = curve(head, 0.0)
             val hv = nums(head, "vocalActivityMask", 0.0)
+            val hl = curve(head, 0.0, "lowEnergyCurve").second
             var curveT = ht
             var energy = he
             var vocal = hv
+            var low = hl
             if (tail != null) {
                 val (tt, te) = curve(tail, tailOffset)
                 val tv = nums(tail, "vocalActivityMask", 0.0)
@@ -148,6 +155,8 @@ class MixFeatures(
                 curveT = keep.map { ht[it] }.toDoubleArray() + tt
                 energy = keep.map { he[it] }.toDoubleArray() + te
                 vocal = keep.map { hv.getOrElse(it) { 0.0 } }.toDoubleArray() + DoubleArray(tt.size) { tv.getOrElse(it) { 0.0 } }
+                val tl = curve(tail, tailOffset, "lowEnergyCurve").second
+                low = keep.map { hl.getOrElse(it) { 0.0 } }.toDoubleArray() + DoubleArray(tt.size) { tl.getOrElse(it) { 0.0 } }
             }
             val src = tail ?: head
             val shift = if (tail != null) tailOffset else 0.0
@@ -165,6 +174,7 @@ class MixFeatures(
                 inCues = cues(head, "mixInCandidates", 0.0),
                 outCues = cues(src, "mixOutCandidates", shift),
                 coveredFrom = if (tail != null) tailOffset else 0.0,
+                lowEnergy = low,
             )
         }.getOrNull()
     }
@@ -178,12 +188,23 @@ class MixFeatures(
  * shorten the overlap when the keys clash.
  */
 object PairPlanner {
-    /** Bungee stays clean within this much stretch; beyond it the songs are faded, not matched. */
-    const val MAX_STRETCH = 0.08
+    /**
+     * BitChord's stretch window: the incoming song may be slowed by at most 10% and sped up by at
+     * most 25%. Asymmetric because speeding up drops slivers and stays clean, while slowing down
+     * repeats them, which is where the metallic smear comes from.
+     */
+    const val MIN_INCOMING_RATE = 0.9
+    const val MAX_INCOMING_RATE = 1.25
+    /** Below this on either side even the filter mix's beat-placed handover is a guess. */
+    const val MIN_DJ_CONFIDENCE = 0.2
+    /** Low band at the join at or above this share of the track's reference: a kick is playing. */
+    const val KICK_PRESENT = 0.5
     const val BARS_MATCHED = 8
     const val BARS_KEY_CLASH = 4
+    const val FILTER_BEATS = 16
     const val MIN_FADE_S = 4.0
     const val MAX_FADE_S = 20.0
+    const val MAX_FILTER_FADE_S = 12.0
     /** How far before the end the outgoing song may be left, at most. */
     const val EXIT_WINDOW_S = 40.0
     const val ENTRY_WINDOW_S = 40.0
@@ -200,33 +221,67 @@ object PairPlanner {
         val duration = durationMs / 1000.0
         // A head-only analysis of a streamed song knows nothing about its ending.
         if ((out.curveT.lastOrNull() ?: 0.0) < duration * 0.8) return null
-        val end =out.contentEnd.takeIf { it > 0.0 && it <= duration + 0.5 } ?: duration
+        val end = out.contentEnd.takeIf { it > 0.0 && it <= duration + 0.5 } ?: duration
         if (end <= MIN_FADE_S * 2) return null
 
         val ratio = if (out.outBpm > 0 && inc.bpm > 0) TransitionPlanner.normalizedTempoRatio(out.outBpm, inc.bpm) else 0.0
-        val match = out.hasGrid && inc.hasGrid && abs(1.0 - ratio) <= MAX_STRETCH
         // Incoming playback speed that lands its beats on the outgoing ones.
-        val speed = if (match) 1.0 / ratio else 1.0
+        val rate = if (ratio > 0) 1.0 / ratio else 0.0
+        val match = out.hasGrid && inc.hasGrid && rate in MIN_INCOMING_RATE..MAX_INCOMING_RATE
+        val dj = !match && out.outBpm > 0 && inc.bpm > 0 &&
+            out.beatConfidence >= MIN_DJ_CONFIDENCE && inc.beatConfidence >= MIN_DJ_CONFIDENCE
+        val speed = if (match) rate else 1.0
         val keysFit = camelotCompatible(out.key, inc.key)
+        val beat = if (out.outBpm > 0) 60.0 / out.outBpm else 0.0
 
-        val fade = if (match) {
-            val bar = 4 * 60.0 / out.outBpm
-            (bar * if (keysFit != false) BARS_MATCHED else BARS_KEY_CLASH).coerceIn(MIN_FADE_S, MAX_FADE_S)
-        } else {
-            (baseFadeMs / 1000.0).coerceIn(MIN_FADE_S, MAX_FADE_S)
+        val fade = when {
+            match -> (4 * beat * if (keysFit != false) BARS_MATCHED else BARS_KEY_CLASH).coerceIn(MIN_FADE_S, MAX_FADE_S)
+            dj -> (FILTER_BEATS * beat).coerceIn(MIN_FADE_S, MAX_FILTER_FADE_S)
+            else -> (baseFadeMs / 1000.0).coerceIn(MIN_FADE_S, MAX_FADE_S)
         }
 
         val choice = choose(out, inc, end, fade, speed, match) ?: return null
+        val outSung = out.vocalShare(choice.exit, choice.exit + fade)
+        val incSung = inc.vocalShare(choice.entry, choice.entry + fade * speed)
+        val clash = if (outSung > 0.25 && incSung > 0.25) kotlin.math.sqrt(outSung * incSung) else 0.0
+
+        val style = when {
+            match -> MixStyle.BLEND
+            dj -> {
+                // Two kicks at the join want one decisive handover; anything else the long sweep.
+                val window = 8 * beat
+                val kicks = averageLow(out, choice.exit + fade - window, choice.exit + fade) >= KICK_PRESENT &&
+                    averageLow(inc, choice.entry, choice.entry + window) >= KICK_PRESENT
+                if (kicks) MixStyle.BASS_HANDOFF else MixStyle.FILTER_SWEEP
+            }
+            else -> MixStyle.EQUAL_POWER
+        }
+        val beatsInFade = if (beat > 0 && style != MixStyle.EQUAL_POWER) fade / beat else 0.0
+        val swapAt = MixStyles.onBeat(
+            if (style == MixStyle.BASS_HANDOFF) MixStyles.HANDOFF_SWAP_AT else MixStyles.SWEEP_SWAP_AT,
+            beatsInFade,
+        )
         return AutomixPlan(
             triggerOffsetMs = durationMs - (choice.exit * 1000).roundToLong(),
             durationMs = (choice.fade * 1000).roundToLong(),
             incomingStartMs = (choice.entry * 1000).roundToLong(),
-            enableBassSwap = bassSwap,
+            enableBassSwap = bassSwap && style != MixStyle.EQUAL_POWER,
             triggerAtMs = (choice.exit * 1000).roundToLong(),
             prepareAheadMs = maxOf((choice.fade * 1000).roundToLong() + 2000L, 8000L),
             tier = if (match) TransitionTier.SMART_BEATMATCH else TransitionTier.PLAIN_CROSSFADE,
             incomingTempoRatio = speed.toFloat(),
+            style = style,
+            swapAt = swapAt,
+            swapWidth = MixStyles.swapWidth(beatsInFade),
+            vocalClash = clash,
         )
+    }
+
+    private fun averageLow(f: MixFeatures, from: Double, to: Double): Double {
+        var sum = 0.0
+        var n = 0
+        for (i in f.curveT.indices) if (f.curveT[i] >= from && f.curveT[i] < to && i < f.lowEnergy.size) { sum += f.lowEnergy[i]; n++ }
+        return if (n == 0) 0.0 else sum / n
     }
 
     fun choose(out: MixFeatures, inc: MixFeatures, end: Double, fade: Double, speed: Double, match: Boolean): Choice? {
