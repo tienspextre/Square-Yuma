@@ -357,6 +357,22 @@ class SubsonicBackend(
         }
     }
 
+    // Only the removing half: the NAS playlists come from .m3u8 files, edited through the bridge.
+    override fun canWriteTo(playlistUri: String): Boolean = playlistUri.startsWith("subsonic:playlist:")
+
+    override suspend fun removeFromPlaylist(playlistUri: String, trackUri: String) {
+        client.bridgeRemove(
+            trackUri.removePrefix("subsonic:track:"),
+            playlistUri.removePrefix("subsonic:playlist:"),
+            deleteFile = false,
+        ).getOrThrow()
+    }
+
+    /** Deletes the song's file from the NAS, which also takes it out of every playlist. */
+    suspend fun deleteFromNas(trackUri: String) {
+        client.bridgeRemove(trackUri.removePrefix("subsonic:track:"), null, deleteFile = true).getOrThrow()
+    }
+
     override suspend fun tracksOf(uri: String): List<CatalogTrack> = withContext(Dispatchers.IO) {
         if (uri == "subsonic:offline") {
             return@withContext offlineStore.getAllCatalogTracks()

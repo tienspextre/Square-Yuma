@@ -4992,6 +4992,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Deletes a NAS song's file for good. Optimistic like [removeFromPlaylist]:
+     * the row goes from the open page now and comes back if the bridge refuses.
+     */
+    fun deleteFromNas(track: CatalogTrack, onDone: (Throwable?) -> Unit) {
+        val nas = container.activeBackend as? dev.lelonio.square.backend.subsonic.SubsonicBackend ?: return
+        val uri = _playlist.value.uri
+        val before = _playlist.value.tracks
+        _playlist.value = _playlist.value.copy(tracks = before.filterNot { it.uri == track.uri })
+        uri?.let(::invalidateContext)
+        viewModelScope.launch {
+            val failure = runCatching { nas.deleteFromNas(track.uri) }.exceptionOrNull()
+            if (failure != null) {
+                android.util.Log.e(TAG, "delete from NAS failed: ${chain(failure)}", failure)
+                if (_playlist.value.uri == uri) _playlist.value = _playlist.value.copy(tracks = before)
+            }
+            onDone(failure)
+        }
+    }
+
     /** Whether the active source lets the account make and change playlists. */
     val canEditPlaylists: Boolean get() = container.activeBackend.canEditPlaylists
 

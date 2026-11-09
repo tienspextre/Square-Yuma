@@ -794,6 +794,7 @@ fun SquareApp(
     // detail page, which can be a playlist belonging to anyone, ever says no.
     /** The page whose downloads are about to be given back; see the menu. */
     var unkeeping by remember { mutableStateOf<MainViewModel.PlaylistState?>(null) }
+    var nasDeleting by remember { mutableStateOf<CatalogTrack?>(null) }
     var playlistMenuMine by remember { mutableStateOf(true) }
     var playlistMenuSaved by remember { mutableStateOf(true) }
     var deleting by remember { mutableStateOf<CatalogPlaylist?>(null) }
@@ -3565,6 +3566,26 @@ fun SquareApp(
                     )
                 }
 
+                nasDeleting?.let { target ->
+                    val deletedMsg = stringResource(R.string.delete_from_nas_done, target.name)
+                    dev.lelonio.square.ui.components.ConfirmDialog(
+                        title = stringResource(R.string.delete_from_nas),
+                        message = stringResource(R.string.delete_from_nas_message, target.name),
+                        confirmLabel = stringResource(R.string.delete),
+                        onConfirm = {
+                            nasDeleting = null
+                            viewModel.deleteFromNas(target) { error ->
+                                android.widget.Toast.makeText(
+                                    context,
+                                    error?.message ?: deletedMsg,
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        },
+                        onDismiss = { nasDeleting = null },
+                    )
+                }
+
                 deleting?.let { target ->
                     dev.lelonio.square.ui.components.ConfirmDialog(
                         title = stringResource(R.string.delete_playlist_title),
@@ -3831,6 +3852,17 @@ fun SquareApp(
                             ) {
                                 trackMenu = null
                                 viewModel.removeFromPlaylist(menu.track)
+                            }
+                        }
+                        // The file itself, off the NAS and out of every playlist. Asked first.
+                        if (menu.track.uri.startsWith("subsonic:track:") && !offlineNow) {
+                            TrackSheetAction(
+                                stringResource(R.string.delete_from_nas),
+                                PhosphorIcons.Regular.Trash,
+                                destructive = true,
+                            ) {
+                                trackMenu = null
+                                nasDeleting = menu.track
                             }
                         }
                     }

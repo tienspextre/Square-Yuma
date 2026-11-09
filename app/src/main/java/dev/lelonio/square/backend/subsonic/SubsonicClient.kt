@@ -6,7 +6,9 @@ import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
@@ -251,6 +253,37 @@ class SubsonicClient(
         }
     }
 
+    /**
+     * Takes a song out of a playlist's .m3u8, or deletes its file from the NAS
+     * (and so from every playlist), through lossless-bridge beside Navidrome.
+     * Subsonic has no call for either, and Navidrome re-imports playlist files,
+     * so an API-only edit would come back on the next scan.
+     */
+    suspend fun bridgeRemove(songId: String, playlistId: String?, deleteFile: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            // ponytail: the bridge is assumed on Navidrome's host at :8092; add a setting if it ever moves.
+            val base = preferences.serverUrl.value.trim().toHttpUrlOrNull()
+                ?: return@withContext Result.failure(IOException("Invalid URL"))
+            val url = base.newBuilder().scheme("http").port(BRIDGE_PORT)
+                .encodedPath("/api/navidrome/remove").query(null).build()
+            val auth = preferences.buildAuthParams()
+            val body = JSONObject()
+                .put("u", auth["u"]).put("t", auth["t"]).put("s", auth["s"])
+                .put("song_id", songId)
+                .put("playlist_id", playlistId ?: JSONObject.NULL)
+                .put("delete_file", deleteFile)
+                .toString()
+                .toRequestBody("application/json".toMediaType())
+            runCatching {
+                httpClient.newCall(Request.Builder().url(url).post(body).build()).execute().use { r ->
+                    if (!r.isSuccessful) {
+                        val detail = runCatching { JSONObject(r.body?.string().orEmpty()).optString("detail") }.getOrNull()
+                        throw IOException(detail?.ifBlank { null } ?: "Bridge HTTP ${r.code}")
+                    }
+                }
+            }
+        }
+
     fun buildStreamUrl(songId: String): String {
         val params = mutableMapOf("id" to songId)
         if (preferences.transcodeCellular.value && isMetered()) {
@@ -268,5 +301,9 @@ class SubsonicClient(
     fun buildCoverArtUrl(coverId: String?, size: Int = 600): String? {
         if (coverId.isNullOrBlank()) return null
         return buildUrl("getCoverArt.view", mapOf("id" to coverId, "size" to size.toString()))?.toString()
+    }
+
+    private companion object {
+        const val BRIDGE_PORT = 8092
     }
 }

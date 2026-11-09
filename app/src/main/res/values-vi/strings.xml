@@ -749,4 +749,7 @@
     <string name="download_rescan_no_permission">Cần cho phép đọc nhạc để tìm bài trong Music/Square</string>
     <string name="based_on_square">Phát triển từ Square của Lelonio</string>
     <string name="mini_lyrics_title">Hiện lời đang hát phía trên thanh tua</string>
+    <string name="delete_from_nas">Xóa khỏi NAS</string>
+    <string name="delete_from_nas_message">Xóa file “%1$s” khỏi NAS? Bài cũng sẽ bị gỡ khỏi mọi playlist. Không thể hoàn tác.</string>
+    <string name="delete_from_nas_done">Đã xóa “%1$s” khỏi NAS</string>
 </resources>
