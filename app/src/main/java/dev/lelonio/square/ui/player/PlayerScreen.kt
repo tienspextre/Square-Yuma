@@ -488,6 +488,10 @@ fun PlayerScreen(
     onAnotherDevice: Boolean = false,
 ) {
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val miniLyrics by remember(appContext) {
+        (appContext as dev.lelonio.square.SquareApplication).preferences.miniLyrics
+    }.collectAsStateWithLifecycle()
     // The official SDK mixes its own audio: no effects or karaoke reach it.
     val sdkPlayback by dev.lelonio.square.playback.websdk.WebSdkRecovery.inUse.collectAsStateWithLifecycle()
     LaunchedEffect(sdkPlayback) {
@@ -1788,6 +1792,15 @@ fun PlayerScreen(
                             // Tighter on its side, where the column is short.
                             Spacer(Modifier.height(if (sideways) 10.dp else 18.dp))
 
+                            // Opt-in: the line being sung, small, right above the
+                            // bar, without opening the lyrics. Its height is held
+                            // while the song has synced lyrics, so the bar and the
+                            // transport never move as lines come and go.
+                            if (!sideways && miniLyrics && panel == PlayerPanel.NONE && lyrics?.synced == true) {
+                                MiniSungLine(lyrics, positionMs)
+                                Spacer(Modifier.height(6.dp))
+                            }
+
                             // Where the bar is being dragged to, while it is.
                             var scrubMs by remember { mutableStateOf<Long?>(null) }
                             val shownPosition = remember(positionMs) {
@@ -2452,15 +2465,14 @@ internal fun TimeRow(
     durationMs: Long,
     automixStatus: AutomixStatus? = null,
 ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    // A Box, not a spaced Row: SpaceBetween centred the badge in the gap between the two times,
+    // so it slid sideways whenever the elapsed time gained or lost a digit.
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             formatDuration(positionMs.value),
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
+            modifier = Modifier.align(Alignment.CenterStart),
         )
         if (automixStatus != null && (automixStatus.isCrossfading || automixStatus.quality != null)) {
             AutomixBadge(automixStatus)
@@ -2469,6 +2481,7 @@ internal fun TimeRow(
             formatDuration(durationMs),
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
+            modifier = Modifier.align(Alignment.CenterEnd),
         )
     }
 }
@@ -3075,6 +3088,41 @@ private fun LyricsStage(
                 // the middle of the panel.
                 .align(Alignment.BottomEnd)
                 .padding(end = 6.dp, bottom = 6.dp),
+        )
+    }
+}
+
+/** [SungLine], one row high and quieter, for the space above the seek bar. */
+@Composable
+private fun MiniSungLine(
+    lyrics: dev.lelonio.square.data.Lyrics,
+    positionMs: State<Long>,
+) {
+    val line by remember(lyrics) {
+        androidx.compose.runtime.derivedStateOf {
+            val now = positionMs.value
+            lyrics.lines.lastOrNull { (it.startTimeMs ?: Long.MAX_VALUE) <= now }
+                ?.text?.trim().orEmpty()
+        }
+    }
+    AnimatedContent(
+        targetState = line,
+        transitionSpec = { fadeIn(tween(260)).togetherWith(fadeOut(tween(180))) },
+        label = "miniSungLine",
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(22.dp),
+    ) { text ->
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = GlassInkDim,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

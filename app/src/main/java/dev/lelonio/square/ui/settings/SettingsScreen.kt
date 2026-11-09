@@ -322,97 +322,8 @@ fun SettingsScreen(
         item("top") { heading(shown) }
 
         if (shown == null) item("pages") {
-            // On YouTube Music, the Google account says who this is. The
-            // library's own answer outlived a sign-out: the card went on
-            // showing a name, a picture and a count of playlists for an account
-            // the app was no longer signed in to.
-            val youtubeName by app.youtubeAccount.accountName.collectAsStateWithLifecycle()
-            val activeBackend by app.preferences.backend.collectAsStateWithLifecycle()
-            val signedOutOfYouTube = activeBackend == BackendId.YOUTUBE_MUSIC && youtubeName == null
-            SettingsIndex(
-                name = ready?.displayName?.takeUnless { signedOutOfYouTube },
-                note = when {
-                    signedOutOfYouTube -> stringResource(R.string.youtube_sign_in)
-                    ready != null -> stringResource(R.string.playlist_count, ready.playlists.size)
-                    else -> stringResource(R.string.log_in_to_resume)
-                },
-                avatarUrl = ready?.avatarUrl?.takeUnless { signedOutOfYouTube },
-            ) { goTo(it) }
+            SettingsIndex { goTo(it) }
         }
-
-        // Who this is, before anything that can be done about it. Nothing else
-        // on the page is worth as much room: the picture and the name answer
-        // the question people open this page with.
-        if (shown == SettingsPage.Account && showSpotify) item("account") {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                dev.lelonio.square.ui.components.ProfilePicture(
-                    url = ready?.avatarUrl,
-                    name = ready?.displayName,
-                    size = 96.dp,
-                    modifier = Modifier
-                        .size(96.dp)
-                        .softShadow(CircleShape, elevation = 16.dp),
-                    decodeSize = 96.dp,
-                )
-                Text(
-                    ready?.displayName ?: stringResource(R.string.not_connected),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    if (ready != null) {
-                        stringResource(R.string.playlist_count, ready.playlists.size)
-                    } else {
-                        stringResource(R.string.log_in_to_resume)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = InkDim,
-                )
-            }
-            Section(null) {
-                InfoRow(stringResource(R.string.connect_device), deviceName, icon = PhosphorIcons.Regular.DeviceMobile)
-            }
-        }
-
-        if (shown == SettingsPage.Account && showSpotify) groupHeading(Group.SETUP, open = "setup" in openGroups) { toggleGroup("setup") }
-
-        if (shown == SettingsPage.Account && showSpotify && "setup" in openGroups) groupItem("webapi", Group.SETUP) {
-            Section(stringResource(R.string.web_api)) {
-                if (webApi.connected) {
-                    InfoRow(stringResource(R.string.application), stringResource(R.string.connected))
-                    RowDivider()
-                    InfoRow(
-                        stringResource(R.string.client_id),
-                        webApi.clientId.take(8) + if (webApi.clientId.length > 8) "…" else "",
-                    )
-                    RowDivider()
-                    ActionRow(stringResource(R.string.disconnect), destructive = true, onClick = onDisconnectWebApi)
-                } else {
-                    // The full explanation, because with no application
-                    // connected search does not work at all and the reason is
-                    // not something anyone would guess.
-                    WebApiSetup(webApi, backdrop, onClientIdChange, onConnectWebApi)
-                }
-            }
-        }
-
-        if (shown == SettingsPage.Account && showSpotify && "setup" in openGroups) groupItem("tutorial", Group.SETUP) {
-            Section(stringResource(R.string.guide)) {
-                ActionRow(stringResource(R.string.see_setup_again), destructive = false) {
-                    onShowTutorial()
-                }
-            }
-        }
-
-        if (shown == SettingsPage.Account && showSpotify && "setup" in openGroups) groupEnd(Group.SETUP)
 
         if (shown == SettingsPage.Playback) groupHeading(Group.SOUND, open = "sound" in openGroups) { toggleGroup("sound") }
 
@@ -437,13 +348,6 @@ fun SettingsScreen(
         if (shown == SettingsPage.Playback && "sound" in openGroups) groupItem("backend", Group.SOUND) {
             BackendSection()
             SubsonicSection(backdrop, onReload = onYouTubeChannelChange)
-        }
-
-        if (shown == SettingsPage.Account) item("youtube-account") {
-            YouTubeAccountSection(
-                onSignIn = onYouTubeSignIn,
-                onChannelChange = onYouTubeChannelChange,
-            )
         }
 
         // What is kept on the phone. Under Playback rather than Account: it is
@@ -583,6 +487,10 @@ fun SettingsScreen(
 
         if (shown == SettingsPage.Playback && "lyrics" in openGroups) groupItem("lyrics-source", Group.LYRICS) {
             PreferredLyricsSection(showSpotify)
+        }
+
+        if (shown == SettingsPage.Playback && "lyrics" in openGroups) groupItem("mini-lyrics", Group.LYRICS) {
+            MiniLyricsSection(backdrop)
         }
 
         // Spicy Lyrics is asked by Spotify track id, so only on that source.
@@ -817,7 +725,7 @@ fun SettingsScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable { uriHandler.openUri(GITHUB_URL) }
+                        .clickable { uriHandler.openUri(REPO_URL) }
                         .padding(horizontal = 18.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -838,9 +746,9 @@ fun SettingsScreen(
                             .weight(1f)
                             .padding(start = 14.dp),
                     ) {
-                        Text(GITHUB_USER, style = MaterialTheme.typography.titleMedium)
+                        Text("Square-Yuma", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            GITHUB_URL.removePrefix("https://"),
+                            REPO_URL.removePrefix("https://"),
                             style = MaterialTheme.typography.bodySmall,
                             color = InkDim,
                         )
@@ -853,19 +761,18 @@ fun SettingsScreen(
                     )
                 }
                 RowDivider()
-                // Beside the name rather than under About: it is about the
-                // person who makes the app, not about the build.
+                // The app this one grew out of, credited where the maker is.
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable { uriHandler.openUri(KOFI_URL) }
+                        .clickable { uriHandler.openUri(UPSTREAM_URL) }
                         .padding(horizontal = 18.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.support_development), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.based_on_square), style = MaterialTheme.typography.titleMedium)
                         Text(
-                            KOFI_URL.removePrefix("https://"),
+                            UPSTREAM_URL.removePrefix("https://"),
                             style = MaterialTheme.typography.bodySmall,
                             color = InkDim,
                         )
@@ -892,7 +799,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    "Square ${BuildConfig.VERSION_NAME}",
+                    "Square-Yuma ${BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
@@ -924,85 +831,6 @@ fun SettingsScreen(
 
         if (shown == SettingsPage.About && "about" in openGroups) groupEnd(Group.ABOUT)
 
-        if (shown == SettingsPage.About) groupHeading(Group.HELP, open = "help" in openGroups) { toggleGroup("help") }
-
-        // Where to take a question, an idea or a problem. Beside the report,
-        // which is what a problem needs attached: the whole errand on one
-        // page, rather than a web address to go and find.
-        if (shown == SettingsPage.About && "help" in openGroups) groupItem("help", Group.HELP) {
-            val uriHandler = LocalUriHandler.current
-            Section(stringResource(R.string.help_feedback)) {
-                ActionRow(
-                    stringResource(R.string.telegram_community),
-                    destructive = false,
-                    icon = PhosphorIcons.Regular.TelegramLogo,
-                ) { uriHandler.openUri(TELEGRAM_COMMUNITY_URL) }
-                RowDivider()
-                ActionRow(
-                    stringResource(R.string.help_discussions),
-                    destructive = false,
-                    icon = PhosphorIcons.Regular.ChatsCircle,
-                ) { uriHandler.openUri(DISCUSSIONS_URL) }
-                RowDivider()
-                ActionRow(
-                    stringResource(R.string.help_report_problem),
-                    destructive = false,
-                    icon = PhosphorIcons.Regular.Bug,
-                ) { uriHandler.openUri(NEW_ISSUE_URL) }
-            }
-        }
-
-        if (shown == SettingsPage.About && "help" in openGroups) groupEnd(Group.HELP)
-
-        if (shown == SettingsPage.About) groupHeading(Group.PERMISSIONS, open = "permissions" in openGroups) { toggleGroup("permissions") }
-
-        // Last, and tighter than the rest: a reference for whoever wants to
-        // check what the app asks Spotify for, not something anyone does.
-        if (shown == SettingsPage.About && "permissions" in openGroups) groupItem("permissions", Group.PERMISSIONS) {
-            Section(stringResource(R.string.permissions_asked)) {
-                Text(
-                    stringResource(R.string.permissions_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = InkDim,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-                )
-                SCOPES.forEach { (scope, why) ->
-                    RowDivider()
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            scope,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = InkDim,
-                            modifier = Modifier.weight(0.9f),
-                        )
-                        Text(
-                            stringResource(why),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1.1f),
-                        )
-                    }
-                }
-            }
-        }
-
-        if (shown == SettingsPage.About && "permissions" in openGroups) groupEnd(Group.PERMISSIONS)
-
-        // Spotify's sign-out, so only while Spotify is the source. On YouTube
-        // Music the account section above has its own, and this one signed the
-        // app out of Spotify from a page about a Google account.
-        if (ready != null && shown == SettingsPage.Account && showSpotify) {
-            item("logout") {
-                Section(null) {
-                    ActionRow(stringResource(R.string.log_out), destructive = true, onClick = onLogOut)
-                }
-            }
-        }
     }
     }
     }
@@ -1025,7 +853,6 @@ private enum class SettingsPage(
     /** The mark on its tile; see SettingsIndex. */
     val icon: ImageVector,
 ) {
-    Account(R.string.account, R.string.page_account_summary, PhosphorIcons.Regular.UserCircle),
     Playback(R.string.page_playback, R.string.page_playback_summary, PhosphorIcons.Regular.Waveform),
     // Its own page rather than a section of the app's: the preview has to stay
     // on screen while the numbers under it move, and a section inside a list
@@ -1053,82 +880,16 @@ private const val PAGE_FADE_MS = 140
  */
 @Composable
 private fun SettingsIndex(
-    name: String?,
-    note: String,
-    avatarUrl: String?,
     onOpen: (SettingsPage) -> Unit,
 ) {
     Column(
         Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(Ink.copy(alpha = 0.07f))
-                .clickable { onOpen(SettingsPage.Account) }
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            dev.lelonio.square.ui.components.ProfilePicture(
-                url = avatarUrl,
-                name = name,
-                size = 56.dp,
-                modifier = Modifier
-                    .size(56.dp)
-                    .softShadow(CircleShape, elevation = 10.dp),
-                decodeSize = 56.dp,
-            )
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(start = 14.dp),
-            ) {
-                Text(
-                    name ?: stringResource(R.string.not_connected),
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    note,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = InkDim,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Icon(
-                PhosphorIcons.Regular.CaretRight,
-                contentDescription = null,
-                tint = InkDim,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-
-        // Six places, and a seventh tile that is not a place: it leaves the app
-        // for the Ko-fi page. Last, and in the same shape as the rest, because
-        // it is an offer rather than a setting — asking louder than that would
-        // be asking on a screen somebody opened to change something.
-        val uriHandler = LocalUriHandler.current
-        val pages = SettingsPage.entries.filter { it != SettingsPage.Account }
-        val rows = pages.chunked(2)
-        rows.forEachIndexed { index, pair ->
-            val last = index == rows.lastIndex
+        SettingsPage.entries.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 pair.forEach { page -> PageTile(page, Modifier.weight(1f)) { onOpen(page) } }
-                // The support tile fills the gap a row of one would leave, and
-                // makes its own row when the pages divide evenly.
-                if (last && pair.size == 1) {
-                    SupportTile(Modifier.weight(1f)) { uriHandler.openUri(KOFI_URL) }
-                }
-            }
-            if (last && pair.size == 2) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SupportTile(Modifier.weight(1f)) { uriHandler.openUri(KOFI_URL) }
-                    Spacer(Modifier.weight(1f))
-                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
 
@@ -1242,18 +1003,6 @@ private fun PageTile(page: SettingsPage, modifier: Modifier = Modifier, onClick:
         icon = page.icon,
         title = stringResource(page.title),
         summary = stringResource(page.summary),
-        modifier = modifier,
-        onClick = onClick,
-    )
-}
-
-/** Not a page: the one tile that leaves the app. */
-@Composable
-private fun SupportTile(modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Tile(
-        icon = PhosphorIcons.Regular.HandHeart,
-        title = stringResource(R.string.support_development),
-        summary = KOFI_URL.removePrefix("https://"),
         modifier = modifier,
         onClick = onClick,
     )
@@ -1691,6 +1440,24 @@ private fun CanvasSection(backdrop: Backdrop) {
             checked = enabled,
             backdrop = backdrop,
             onChange = store::setCanvasEnabled,
+        )
+    }
+}
+
+@Composable
+private fun MiniLyricsSection(backdrop: Backdrop) {
+    val context = LocalContext.current
+    val store = remember(context) {
+        (context.applicationContext as dev.lelonio.square.SquareApplication).preferences
+    }
+    val enabled by store.miniLyrics.collectAsStateWithLifecycle()
+    Section(null) {
+        DownloadSwitch(
+            label = stringResource(R.string.mini_lyrics_title),
+            icon = PhosphorIcons.Regular.MicrophoneStage,
+            checked = enabled,
+            backdrop = backdrop,
+            onChange = store::setMiniLyrics,
         )
     }
 }
@@ -2692,19 +2459,9 @@ private fun RowDivider() {
     )
 }
 
-/** Kept next to the request that asks for them; see MainViewModel.connectWebApi. */
-private val SCOPES = listOf(
-    "user-top-read" to R.string.scope_top_artists,
-    "user-read-recently-played" to R.string.scope_history,
-    "user-read-playback-state" to R.string.scope_devices,
-    "user-modify-playback-state" to R.string.scope_transfer,
-    "playlist-modify-private" to R.string.scope_private_playlists,
-    "playlist-modify-public" to R.string.scope_public_playlists,
-    "user-library-modify" to R.string.scope_library,
-    "ugc-image-upload" to R.string.scope_cover,
-)
-
 private val LICENCES = listOf(
+    "Square (Lelonio)" to "GPL-3.0",
+    "Orchard / BitChord automix" to "AGPL-3.0",
     "librespot" to "MIT",
     "Bungee" to "MPL-2.0",
     "AndroidLiquidGlass" to "Apache-2.0",
@@ -2717,9 +2474,8 @@ private val LICENCES = listOf(
     "astring" to "MIT",
 )
 
-private const val GITHUB_USER = "Lelonio"
-private const val GITHUB_URL = "https://github.com/Lelonio"
-private const val KOFI_URL = "https://ko-fi.com/lelonio"
-private const val DISCUSSIONS_URL = "https://github.com/Lelonio/Square/discussions"
-private const val TELEGRAM_COMMUNITY_URL = "https://t.me/+SAOhZ4HTFpMwNDJk"
-private const val NEW_ISSUE_URL = "https://github.com/Lelonio/Square/issues/new/choose"
+private const val GITHUB_USER = "tienspextre"
+private const val GITHUB_URL = "https://github.com/tienspextre"
+private const val REPO_URL = "https://github.com/tienspextre/Square-Yuma"
+/** The app this one is forked from, credited on the About page. */
+private const val UPSTREAM_URL = "https://github.com/Lelonio/Square"

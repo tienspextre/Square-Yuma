@@ -396,7 +396,7 @@
     <string name="app_battery_settings">Battery settings</string>
     <string name="app_clear_list_cache">Clear the saved playlists</string>
     <string name="app_clear_list_cache_done">Cleared — they are read again as you open them</string>
-    <string name="page_about_summary">Version, permissions, licences and the developer</string>
+    <string name="page_about_summary">Version, licences and the source code</string>
     <string name="playing_on">Playing on %1$s</string>
     <string name="switching">Switching…</string>
     <string name="in_a_playlist">Already in a playlist</string>
@@ -766,4 +766,6 @@
     <string name="download_rescan_done">Found %1$d songs in Music/Square</string>
     <string name="download_rescan_failed">Could not reach the NAS to match the songs</string>
     <string name="download_rescan_no_permission">Allow music access to find the songs in Music/Square</string>
+    <string name="based_on_square">Based on Square by Lelonio</string>
+    <string name="mini_lyrics_title">Show the current lyric above the seek bar</string>
 </resources>

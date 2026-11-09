@@ -140,6 +140,15 @@ class PreferencesStore(context: Context) {
         prefs.edit().putString(KEY_LYRICS_STYLE, value.name).apply()
     }
 
+    /** The line being sung, small above the seek bar on the default Now Playing view. */
+    private val _miniLyrics = MutableStateFlow(prefs.getBoolean(KEY_MINI_LYRICS, false))
+    val miniLyrics: StateFlow<Boolean> = _miniLyrics.asStateFlow()
+
+    fun setMiniLyrics(value: Boolean) {
+        _miniLyrics.value = value
+        prefs.edit().putBoolean(KEY_MINI_LYRICS, value).apply()
+    }
+
     /** How YouTube Music's sound is chosen; see [youtubeQuality]. */
     enum class YouTubeQuality { AUTO, HIGH, LOW }
 
@@ -409,6 +418,7 @@ class PreferencesStore(context: Context) {
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_YOUTUBE_QUALITY = "youtube_quality"
         const val KEY_LYRICS_STYLE = "lyrics_style"
+        const val KEY_MINI_LYRICS = "mini_lyrics"
         const val KEY_SPICY_LYRICS = "spicy_lyrics_key"
         const val KEY_PREFERRED_LYRICS = "preferred_lyrics_source"
         const val KEY_KEEP_PLAYING = "keep_playing_on_close"

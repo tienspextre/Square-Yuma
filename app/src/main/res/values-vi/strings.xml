@@ -376,7 +376,7 @@
     <string name="app_battery_settings">Cài đặt pin</string>
     <string name="app_clear_list_cache">Xóa các danh sách phát đã lưu</string>
     <string name="app_clear_list_cache_done">Đã xóa — danh sách sẽ được tải lại khi bạn mở</string>
-    <string name="page_about_summary">Phiên bản, quyền, giấy phép và nhà phát triển</string>
+    <string name="page_about_summary">Phiên bản, giấy phép và mã nguồn</string>
     <string name="playing_on">Đang phát trên %1$s</string>
     <string name="switching">Đang chuyển…</string>
     <string name="in_a_playlist">Đã có trong một danh sách phát</string>
@@ -747,4 +747,6 @@
     <string name="download_rescan_done">Tìm lại được %1$d bài trong Music/Square</string>
     <string name="download_rescan_failed">Không kết nối được NAS để nhận lại bài</string>
     <string name="download_rescan_no_permission">Cần cho phép đọc nhạc để tìm bài trong Music/Square</string>
+    <string name="based_on_square">Phát triển từ Square của Lelonio</string>
+    <string name="mini_lyrics_title">Hiện lời đang hát phía trên thanh tua</string>
 </resources>
