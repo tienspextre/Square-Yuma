@@ -5,6 +5,7 @@ import moe.rukamori.archivetune.audiodsp.AudioDeck
 import moe.rukamori.archivetune.audiodsp.AutomixPlan
 import moe.rukamori.archivetune.audiodsp.DjFilterAudioProcessor
 import moe.rukamori.archivetune.audiodsp.FALL
+import moe.rukamori.archivetune.audiodsp.LoopAudioProcessor
 import moe.rukamori.archivetune.audiodsp.MixStyle
 import moe.rukamori.archivetune.audiodsp.MixStyles
 import moe.rukamori.archivetune.audiodsp.RISE
@@ -19,6 +20,7 @@ import timber.log.Timber
 class ExoDeck(
     override val player: ExoPlayer,
     override val djFilter: DjFilterAudioProcessor,
+    val loop: LoopAudioProcessor,
     var partner: ExoDeck? = null,
     var isIncoming: Boolean = false,
     var baseVolume: Float = 1f,

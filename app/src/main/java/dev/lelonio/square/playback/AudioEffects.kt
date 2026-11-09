@@ -46,6 +46,10 @@ object AudioEffects {
     private val _automixBassSwap = MutableStateFlow(true)
     val automixBassSwap: StateFlow<Boolean> = _automixBassSwap.asStateFlow()
 
+    // Experimental: off until it has been heard on real devices.
+    private val _automixLoopMix = MutableStateFlow(false)
+    val automixLoopMix: StateFlow<Boolean> = _automixLoopMix.asStateFlow()
+
     private val _crossfadeSeconds = MutableStateFlow(6)
     val crossfadeSeconds: StateFlow<Int> = _crossfadeSeconds.asStateFlow()
 
@@ -111,6 +115,12 @@ object AudioEffects {
         prefs?.edit()?.putBoolean(KEY_AUTOMIX_BASS_SWAP, enabled)?.commit()
     }
 
+    fun setAutomixLoopMix(enabled: Boolean) {
+        if (enabled == _automixLoopMix.value) return
+        _automixLoopMix.value = enabled
+        prefs?.edit()?.putBoolean(KEY_AUTOMIX_LOOP_MIX, enabled)?.commit()
+    }
+
     fun setCrossfadeSeconds(seconds: Int) {
         val wanted = seconds.coerceIn(0, 20)
         if (wanted == _crossfadeSeconds.value) return
@@ -141,6 +151,7 @@ object AudioEffects {
         _audioOffload.value = store.getBoolean(KEY_AUDIO_OFFLOAD, true)
         _smartAutomix.value = store.getBoolean(KEY_SMART_AUTOMIX, true)
         _automixBassSwap.value = store.getBoolean(KEY_AUTOMIX_BASS_SWAP, true)
+        _automixLoopMix.value = store.getBoolean(KEY_AUTOMIX_LOOP_MIX, false)
         _crossfadeSeconds.value = store.getInt(KEY_CROSSFADE_SECONDS, 6)
         _lyricsSyncOffsetMs.value = store.getInt(KEY_LYRICS_SYNC_OFFSET, 0)
 
@@ -174,6 +185,7 @@ object AudioEffects {
     private const val KEY_AUDIO_OFFLOAD = "audio_offload"
     private const val KEY_SMART_AUTOMIX = "smart_automix"
     private const val KEY_AUTOMIX_BASS_SWAP = "automix_bass_swap"
+    private const val KEY_AUTOMIX_LOOP_MIX = "automix_loop_mix"
     private const val KEY_CROSSFADE_SECONDS = "crossfade_seconds"
     private const val KEY_LYRICS_SYNC_OFFSET = "lyrics_sync_offset_ms"
 }

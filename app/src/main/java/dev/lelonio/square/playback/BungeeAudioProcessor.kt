@@ -238,6 +238,8 @@ class BungeeProcessorChain(
     private val bungee: BungeeAudioProcessor = BungeeAudioProcessor(),
     /** Run after the vocoder, at speed one: YouTube Music's resampling to its mixer. */
     private val after: Array<AudioProcessor> = emptyArray(),
+    /** Run first, on the song's own frames: the automix loop. */
+    private val before: Array<AudioProcessor> = emptyArray(),
 ) : DefaultAudioSink.AudioProcessorChain {
 
     private var parameters = PlaybackParameters.DEFAULT
@@ -246,7 +248,7 @@ class BungeeProcessorChain(
 
     private val equalizer = EqualizerAudioProcessor()
 
-    override fun getAudioProcessors(): Array<AudioProcessor> = arrayOf(vocals, bungee, equalizer, *after)
+    override fun getAudioProcessors(): Array<AudioProcessor> = arrayOf(*before, vocals, bungee, equalizer, *after)
 
     override fun applyPlaybackParameters(
         playbackParameters: PlaybackParameters,

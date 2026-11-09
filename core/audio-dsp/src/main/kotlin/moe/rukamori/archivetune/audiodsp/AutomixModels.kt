@@ -16,6 +16,9 @@ data class AutomixPlan(
     val swapWidth: Double = 0.1,
     /** 0..1: how much the two vocals sing over each other through the overlap. */
     val vocalClash: Double = 0.0,
+    /** Loop mix: the outgoing song repeats [loopStartMs, loopEndMs) from its exit (= loop end). */
+    val loopStartMs: Long? = null,
+    val loopEndMs: Long? = null,
 )
 
 enum class TransitionTier { SMART_BEATMATCH, PLAIN_CROSSFADE, GAPLESS, HARD_CUT }

@@ -53,6 +53,30 @@ class PairPlannerTest {
     }
 
     @Test
+    fun aSingerToTheEndGetsTheLastCleanBarsLooped() {
+        // Sung to the very end, with one instrumental stretch at 150-158 s.
+        val out = MixFeatures.parse(track(200.0, 120.0, "A minor", { it < 150.0 || it >= 158.0 }))!!
+        val inc = MixFeatures.parse(track(240.0, 124.0, "C major", { it >= 20.0 }))!!
+
+        val plain = PairPlanner.plan(out, inc, 200_000L, 6000L, bassSwap = true)!!
+        assertNull(plain.loopStartMs)
+
+        val plan = PairPlanner.plan(out, inc, 200_000L, 6000L, bassSwap = true, loopMix = true)!!
+        assertEquals(150_000L, plan.loopStartMs)
+        assertEquals(158_000L, plan.loopEndMs)
+        assertEquals(158_000L, plan.triggerAtMs) // the overlap runs over the loop
+        assertEquals(MixStyle.BLEND, plan.style)
+        assertEquals(0.0, plan.vocalClash, 1e-9)
+    }
+
+    @Test
+    fun noCleanBarsNoLoop() {
+        val out = MixFeatures.parse(track(200.0, 120.0, "A minor", { true }))!!
+        val inc = MixFeatures.parse(track(240.0, 124.0, "C major", { it >= 20.0 }))!!
+        assertNull(PairPlanner.plan(out, inc, 200_000L, 6000L, true, loopMix = true)!!.loopStartMs)
+    }
+
+    @Test
     fun keyClashShortensTheOverlap() {
         val out = MixFeatures.parse(track(200.0, 120.0, "C major", { false }))!!
         val inc = MixFeatures.parse(track(200.0, 120.0, "F♯ major", { false }))!!

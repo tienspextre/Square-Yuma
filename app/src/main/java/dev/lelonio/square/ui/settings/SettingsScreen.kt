@@ -1532,6 +1532,7 @@ private fun CrossfadeSection(backdrop: Backdrop) {
     val skipFade by preferences.skipFade.collectAsStateWithLifecycle()
     val automixEnabled by dev.lelonio.square.playback.AudioEffects.smartAutomix.collectAsStateWithLifecycle()
     val bassSwapEnabled by dev.lelonio.square.playback.AudioEffects.automixBassSwap.collectAsStateWithLifecycle()
+    val loopMixEnabled by dev.lelonio.square.playback.AudioEffects.automixLoopMix.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.crossfade)) {
         CrossfadeSteps.forEachIndexed { index, seconds ->
@@ -1581,6 +1582,14 @@ private fun CrossfadeSection(backdrop: Backdrop) {
                 checked = bassSwapEnabled,
                 backdrop = backdrop,
                 onChange = dev.lelonio.square.playback.AudioEffects::setAutomixBassSwap,
+            )
+            RowDivider()
+            DownloadSwitch(
+                label = "Loop Mix (Experimental)",
+                icon = PhosphorIcons.Regular.Waveform,
+                checked = loopMixEnabled,
+                backdrop = backdrop,
+                onChange = dev.lelonio.square.playback.AudioEffects::setAutomixLoopMix,
             )
         }
         RowDivider()

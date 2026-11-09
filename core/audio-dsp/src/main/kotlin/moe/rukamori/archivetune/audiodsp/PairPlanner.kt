@@ -208,6 +208,12 @@ object PairPlanner {
     /** How far before the end the outgoing song may be left, at most. */
     const val EXIT_WINDOW_S = 40.0
     const val ENTRY_WINDOW_S = 40.0
+    /** Loop mix: only when the singer would otherwise be on for more than this share of the overlap. */
+    const val LOOP_WHEN_SUNG = 0.25
+    private val LOOP_BARS = intArrayOf(4, 2, 1)
+    const val LOOP_SEARCH_S = 60.0
+    const val LOOP_LYRIC_GUARD_S = 0.3
+    const val LOOP_MIN_LOUDNESS = 0.6
 
     data class Choice(val exit: Double, val entry: Double, val fade: Double, val score: Double)
 
@@ -217,6 +223,7 @@ object PairPlanner {
         durationMs: Long,
         baseFadeMs: Long,
         bassSwap: Boolean,
+        loopMix: Boolean = false,
     ): AutomixPlan? {
         val duration = durationMs / 1000.0
         // A head-only analysis of a streamed song knows nothing about its ending.
@@ -243,15 +250,20 @@ object PairPlanner {
         val choice = choose(out, inc, end, fade, speed, match) ?: return null
         val outSung = out.vocalShare(choice.exit, choice.exit + fade)
         val incSung = inc.vocalShare(choice.entry, choice.entry + fade * speed)
-        val clash = if (outSung > 0.25 && incSung > 0.25) kotlin.math.sqrt(outSung * incSung) else 0.0
+        // Loop mix: the singer would still be on through the overlap, so the outgoing side loops
+        // its last clean bars instead and the overlap runs over that.
+        val loop = if (loopMix && match && outSung > LOOP_WHEN_SUNG) findLoop(out, end, beat) else null
+        val exit = loop?.second ?: choice.exit
+        val entry = if (loop != null) loopEntry(out, inc, loop, fade, speed, match) else choice.entry
+        val clash = if (loop == null && outSung > 0.25 && incSung > 0.25) kotlin.math.sqrt(outSung * incSung) else 0.0
 
         val style = when {
             match -> MixStyle.BLEND
             dj -> {
                 // Two kicks at the join want one decisive handover; anything else the long sweep.
                 val window = 8 * beat
-                val kicks = averageLow(out, choice.exit + fade - window, choice.exit + fade) >= KICK_PRESENT &&
-                    averageLow(inc, choice.entry, choice.entry + window) >= KICK_PRESENT
+                val kicks = averageLow(out, exit + fade - window, exit + fade) >= KICK_PRESENT &&
+                    averageLow(inc, entry, entry + window) >= KICK_PRESENT
                 if (kicks) MixStyle.BASS_HANDOFF else MixStyle.FILTER_SWEEP
             }
             else -> MixStyle.EQUAL_POWER
@@ -262,11 +274,11 @@ object PairPlanner {
             beatsInFade,
         )
         return AutomixPlan(
-            triggerOffsetMs = durationMs - (choice.exit * 1000).roundToLong(),
+            triggerOffsetMs = durationMs - (exit * 1000).roundToLong(),
             durationMs = (choice.fade * 1000).roundToLong(),
-            incomingStartMs = (choice.entry * 1000).roundToLong(),
+            incomingStartMs = (entry * 1000).roundToLong(),
             enableBassSwap = bassSwap && style != MixStyle.EQUAL_POWER,
-            triggerAtMs = (choice.exit * 1000).roundToLong(),
+            triggerAtMs = (exit * 1000).roundToLong(),
             prepareAheadMs = maxOf((choice.fade * 1000).roundToLong() + 2000L, 8000L),
             tier = if (match) TransitionTier.SMART_BEATMATCH else TransitionTier.PLAIN_CROSSFADE,
             incomingTempoRatio = speed.toFloat(),
@@ -274,7 +286,55 @@ object PairPlanner {
             swapAt = swapAt,
             swapWidth = MixStyles.swapWidth(beatsInFade),
             vocalClash = clash,
+            loopStartMs = loop?.let { (it.first * 1000).roundToLong() },
+            loopEndMs = loop?.let { (it.second * 1000).roundToLong() },
         )
+    }
+
+    /**
+     * The latest instrumental stretch of 4, 2 or 1 whole bars near the end, after BitChord's
+     * LoopMix: no singing in it (nor just before, or a line's tail would repeat), as loud as
+     * the music around it (not a breakdown or the fade), and bar-true on the grid.
+     */
+    fun findLoop(out: MixFeatures, end: Double, beat: Double): Pair<Double, Double>? {
+        if (beat <= 0) return null
+        val from = maxOf(end - LOOP_SEARCH_S, out.coveredFrom)
+        val d = out.downbeats
+        for (bars in LOOP_BARS) for (j in d.indices.reversed()) {
+            val k = j + bars
+            if (k >= d.size) continue
+            val start = d[j]
+            val stop = d[k]
+            if (start < from || stop > end - 1.0 || stop - start > PcmLoop.MAX_SECONDS) continue
+            if (abs((stop - start) / (bars * 4 * beat) - 1) > 0.03) continue // a gap in the grid
+            val sung = mean(out, out.vocal, start - LOOP_LYRIC_GUARD_S, stop) ?: continue
+            if (sung > 0.0) continue
+            val loud = mean(out, out.energy, start, stop) ?: continue
+            val around = mean(out, out.energy, start - 8.0, stop + 8.0) ?: continue
+            if (loud >= LOOP_MIN_LOUDNESS * around && loud > 0.01) return start to stop
+        }
+        return null
+    }
+
+    /** Over a loop the outgoing side is that loop: enter where the incoming song fits it best. */
+    private fun loopEntry(
+        out: MixFeatures, inc: MixFeatures, loop: Pair<Double, Double>, fade: Double, speed: Double, match: Boolean,
+    ): Double {
+        val level = mean(out, out.energy, loop.first, loop.second) ?: 0.0
+        return entries(inc, match).maxByOrNull { (t, s) ->
+            s - 0.3 * (t / ENTRY_WINDOW_S) - 0.4 * abs(level - inc.energyAt(t + fade * speed)).coerceAtMost(1.0)
+        }?.first ?: 0.0
+    }
+
+    /** Mean of a curve over [from, to), or null when no frame of it falls there. Singing counts as 1. */
+    private fun mean(f: MixFeatures, values: DoubleArray, from: Double, to: Double): Double? {
+        var sum = 0.0
+        var n = 0
+        for (i in f.curveT.indices) if (f.curveT[i] >= from && f.curveT[i] < to && i < values.size) {
+            sum += if (values === f.vocal) (if (values[i] >= MixFeatures.VOCAL_ON) 1.0 else 0.0) else values[i]
+            n++
+        }
+        return if (n == 0) null else sum / n
     }
 
     private fun averageLow(f: MixFeatures, from: Double, to: Double): Double {
@@ -302,13 +362,7 @@ object PairPlanner {
             .filter { it.first in earliest..latest }
             .distinctBy { (it.first * 10).roundToLong() }
 
-        // Entrances: its cues, and on a grid its early downbeats; the very top as a fallback.
-        val entries = buildList {
-            add(0.0 to 0.5)
-            inc.inCues.forEach { add(it.t to it.score) }
-            if (match) inc.downbeats.filter { it < ENTRY_WINDOW_S }.forEach { add(it to 0.4) }
-        }.filter { it.first in 0.0..ENTRY_WINDOW_S }
-            .distinctBy { (it.first * 10).roundToLong() }
+        val entries = entries(inc, match)
 
         var best: Choice? = null
         for ((exit, exitScore) in exits) for ((entry, entryScore) in entries) {
@@ -317,6 +371,14 @@ object PairPlanner {
         }
         return best
     }
+
+    /** Entrances: its cues, and on a grid its early downbeats; the very top as a fallback. */
+    private fun entries(inc: MixFeatures, match: Boolean) = buildList {
+        add(0.0 to 0.5)
+        inc.inCues.forEach { add(it.t to it.score) }
+        if (match) inc.downbeats.filter { it < ENTRY_WINDOW_S }.forEach { add(it to 0.4) }
+    }.filter { it.first in 0.0..ENTRY_WINDOW_S }
+        .distinctBy { (it.first * 10).roundToLong() }
 
     private fun score(
         out: MixFeatures, inc: MixFeatures, end: Double,

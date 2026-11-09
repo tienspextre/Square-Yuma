@@ -37,6 +37,7 @@ import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.audiodsp.AutomixPlan
 import moe.rukamori.archivetune.audiodsp.DjFilterAudioProcessor
 import moe.rukamori.archivetune.audiodsp.DualForwardingPlayer
+import moe.rukamori.archivetune.audiodsp.LoopAudioProcessor
 import moe.rukamori.archivetune.audiodsp.MixFeatures
 import moe.rukamori.archivetune.audiodsp.PairPlanner
 import moe.rukamori.archivetune.audiodsp.TrackAnalysisResult
@@ -58,14 +59,16 @@ class YumaDualDeckPlayer private constructor(
     val filterB: DjFilterAudioProcessor,
     val bungeeA: BungeeAudioProcessor,
     val bungeeB: BungeeAudioProcessor,
+    private val loopA: LoopAudioProcessor,
+    private val loopB: LoopAudioProcessor,
     val forwardingPlayer: DualForwardingPlayer,
 ) : Player by forwardingPlayer {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val hardwareEffectsManager = HardwareAudioEffectsManager(host.context, scope)
 
-    private var deckA = ExoDeck(playerA, filterA)
-    private var deckB = ExoDeck(playerB, filterB)
+    private var deckA = ExoDeck(playerA, filterA, loopA)
+    private var deckB = ExoDeck(playerB, filterB, loopB)
 
     private var activeDeck: ExoDeck = deckA
     private var standbyDeck: ExoDeck = deckB
@@ -95,10 +98,11 @@ class YumaDualDeckPlayer private constructor(
     // tempo and eases it back here, so the decks' live parameters are not always this.
     private var userParams = PlaybackParameters(AudioEffects.speed.value, AudioEffects.pitch.value)
     private var tempoEaseJob: Job? = null
+    private var loopSince: Long? = null
 
     private class PairCache(
         val out: TrackAnalysisResult, val inc: TrackAnalysisResult,
-        val durationMs: Long, val fadeMs: Long, val bassSwap: Boolean, val plan: AutomixPlan?,
+        val durationMs: Long, val fadeMs: Long, val bassSwap: Boolean, val loopMix: Boolean, val plan: AutomixPlan?,
     )
     private var pairCache: PairCache? = null
 
@@ -107,15 +111,18 @@ class YumaDualDeckPlayer private constructor(
         out: TrackAnalysisResult, inc: TrackAnalysisResult, durationMs: Long, fadeMs: Long,
     ): AutomixPlan? {
         val bass = AudioEffects.automixBassSwap.value
+        val loop = AudioEffects.automixLoopMix.value
         pairCache?.let {
-            if (it.out === out && it.inc === inc && it.durationMs == durationMs && it.fadeMs == fadeMs && it.bassSwap == bass) return it.plan
+            if (it.out === out && it.inc === inc && it.durationMs == durationMs && it.fadeMs == fadeMs &&
+                it.bassSwap == bass && it.loopMix == loop
+            ) return it.plan
         }
         val plan = runCatching {
             val o = MixFeatures.parse(out.rawJson, out.tailRawJson, out.tailOffset, out.modelJson) ?: return@runCatching null
             val i = MixFeatures.parse(inc.rawJson, modelJson = inc.modelJson) ?: return@runCatching null
-            PairPlanner.plan(o, i, durationMs, fadeMs, bass)
+            PairPlanner.plan(o, i, durationMs, fadeMs, bass, loop)
         }.getOrNull()
-        pairCache = PairCache(out, inc, durationMs, fadeMs, bass, plan)
+        pairCache = PairCache(out, inc, durationMs, fadeMs, bass, loop, plan)
         return plan
     }
 
@@ -173,6 +180,8 @@ class YumaDualDeckPlayer private constructor(
 
         // automix-engine brings the new song back to its own tempo over ~6.5 s after the handoff.
         private const val TEMPO_EASE_MS = 6500L
+        // Longer than the incoming deck's own ready timeout, so a slow start still gets its bed.
+        private const val LOOP_HOLD_MAX_MS = 8000L
         private const val EASE_STEP_MS = 250L
 
         operator fun invoke(host: PlaybackHost): YumaDualDeckPlayer {
@@ -180,8 +189,10 @@ class YumaDualDeckPlayer private constructor(
             val filterB = DjFilterAudioProcessor()
             val bungeeA = BungeeAudioProcessor()
             val bungeeB = BungeeAudioProcessor()
-            val playerA = buildDeckPlayer(host, filterA, bungeeA, handleAudioFocus = true)
-            val playerB = buildDeckPlayer(host, filterB, bungeeB, handleAudioFocus = false)
+            val loopA = LoopAudioProcessor()
+            val loopB = LoopAudioProcessor()
+            val playerA = buildDeckPlayer(host, filterA, bungeeA, loopA, handleAudioFocus = true)
+            val playerB = buildDeckPlayer(host, filterB, bungeeB, loopB, handleAudioFocus = false)
             val forwarding = DualForwardingPlayer(playerA)
             return YumaDualDeckPlayer(
                 host = host,
@@ -191,6 +202,8 @@ class YumaDualDeckPlayer private constructor(
                 filterB = filterB,
                 bungeeA = bungeeA,
                 bungeeB = bungeeB,
+                loopA = loopA,
+                loopB = loopB,
                 forwardingPlayer = forwarding,
             )
         }
@@ -199,6 +212,7 @@ class YumaDualDeckPlayer private constructor(
             host: PlaybackHost,
             djFilter: DjFilterAudioProcessor,
             bungee: BungeeAudioProcessor,
+            loop: LoopAudioProcessor,
             handleAudioFocus: Boolean,
         ): ExoPlayer {
             val renderers = object : DefaultRenderersFactory(host.context) {
@@ -211,7 +225,7 @@ class YumaDualDeckPlayer private constructor(
                     // (speed/pitch sprang back to 1.0) and no DjFilter (automix lost its filter sweep).
                     .setEnableFloatOutput(false)
                     .setEnableAudioTrackPlaybackParams(false)
-                    .setAudioProcessorChain(BungeeProcessorChain(bungee, arrayOf(djFilter)))
+                    .setAudioProcessorChain(BungeeProcessorChain(bungee, arrayOf(djFilter), before = arrayOf(loop)))
                     .build()
             }
 
@@ -521,6 +535,11 @@ class YumaDualDeckPlayer private constructor(
             while (isActive) {
                 delay(100)
                 if (isCrossfading) continue
+                // A loop is only ever the bed of a mix about to start; one that waits longer
+                // (automix switched off, the next song gone) lets the song go on instead.
+                val now0 = android.os.SystemClock.elapsedRealtime()
+                if (!activeDeck.loop.looping) loopSince = null
+                else if (now0 - (loopSince ?: now0.also { loopSince = it }) > LOOP_HOLD_MAX_MS) activeDeck.loop.arm = null
                 val active = activeDeck.player
                 if (!active.playWhenReady || !active.isPlaying) continue
 
@@ -602,15 +621,27 @@ class YumaDualDeckPlayer private constructor(
                     )
                 }
 
+                // Loop mix: armed before playback reaches the loop, so it is recorded as it plays.
+                val loopStart = automixPlan.loopStartMs
+                val loopEnd = automixPlan.loopEndMs
+                val wantedLoop = if (loopStart != null && loopEnd != null) {
+                    LoopAudioProcessor.Arm(loopStart * 1000, loopEnd * 1000)
+                } else null
+                val loop = activeDeck.loop
+                if (loop.arm != wantedLoop && !loop.looping) loop.arm = wantedLoop
+
                 val minRemainingForFade = (automixPlan.durationMs + 500L).coerceAtMost(duration)
                 val planTriggerAt = automixPlan.triggerAtMs
-                val triggerAtMs = if (planTriggerAt != null && planTriggerAt > 0L) {
+                // The loop holds the song where it is, so its exit needn't leave room for the fade.
+                val triggerAtMs = if (wantedLoop != null && planTriggerAt != null) {
+                    planTriggerAt
+                } else if (planTriggerAt != null && planTriggerAt > 0L) {
                     planTriggerAt
                 } else if (outgoingAnalysis != null && outgoingAnalysis.mixOutTime > 0.0) {
                     (outgoingAnalysis.mixOutTime * 1000.0).roundToLong()
                 } else {
                     duration - defaultFadeMs
-                }.coerceIn(1000L, (duration - minRemainingForFade).coerceAtLeast(1000L))
+                }.let { if (wantedLoop != null) it else it.coerceIn(1000L, (duration - minRemainingForFade).coerceAtLeast(1000L)) }
 
                 val remainingToTrigger = triggerAtMs - currentPos
                 val cueInMs = automixPlan.incomingStartMs.coerceAtLeast(0L)
@@ -870,6 +901,7 @@ class YumaDualDeckPlayer private constructor(
 
         outgoing.player.playWhenReady = false
         outgoing.player.volume = 0f
+        outgoing.loop.arm = null
         outgoing.player.stop()
         outgoing.player.clearMediaItems()
         outgoing.clearAutomation()
@@ -902,6 +934,9 @@ class YumaDualDeckPlayer private constructor(
         crossfadeJob?.cancel()
         crossfadeJob = null
         isCrossfading = false
+        // A loop that already took over lets go: the song carries on from the loop's end.
+        activeDeck.loop.arm = null
+        standbyDeck.loop.arm = null
 
         activeDeck.player.pauseAtEndOfMediaItems = false
         applyRestingVolume()
@@ -953,6 +988,8 @@ class YumaDualDeckPlayer private constructor(
     // Every position jump goes through here so the scheduler never acts on a stale position.
     private fun beforeSeek() {
         stopTempoEase()
+        activeDeck.loop.arm = null
+        standbyDeck.loop.arm = null
         lastSeekTimestamp = android.os.SystemClock.elapsedRealtime()
         lastTriggeredIndex = C.INDEX_UNSET
         lastTriggeredMediaId = null
