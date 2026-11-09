@@ -24,6 +24,20 @@ data class SubsonicResponse<T>(
     val searchResult3: SubsonicSearchResult3? = null,
     val lyricsList: SubsonicLyricsListContainer? = null,
     val randomSongs: SubsonicRandomSongsContainer? = null,
+    val songsByGenre: SubsonicRandomSongsContainer? = null,
+    val genres: SubsonicGenresContainer? = null,
+)
+
+@Serializable
+data class SubsonicGenresContainer(
+    val genre: List<SubsonicGenre> = emptyList(),
+)
+
+@Serializable
+data class SubsonicGenre(
+    val value: String,
+    val songCount: Int = 0,
+    val albumCount: Int = 0,
 )
 
 @Serializable

@@ -3,6 +3,7 @@ package dev.lelonio.square.backend.subsonic
 import androidx.media3.common.Player
 import dev.lelonio.square.backend.BackendAuthState
 import dev.lelonio.square.backend.BackendId
+import dev.lelonio.square.backend.HomeChip
 import dev.lelonio.square.backend.HomeFeed
 import dev.lelonio.square.backend.HomeRow
 import dev.lelonio.square.backend.MusicBackend
@@ -129,6 +130,14 @@ class SubsonicBackend(
     }
 
     override suspend fun homeFeed(cursor: String?, params: String?): HomeFeed = withContext(Dispatchers.IO) {
+        val mixes = SubsonicMixes.build(client.getGenres().getOrDefault(emptyList()))
+        val chips = mixes.map { HomeChip(it.title, it.key) }
+        if (params != null) {
+            val mix = SubsonicMixes.find(mixes, params)
+                ?: return@withContext HomeFeed(rows = emptyList(), chips = chips)
+            return@withContext HomeFeed(rows = mixRows(mix), chips = chips)
+        }
+
         val rows = mutableListOf<HomeRow>()
 
         // 1. Offline downloaded tracks shelf
@@ -151,6 +160,17 @@ class SubsonicBackend(
                     title = "Quick Play & Discovery",
                     strapline = "SONGS ON NAS",
                     tracks = randomTracks.map { it.toCatalogTrack(client, offlineStore) },
+                ),
+            )
+        }
+
+        // Moods first, then genres: each tile opens the whole list, playable or shufflable.
+        if (mixes.isNotEmpty()) {
+            rows.add(
+                HomeRow(
+                    title = "Moods & Genres",
+                    strapline = "LISTEN BY",
+                    items = mixes.map { it.toCatalogPlaylist() },
                 ),
             )
         }
@@ -233,7 +253,46 @@ class SubsonicBackend(
             )
         }
 
-        HomeFeed(rows = rows)
+        HomeFeed(rows = rows, chips = chips)
+    }
+
+    private fun SubsonicMixes.Mix.toCatalogPlaylist() = CatalogPlaylist(
+        uri = SubsonicMixes.URI_PREFIX + key,
+        name = title,
+        artworkUrl = null,
+        subtitle = "${if (kind == "MOOD") "Mood" else "Genre"} • $songCount songs",
+        mine = false,
+    )
+
+    /** Every song behind a mood or genre, once each, shuffled. */
+    private suspend fun mixSongs(mix: SubsonicMixes.Mix): List<SubsonicChildSong> =
+        mix.rawGenres.flatMap { client.getSongsByGenre(it).getOrDefault(emptyList()) }
+            .distinctBy { it.id }
+            .shuffled()
+
+    /** The page a mood or genre chip opens: the list itself, a sample of songs, its albums. */
+    private suspend fun mixRows(mix: SubsonicMixes.Mix): List<HomeRow> {
+        val songs = mixSongs(mix)
+        val cover = songs.firstOrNull { it.coverArt != null }?.coverArt
+        val albums = mix.rawGenres
+            .flatMap { client.getAlbumList("byGenre", size = 30, genre = it).getOrDefault(emptyList()) }
+            .distinctBy { it.id }
+        return listOfNotNull(
+            HomeRow(
+                title = mix.title,
+                strapline = if (mix.kind == "MOOD") "MOOD" else "GENRE",
+                items = listOf(mix.toCatalogPlaylist().copy(artworkUrl = client.buildCoverArtUrl(cover))),
+            ),
+            HomeRow(
+                title = "Songs",
+                strapline = "${songs.size} ON NAS",
+                tracks = songs.take(40).map { it.toCatalogTrack(client, offlineStore) },
+            ).takeIf { songs.isNotEmpty() },
+            HomeRow(
+                title = "Albums",
+                items = albums.map { it.toCatalogPlaylist(client) },
+            ).takeIf { albums.isNotEmpty() },
+        )
     }
 
     override suspend fun playlists(): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
@@ -305,6 +364,12 @@ class SubsonicBackend(
         if (uri == "subsonic:all_songs") {
             val songs = client.getRandomSongs(500).getOrDefault(emptyList())
             return@withContext songs.map { it.toCatalogTrack(client, offlineStore) }
+        }
+        if (uri.startsWith(SubsonicMixes.URI_PREFIX)) {
+            val mixes = SubsonicMixes.build(client.getGenres().getOrDefault(emptyList()))
+            val mix = SubsonicMixes.find(mixes, uri.removePrefix(SubsonicMixes.URI_PREFIX))
+                ?: return@withContext emptyList()
+            return@withContext mixSongs(mix).map { it.toCatalogTrack(client, offlineStore) }
         }
         if (uri.startsWith("subsonic:playlist:")) {
             val id = uri.removePrefix("subsonic:playlist:")

@@ -94,6 +94,34 @@ class SubsonicClient(
         }
     }
 
+    suspend fun getGenres(): Result<List<SubsonicGenre>> = withContext(Dispatchers.IO) {
+        val url = buildUrl("getGenres.view")
+            ?: return@withContext Result.failure(IOException("Invalid URL"))
+        try {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val parsed = json.decodeFromString(SubsonicResponseWrapper.serializer(SubsonicGenresContainer.serializer()), body)
+                Result.success(parsed.`subsonic-response`.genres?.genre ?: emptyList())
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getSongsByGenre(genre: String, count: Int = 500): Result<List<SubsonicChildSong>> = withContext(Dispatchers.IO) {
+        val url = buildUrl("getSongsByGenre.view", mapOf("genre" to genre, "count" to count.toString()))
+            ?: return@withContext Result.failure(IOException("Invalid URL"))
+        try {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val parsed = json.decodeFromString(SubsonicResponseWrapper.serializer(SubsonicRandomSongsContainer.serializer()), body)
+                Result.success(parsed.`subsonic-response`.songsByGenre?.song ?: emptyList())
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun getRandomSongs(size: Int = 30): Result<List<SubsonicChildSong>> = withContext(Dispatchers.IO) {
         val url = buildUrl("getRandomSongs.view", mapOf("size" to size.toString()))
             ?: return@withContext Result.failure(IOException("Invalid URL"))
@@ -110,8 +138,10 @@ class SubsonicClient(
         }
     }
 
-    suspend fun getAlbumList(type: String, size: Int = 30, offset: Int = 0): Result<List<SubsonicAlbumEntry>> = withContext(Dispatchers.IO) {
-        val url = buildUrl("getAlbumList2.view", mapOf("type" to type, "size" to size.toString(), "offset" to offset.toString()))
+    suspend fun getAlbumList(type: String, size: Int = 30, offset: Int = 0, genre: String? = null): Result<List<SubsonicAlbumEntry>> = withContext(Dispatchers.IO) {
+        val params = mapOf("type" to type, "size" to size.toString(), "offset" to offset.toString()) +
+            (genre?.let { mapOf("genre" to it) } ?: emptyMap())
+        val url = buildUrl("getAlbumList2.view", params)
             ?: return@withContext Result.failure(IOException("Invalid URL"))
         try {
             val request = Request.Builder().url(url).build()
