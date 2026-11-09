@@ -56,6 +56,9 @@
 -keepclasseswithmembernames class dev.lelonio.square.playback.Stretcher { native <methods>; }
 -keep class dev.lelonio.square.playback.Stretcher { *; }
 
+# ONNX Runtime's Java API is reached from its own JNI code, which R8 cannot see.
+-keep class ai.onnxruntime.** { *; }
+
 # Yuma Audio DSP & Native C++ Analyzer JNI bindings
 -keep class moe.rukamori.archivetune.** { *; }
 -keepclasseswithmembernames class moe.rukamori.archivetune.playback.smart.TrackFeatures {

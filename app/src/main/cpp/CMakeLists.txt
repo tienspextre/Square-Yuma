@@ -48,12 +48,17 @@ target_compile_definitions(spotstretch PRIVATE
 target_link_libraries(spotstretch PRIVATE pffft log)
 target_link_options(spotstretch PRIVATE "-Wl,-z,max-page-size=16384")
 
-# Yuma offline audio analyzer (BPM, beat grid, intro/outro energy cliff, LUFS)
+# Yuma offline audio analyzer (BPM, beat grid, intro/outro energy cliff, LUFS),
+# plus the log-mel (Beat This!) and STFT (open-unmix) front ends the ONNX models read.
 add_library(yuma_analysis SHARED
     analyzer/audio_analysis.cpp
     analyzer/tempo_analysis.cpp
     analyzer/resampler.cpp
+    analyzer/mel_spectrogram.cpp
+    analyzer/vocal_spectrogram.cpp
     jni/analysis_jni.cpp
+    jni/mel_jni.cpp
+    jni/vocal_jni.cpp
 )
 target_include_directories(yuma_analysis PRIVATE analyzer)
 target_compile_options(yuma_analysis PRIVATE -O3 -fvisibility=hidden)

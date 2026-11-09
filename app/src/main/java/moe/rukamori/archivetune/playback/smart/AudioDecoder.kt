@@ -479,6 +479,137 @@ object AudioDecoder {
         }
     }
 
+    /** Planar stereo at the container's own rate; [start] is where the decode really began, on the track clock. */
+    class StereoRegion(val left: FloatArray, val right: FloatArray, val sampleRate: Double, val start: Double)
+
+    /**
+     * Decodes [startSeconds]..[endSeconds] as planar stereo at the source's own rate, for the ONNX
+     * models (open-unmix wants real stereo; a mono source is duplicated, >2 channels keep the first
+     * two). Works for any source [setDataSource] can open: a path, a content Uri, an http(s) URL.
+     *
+     * The extractor seeks to a sync sample at or before the ask, so the result may start a little
+     * early; [StereoRegion.start] is the first decoded buffer's real time. Null on any failure.
+     */
+    fun decodeRegionStereo(
+        setDataSource: (MediaExtractor) -> Unit,
+        startSeconds: Double,
+        endSeconds: Double,
+    ): StereoRegion? {
+        if (endSeconds <= startSeconds) return null
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        return try {
+            setDataSource(extractor)
+            val track = (0 until extractor.trackCount).firstOrNull {
+                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            } ?: return null
+            extractor.selectTrack(track)
+            val format = extractor.getTrackFormat(track)
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
+            val startUs = (startSeconds * 1_000_000).toLong()
+            val endUs = (endSeconds * 1_000_000).toLong()
+            if (startUs > 0L) extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0)
+            codec.start()
+
+            fun MediaFormat.int(key: String, fallback: Int) = if (containsKey(key)) getInteger(key) else fallback
+            var channels = format.int(MediaFormat.KEY_CHANNEL_COUNT, 2).coerceAtLeast(1)
+            var rate = format.int(MediaFormat.KEY_SAMPLE_RATE, 0)
+            var encoding = format.int(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+            val left = FloatChunkList()
+            val right = FloatChunkList()
+            var actualStart = -1.0
+            val info = MediaCodec.BufferInfo()
+            var inputDone = false
+            var outputDone = false
+            var timeouts = 0
+            val started = android.os.SystemClock.elapsedRealtime()
+
+            while (!outputDone) {
+                if (android.os.SystemClock.elapsedRealtime() - started > DECODE_WATCHDOG_MS) return null
+                if (!inputDone) {
+                    val inputIndex = codec.dequeueInputBuffer(TIMEOUT_US)
+                    if (inputIndex >= 0) {
+                        val input = codec.getInputBuffer(inputIndex)
+                        val size = if (input == null) -1 else extractor.readSampleData(input, 0)
+                        val time = extractor.sampleTime
+                        if (size < 0 || time > endUs) {
+                            codec.queueInputBuffer(inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            codec.queueInputBuffer(inputIndex, 0, size, time, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+                val outputIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)
+                when {
+                    outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> codec.outputFormat.let {
+                        rate = it.int(MediaFormat.KEY_SAMPLE_RATE, rate)
+                        channels = it.int(MediaFormat.KEY_CHANNEL_COUNT, channels).coerceAtLeast(1)
+                        encoding = it.int(MediaFormat.KEY_PCM_ENCODING, encoding)
+                    }
+                    outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                        if (inputDone && ++timeouts > MAX_CONSECUTIVE_TIMEOUTS) break
+                    }
+                    outputIndex >= 0 -> {
+                        timeouts = 0
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                        val output = codec.getOutputBuffer(outputIndex)
+                        if (output != null && info.size > 0) {
+                            if (actualStart < 0) actualStart = info.presentationTimeUs / 1_000_000.0
+                            output.position(info.offset)
+                            output.limit(info.offset + info.size)
+                            output.order(ByteOrder.LITTLE_ENDIAN)
+                            val bytes = bytesPerSample(encoding)
+                            val frames = info.size / (bytes * channels)
+                            for (i in 0 until frames) {
+                                val l = readSample(output, encoding)
+                                val r = if (channels > 1) readSample(output, encoding) else l
+                                for (skip in 2 until channels) readSample(output, encoding)
+                                left.add(l)
+                                right.add(r)
+                            }
+                            if (info.presentationTimeUs > endUs) outputDone = true
+                        }
+                        codec.releaseOutputBuffer(outputIndex, false)
+                    }
+                }
+            }
+            if (actualStart < 0 || rate <= 0 || left.totalCount == 0) return null
+            StereoRegion(left.toFloatArray(), right.toFloatArray(), rate.toDouble(), actualStart)
+        } catch (e: Exception) {
+            Timber.tag("AudioDecoder").w(e, "Stereo region decode failed")
+            null
+        } finally {
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            runCatching { extractor.release() }
+        }
+    }
+
+    private fun bytesPerSample(encoding: Int) = when (encoding) {
+        AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_32BIT -> 4
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+        AudioFormat.ENCODING_PCM_8BIT -> 1
+        else -> 2
+    }
+
+    private fun readSample(buffer: java.nio.ByteBuffer, encoding: Int): Float = when (encoding) {
+        AudioFormat.ENCODING_PCM_FLOAT -> buffer.float
+        AudioFormat.ENCODING_PCM_8BIT -> ((buffer.get().toInt() and 0xFF) - 128) / 128f
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> {
+            val b0 = buffer.get().toInt() and 0xFF
+            val b1 = buffer.get().toInt() and 0xFF
+            val b2 = buffer.get().toInt()
+            ((b2 shl 16) or (b1 shl 8) or b0) / 8388608f
+        }
+        AudioFormat.ENCODING_PCM_32BIT -> (buffer.int / 2147483648.0).toFloat()
+        else -> buffer.short / 32768f
+    }
+
     private fun strideFor(nativeRate: Int, targetRate: Double): Int {
         if (!targetRate.isFinite() || targetRate <= 0.0 || nativeRate <= 0) return 1
         return (nativeRate / targetRate).roundToInt().coerceAtLeast(1)
