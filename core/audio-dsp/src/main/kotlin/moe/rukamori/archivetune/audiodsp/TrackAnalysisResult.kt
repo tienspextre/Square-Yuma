@@ -9,4 +9,7 @@ data class TrackAnalysisResult(
     val rawJson: String = "",
     val loudnessLufs: Double = 0.0,
     val dynamicRangeDb: Double = 0.0,
+    /** A streamed song's ending, analysed on its own; [tailOffset] is where that window starts. */
+    val tailRawJson: String = "",
+    val tailOffset: Double = 0.0,
 )
