@@ -92,4 +92,20 @@ class PairPlannerTest {
         assertEquals(false, PairPlanner.camelotCompatible("C major", "F♯ major"))
         assertNull(PairPlanner.camelotCompatible("", "C major"))
     }
+
+    @Test
+    fun modelPassReplacesGridAndVocalInsideItsWindow() {
+        val dsp = track(200.0, 120.0, "C major", { false })
+        val model = JSONObject().put("headBpm", 126.0).put("tailBpm", 124.0).put("conf", 0.9)
+            .put("downbeats", JSONArray(listOf(1.0, 3.0, 5.0, 7.0, 190.0)))
+            .put("vocal", JSONArray().put(JSONObject().put("start", 180.0).put("fps", 2.0).put("v", JSONArray(List(20) { 0.6 }))))
+            .toString()
+        val f = MixFeatures.parse(dsp, modelJson = model)!!
+        assertEquals(126.0, f.bpm, 1e-9)
+        assertEquals(124.0, f.outBpm, 1e-9)
+        assertEquals(5, f.downbeats.size)
+        assertTrue(f.singingAt(185.0))
+        assertTrue(!f.singingAt(195.0))
+        assertEquals(0.5, MixFeatures.modelToVocal(0.25), 1e-9)
+    }
 }

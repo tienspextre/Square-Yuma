@@ -110,8 +110,8 @@ class YumaDualDeckPlayer private constructor(
             if (it.out === out && it.inc === inc && it.durationMs == durationMs && it.fadeMs == fadeMs && it.bassSwap == bass) return it.plan
         }
         val plan = runCatching {
-            val o = MixFeatures.parse(out.rawJson, out.tailRawJson, out.tailOffset) ?: return@runCatching null
-            val i = MixFeatures.parse(inc.rawJson) ?: return@runCatching null
+            val o = MixFeatures.parse(out.rawJson, out.tailRawJson, out.tailOffset, out.modelJson) ?: return@runCatching null
+            val i = MixFeatures.parse(inc.rawJson, modelJson = inc.modelJson) ?: return@runCatching null
             PairPlanner.plan(o, i, durationMs, fadeMs, bass)
         }.getOrNull()
         pairCache = PairCache(out, inc, durationMs, fadeMs, bass, plan)

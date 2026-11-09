@@ -96,6 +96,7 @@ object TrackAnalyzer : AnalysisStore {
                         dynamicRangeDb = json.optDouble("dynamicRangeDb", 0.0),
                         tailRawJson = json.optString("tailRawJson", ""),
                         tailOffset = json.optDouble("tailOffset", 0.0),
+                        modelJson = json.optString("modelJson", ""),
                     )
                 } else null
             }.getOrNull()
@@ -126,6 +127,7 @@ object TrackAnalyzer : AnalysisStore {
                     put("dynamicRangeDb", result.dynamicRangeDb)
                     put("tailRawJson", result.tailRawJson)
                     put("tailOffset", result.tailOffset)
+                    put("modelJson", result.modelJson)
                     put("v", CACHE_VERSION)
                 }
                 file.writeText(json.toString(), Charsets.UTF_8)

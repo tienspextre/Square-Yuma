@@ -12,4 +12,6 @@ data class TrackAnalysisResult(
     /** A streamed song's ending, analysed on its own; [tailOffset] is where that window starts. */
     val tailRawJson: String = "",
     val tailOffset: Double = 0.0,
+    /** The ONNX beat/vocal pass, in the format MixFeatures.parse documents; empty when it did not run. */
+    val modelJson: String = "",
 )

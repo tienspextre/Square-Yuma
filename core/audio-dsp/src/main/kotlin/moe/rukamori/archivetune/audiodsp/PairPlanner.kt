@@ -27,7 +27,11 @@ class MixFeatures(
     val outCues: List<Cue>,
     /** How far into the track the features reach; past it nothing is known. */
     val coveredFrom: Double,
+    /** The ending's own tempo when a model tracked it there; the outgoing side reads this. */
+    val bpmTail: Double = 0.0,
 ) {
+    val outBpm: Double get() = bpmTail.takeIf { it > 0.0 } ?: bpm
+
     val hasGrid: Boolean get() = bpm > 0.0 && beatConfidence >= MIN_BEAT_CONFIDENCE && downbeats.size >= 4
 
     private fun at(t: Double, values: DoubleArray): Double {
@@ -57,7 +61,60 @@ class MixFeatures(
         const val MIN_BEAT_CONFIDENCE = 0.45
         const val VOCAL_ON = 0.5
 
-        fun parse(headJson: String, tailJson: String = "", tailOffset: Double = 0.0): MixFeatures? = runCatching {
+        /** The model vocal scale's "singing" line (open-unmix band mask), as BitChord gates it. */
+        const val MODEL_VOCAL_ON = 0.25
+
+        /** Maps a model mask value onto this file's scale, so [VOCAL_ON] means the same thing. */
+        fun modelToVocal(m: Double): Double =
+            if (m >= MODEL_VOCAL_ON) VOCAL_ON + (1 - VOCAL_ON) * (m - MODEL_VOCAL_ON) / (1 - MODEL_VOCAL_ON)
+            else VOCAL_ON * m / MODEL_VOCAL_ON
+
+        /**
+         * [modelJson] is the ONNX pass's output, all times on the track clock:
+         * `{"headBpm":d,"tailBpm":d,"conf":d,"downbeats":[..],"vocal":[{"start":s,"fps":f,"v":[..]}..]}`.
+         * Where present it replaces the DSP grid and, inside its windows, the DSP vocal guess.
+         */
+        fun parse(headJson: String, tailJson: String = "", tailOffset: Double = 0.0, modelJson: String = ""): MixFeatures? =
+            parseDsp(headJson, tailJson, tailOffset)?.let { dsp -> withModel(dsp, modelJson) }
+
+        private fun withModel(f: MixFeatures, modelJson: String): MixFeatures = runCatching {
+            if (modelJson.isBlank()) return f
+            val m = JSONObject(modelJson)
+            val vocal = f.vocal.copyOf()
+            m.optJSONArray("vocal")?.let { windows ->
+                for (w in 0 until windows.length()) {
+                    val win = windows.getJSONObject(w)
+                    val start = win.optDouble("start")
+                    val fps = win.optDouble("fps")
+                    val v = win.optJSONArray("v") ?: continue
+                    if (fps <= 0.0) continue
+                    for (i in f.curveT.indices) {
+                        val frame = ((f.curveT[i] - start) * fps).toInt()
+                        if (frame in 0 until v.length()) vocal[i] = modelToVocal(v.optDouble(frame))
+                    }
+                }
+            }
+            val downbeats = m.optJSONArray("downbeats")?.let { a -> DoubleArray(a.length()) { a.optDouble(it) } }
+            val conf = m.optDouble("conf", 0.0)
+            val gridOk = downbeats != null && downbeats.size >= 4 && conf >= MIN_BEAT_CONFIDENCE
+            MixFeatures(
+                bpm = m.optDouble("headBpm", 0.0).takeIf { gridOk && it > 0.0 } ?: f.bpm,
+                beatConfidence = if (gridOk) conf else f.beatConfidence,
+                key = f.key,
+                contentEnd = f.contentEnd,
+                downbeats = if (gridOk) downbeats!! else f.downbeats,
+                phrases = f.phrases,
+                curveT = f.curveT,
+                energy = f.energy,
+                vocal = vocal,
+                inCues = f.inCues,
+                outCues = f.outCues,
+                coveredFrom = f.coveredFrom,
+                bpmTail = m.optDouble("tailBpm", 0.0).takeIf { gridOk && it > 0.0 } ?: 0.0,
+            )
+        }.getOrDefault(f)
+
+        private fun parseDsp(headJson: String, tailJson: String, tailOffset: Double): MixFeatures? = runCatching {
             if (headJson.isBlank()) return null
             val head = JSONObject(headJson)
             val tail = tailJson.takeIf { it.isNotBlank() }?.let(::JSONObject)
@@ -146,14 +203,14 @@ object PairPlanner {
         val end =out.contentEnd.takeIf { it > 0.0 && it <= duration + 0.5 } ?: duration
         if (end <= MIN_FADE_S * 2) return null
 
-        val ratio = if (out.bpm > 0 && inc.bpm > 0) TransitionPlanner.normalizedTempoRatio(out.bpm, inc.bpm) else 0.0
+        val ratio = if (out.outBpm > 0 && inc.bpm > 0) TransitionPlanner.normalizedTempoRatio(out.outBpm, inc.bpm) else 0.0
         val match = out.hasGrid && inc.hasGrid && abs(1.0 - ratio) <= MAX_STRETCH
         // Incoming playback speed that lands its beats on the outgoing ones.
         val speed = if (match) 1.0 / ratio else 1.0
         val keysFit = camelotCompatible(out.key, inc.key)
 
         val fade = if (match) {
-            val bar = 4 * 60.0 / out.bpm
+            val bar = 4 * 60.0 / out.outBpm
             (bar * if (keysFit != false) BARS_MATCHED else BARS_KEY_CLASH).coerceIn(MIN_FADE_S, MAX_FADE_S)
         } else {
             (baseFadeMs / 1000.0).coerceIn(MIN_FADE_S, MAX_FADE_S)
