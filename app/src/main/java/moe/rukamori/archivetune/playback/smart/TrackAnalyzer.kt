@@ -25,7 +25,7 @@ import timber.log.Timber
 
 object TrackAnalyzer : AnalysisStore {
     private const val KICK_OFF_COOLDOWN_MS = 10_000L
-    private const val CACHE_VERSION = 2
+    private const val CACHE_VERSION = 3
     private val analyzerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val memoryCache = ConcurrentHashMap<String, TrackAnalysisResult>()
     private val inFlight = ConcurrentHashMap<String, Deferred<TrackAnalysisResult?>>()
@@ -46,6 +46,7 @@ object TrackAnalyzer : AnalysisStore {
             if (!dir.exists()) dir.mkdirs()
             cacheDir = dir
         }
+        ModelPass.init(context)
     }
 
     private fun cacheFileFor(trackId: String): File? {
@@ -83,7 +84,7 @@ object TrackAnalyzer : AnalysisStore {
                 if (file != null && file.exists() && file.canRead()) {
                     val text = file.readText(Charsets.UTF_8)
                     val json = JSONObject(text)
-                    // Older entries lack a streamed song's tail features; analyse those again.
+                    // Older entries lack a streamed song's tail features (v2) or the model pass (v3); analyse those again.
                     if (json.optInt("v", 1) < CACHE_VERSION) return@runCatching null
                     TrackAnalysisResult(
                         bpm = json.optDouble("bpm", 0.0),
@@ -159,6 +160,7 @@ object TrackAnalyzer : AnalysisStore {
             trackId = trackId,
             durationSeconds = durationSeconds,
             source = "filePath",
+            decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(file.absolutePath) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decode(file, startMs, endMs) },
             decodeTailSamples = if (durationMs != null && durationMs > AudioDecoder.TAIL_WINDOW_MS) {
                 { AudioDecoder.decodeTail(file, durationMs) }
@@ -182,6 +184,7 @@ object TrackAnalyzer : AnalysisStore {
             trackId = trackId,
             durationSeconds = durationSeconds,
             source = "file",
+            decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(file.absolutePath) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decode(file, startMs, endMs) },
             decodeTailSamples = if (durationMs != null && durationMs > AudioDecoder.TAIL_WINDOW_MS) {
                 { AudioDecoder.decodeTail(file, durationMs) }
@@ -206,6 +209,7 @@ object TrackAnalyzer : AnalysisStore {
             trackId = trackId,
             durationSeconds = durationSeconds,
             source = "uri",
+            decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(context, uri, null) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decode(context, uri, startMs, endMs) },
             decodeTailSamples = if (durationMs != null && durationMs > AudioDecoder.TAIL_WINDOW_MS) {
                 { AudioDecoder.decodeTail(context, uri, durationMs) }
@@ -227,6 +231,7 @@ object TrackAnalyzer : AnalysisStore {
             trackId = trackId,
             durationSeconds = durationSeconds,
             source = "url",
+            decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(url, emptyMap()) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decodeUrl(url, 0L, AudioDecoder.DEFAULT_HEAD_DECODE_MS) },
             decodeTailSamples = if (durationMs > AudioDecoder.TAIL_WINDOW_MS) {
                 { AudioDecoder.decodeUrl(url, durationMs - AudioDecoder.TAIL_WINDOW_MS, durationMs) }
@@ -238,6 +243,7 @@ object TrackAnalyzer : AnalysisStore {
         trackId: String,
         durationSeconds: Double?,
         source: String,
+        decodeStereo: (Double, Double) -> AudioDecoder.StereoRegion?,
         decodeHeadSamples: () -> FloatArray?,
         decodeTailSamples: (() -> FloatArray?)? = null,
         decodeFullSamples: (() -> FloatArray?)? = null,
@@ -256,53 +262,12 @@ object TrackAnalyzer : AnalysisStore {
 
                 try {
                     val duration = durationSeconds ?: 0.0
-                    val fullSamples = decodeFullSamples?.invoke()
-                    if (fullSamples != null && fullSamples.isNotEmpty()) {
-                        val result = TrackFeatures.analyze(fullSamples, duration)
-                        if (result != null) {
-                            putCached(trackId, result)
-                            return@withPermit result
-                        }
-                    }
-
-                    val headSamples = decodeHeadSamples() ?: return@withPermit null
-                    val headResult = TrackFeatures.analyze(headSamples, duration) ?: return@withPermit null
-
-                    val tailSamples = decodeTailSamples?.invoke()
-                    val finalResult = if (tailSamples != null && tailSamples.isNotEmpty() && duration > 0.0) {
-                        val cliffOffset = TrackFeatures.energyCliff(tailSamples, duration)
-                        val computedMixOut = if (cliffOffset > 0.0) {
-                            (duration - (AudioDecoder.TAIL_WINDOW_MS / 1000.0) + cliffOffset).coerceIn(0.0, duration)
-                        } else {
-                            headResult.mixOutTime.takeIf { it > 0.0 } ?: (duration - 6.0).coerceAtLeast(0.0)
-                        }
-                        // Loudness from the head alone misreads a quiet intro as a quiet song; power-
-                        // average it with the tail window, weighted by window length (30s / 45s).
-                        // The tail on its own clock (its real length), so the pair planner can read
-                        // the ending's beats, phrases and singing; times shift by tailOffset.
-                        val tailSeconds = tailSamples.size / (runCatching { TrackFeatures.sampleRate() }.getOrNull()?.takeIf { it > 0.0 } ?: AudioDecoder.TARGET_SAMPLE_RATE)
-                        val tailResult = TrackFeatures.analyze(tailSamples, tailSeconds)
-                        val tailLufs = tailResult?.loudnessLufs
-                        val lufs = if (tailLufs != null && tailLufs < 0.0 && headResult.loudnessLufs < 0.0) {
-                            val hW = AudioDecoder.DEFAULT_HEAD_DECODE_MS.toDouble()
-                            val tW = AudioDecoder.TAIL_WINDOW_MS.toDouble()
-                            10.0 * kotlin.math.log10(
-                                (hW * Math.pow(10.0, headResult.loudnessLufs / 10.0) + tW * Math.pow(10.0, tailLufs / 10.0)) / (hW + tW),
-                            )
-                        } else headResult.loudnessLufs
-                        headResult.copy(
-                            mixOutTime = computedMixOut,
-                            contentEndTime = duration,
-                            loudnessLufs = lufs,
-                            tailRawJson = tailResult?.rawJson.orEmpty(),
-                            tailOffset = duration - tailSeconds,
-                        )
-                    } else {
-                        headResult
-                    }
-
-                    putCached(trackId, finalResult)
-                    finalResult
+                    // DSP first, in its own frame so its decoded PCM is gone before the models run.
+                    val dsp = analyzeDsp(duration, decodeHeadSamples, decodeTailSamples, decodeFullSamples)
+                        ?: return@withPermit null
+                    val result = dsp.copy(modelJson = ModelPass.run(duration, decodeStereo))
+                    putCached(trackId, result)
+                    result
                 } catch (e: Exception) {
                     Timber.tag("TrackAnalyzer").e(e, "Analysis failed for trackId=$trackId source=$source")
                     null
@@ -316,5 +281,56 @@ object TrackAnalyzer : AnalysisStore {
         } finally {
             inFlight.remove(trackId)
         }
+    }
+
+    private fun analyzeDsp(
+        duration: Double,
+        decodeHeadSamples: () -> FloatArray?,
+        decodeTailSamples: (() -> FloatArray?)?,
+        decodeFullSamples: (() -> FloatArray?)?,
+    ): TrackAnalysisResult? {
+        val fullSamples = decodeFullSamples?.invoke()
+        if (fullSamples != null && fullSamples.isNotEmpty()) {
+            val result = TrackFeatures.analyze(fullSamples, duration)
+            if (result != null) return result
+        }
+
+        val headSamples = decodeHeadSamples() ?: return null
+        val headResult = TrackFeatures.analyze(headSamples, duration) ?: return null
+
+        val tailSamples = decodeTailSamples?.invoke()
+        val finalResult = if (tailSamples != null && tailSamples.isNotEmpty() && duration > 0.0) {
+            val cliffOffset = TrackFeatures.energyCliff(tailSamples, duration)
+            val computedMixOut = if (cliffOffset > 0.0) {
+                (duration - (AudioDecoder.TAIL_WINDOW_MS / 1000.0) + cliffOffset).coerceIn(0.0, duration)
+            } else {
+                headResult.mixOutTime.takeIf { it > 0.0 } ?: (duration - 6.0).coerceAtLeast(0.0)
+            }
+            // Loudness from the head alone misreads a quiet intro as a quiet song; power-
+            // average it with the tail window, weighted by window length (30s / 45s).
+            // The tail on its own clock (its real length), so the pair planner can read
+            // the ending's beats, phrases and singing; times shift by tailOffset.
+            val tailSeconds = tailSamples.size / (runCatching { TrackFeatures.sampleRate() }.getOrNull()?.takeIf { it > 0.0 } ?: AudioDecoder.TARGET_SAMPLE_RATE)
+            val tailResult = TrackFeatures.analyze(tailSamples, tailSeconds)
+            val tailLufs = tailResult?.loudnessLufs
+            val lufs = if (tailLufs != null && tailLufs < 0.0 && headResult.loudnessLufs < 0.0) {
+                val hW = AudioDecoder.DEFAULT_HEAD_DECODE_MS.toDouble()
+                val tW = AudioDecoder.TAIL_WINDOW_MS.toDouble()
+                10.0 * kotlin.math.log10(
+                    (hW * Math.pow(10.0, headResult.loudnessLufs / 10.0) + tW * Math.pow(10.0, tailLufs / 10.0)) / (hW + tW),
+                )
+            } else headResult.loudnessLufs
+            headResult.copy(
+                mixOutTime = computedMixOut,
+                contentEndTime = duration,
+                loudnessLufs = lufs,
+                tailRawJson = tailResult?.rawJson.orEmpty(),
+                tailOffset = duration - tailSeconds,
+            )
+        } else {
+            headResult
+        }
+
+        return finalResult
     }
 }

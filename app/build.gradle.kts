@@ -198,6 +198,10 @@ dependencies {
     // The real org.json for the JVM tests: android.jar carries only stubs.
     testImplementation("org.json:json:20240303")
     implementation(libs.timber)
+    // Automix's on-device models (Beat This! beat/downbeat, open-unmix vocals; weights MIT), see
+    // playback/smart/ModelPass. The full android artifact, not onnxruntime-mobile: mobile only
+    // loads .ort files, which would put an offline conversion step between the model and the app.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
     implementation(libs.androidx.core.ktx)
     // Installs baseline-prof.txt on first run, so the code the bar and the
     // player use is compiled before it is needed rather than while it runs.
