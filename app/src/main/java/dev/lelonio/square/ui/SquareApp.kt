@@ -1973,6 +1973,7 @@ fun SquareApp(
                                     // Whose it is, from the library's own index;
                                     // unknown is still offered, as before.
                                     playlistMenuMine = it.mine != false
+                                    playlistMenuSaved = true
                                     playlistMenu = it
                                 },
                                 artists = followedArtists,
@@ -3519,7 +3520,8 @@ fun SquareApp(
                         // it is done once; the place next to the page's title
                         // now filters its songs, which is what gets used while
                         // the page is open.
-                        TrackSheetAction(
+                        // A NAS list has no public link to share.
+                        if (!shownPlaylist.uri.startsWith("subsonic:")) TrackSheetAction(
                             stringResource(R.string.copy_link),
                             PhosphorIcons.Regular.Export,
                         ) {

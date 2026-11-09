@@ -401,11 +401,9 @@ fun LibraryScreen(
                                 playlist,
                                 pinned = playlist.uri in pinned,
                                 onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
-                                onLongClick = if (canEdit) {
-                                    { onPlaylistMenu(playlist) }
-                                } else {
-                                    null
-                                },
+                                // Always: the menu's first entry is pin, which needs no
+                                // account — the actions that do are hidden by the menu itself.
+                                onLongClick = { onPlaylistMenu(playlist) },
                             )
                         }
                     }
@@ -460,11 +458,9 @@ fun LibraryScreen(
                                 playlist,
                                 pinned = playlist.uri in pinned,
                                 onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
-                                onLongClick = if (canEdit) {
-                                    { onPlaylistMenu(playlist) }
-                                } else {
-                                    null
-                                },
+                                // Always: the menu's first entry is pin, which needs no
+                                // account — the actions that do are hidden by the menu itself.
+                                onLongClick = { onPlaylistMenu(playlist) },
                             )
                         }
                     }
