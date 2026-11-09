@@ -50,8 +50,8 @@ android {
         // cpal's Android host is AAudio, which the ndk crate gates at API 26.
         minSdk = 29 // Accompanist lyrics-ui (the synced-lyrics view) declares 29; YumaPlayer forces it onto 26 instead.
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
         buildConfigField("boolean", "VERBOSE_LOG", "false")
 
         // Bungee only for the ABIs that ship; see the splits below.
