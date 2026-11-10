@@ -84,10 +84,17 @@ object Eq {
 data class Fx(
     val speed: Float = 1f, val pitch: Float = 1f, val reverb: Float = 0f, val karaoke: Float = 0f, val loudness: Boolean = false,
 ) {
-    fun filters(): List<String> {
+    /** [tempo]: an automix deck's speed over its own clock (tempoSchedule), sent to atempo as it plays. */
+    fun filters(tempo: List<Pair<Double, Float>>? = null): List<String> {
         fun f(x: Float) = "%.4f".format(Locale.ROOT, x)
         val out = mutableListOf<String>()
-        if (abs(speed - 1f) > 0.005f || abs(pitch - 1f) > 0.005f) {
+        if (tempo != null) {
+            out += "aresample=44100"
+            if (abs(pitch - 1f) > 0.005f) out += "asetrate=${f(44100 * pitch)},aresample=44100"
+            val cmds = tempo.drop(1).joinToString(";") { (t, v) -> "%.3f atempo tempo %s".format(Locale.ROOT, t, f(v / pitch)) }
+            if (cmds.isNotEmpty()) out += "asendcmd=c='$cmds'"
+            out += "atempo=${f(tempo.first().second / pitch)}"
+        } else if (abs(speed - 1f) > 0.005f || abs(pitch - 1f) > 0.005f) {
             out += "aresample=44100"
             if (abs(pitch - 1f) > 0.005f) out += "asetrate=${f(44100 * pitch)},aresample=44100"
             // atempo takes 0.5..100 per instance; chain halves below that.
@@ -123,8 +130,8 @@ data class Fx(
 }
 
 /** The whole -af chain: effects, equalizer, room, loudness. */
-fun audioChain(fx: Fx, eq: FloatArray): String? =
-    (fx.filters() + listOfNotNull(Eq.filter(eq)) + fx.post()).takeIf { it.isNotEmpty() }?.joinToString(",")
+fun audioChain(fx: Fx, eq: FloatArray, tempo: List<Pair<Double, Float>>? = null): String? =
+    (fx.filters(tempo) + listOfNotNull(Eq.filter(eq)) + fx.post()).takeIf { it.isNotEmpty() }?.joinToString(",")
 
 /** One song's listening in one month, as the phone's ListeningStore keeps it. */
 @Serializable

@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.prefs.Preferences
 
 sealed interface Screen {
@@ -174,6 +175,22 @@ class AppState {
         if (restart) player.reapply()
     }
 
+    /** Smart Automix, its bass swap and Loop Mix, as the phone's switches (all three on the phone's defaults). */
+    val analyses = Analyses { downloads.fileFor(it.id)?.path ?: client.buildStreamUrl(it.id) }
+    var smartAutomix by mutableStateOf(ui.getBoolean("smartAutomix", true))
+        private set
+    var bassSwap by mutableStateOf(ui.getBoolean("bassSwap", true))
+        private set
+    var loopMix by mutableStateOf(ui.getBoolean("loopMix", false))
+        private set
+    fun useAutomix(smart: Boolean = smartAutomix, bass: Boolean = bassSwap, loop: Boolean = loopMix) {
+        smartAutomix = smart; bassSwap = bass; loopMix = loop
+        ui.putBoolean("smartAutomix", smart); ui.putBoolean("bassSwap", bass); ui.putBoolean("loopMix", loop)
+        player.planner = if (!smart) null else { out, inc ->
+            analyses.plan(out, inc, player.queue.value, player.shuffle.value, maxOf(player.crossfadeSeconds * 1000L, 3_000L), bassSwap, loopMix)
+        }
+    }
+
     var trimSilence by mutableStateOf(ui.getBoolean("trimSilence", true))
         private set
     fun useTrimSilence(on: Boolean) { trimSilence = on; ui.putBoolean("trimSilence", on); player.trimSilence = on }
@@ -232,6 +249,16 @@ class AppState {
         Strings.current = language
         player.audioFilter = audioChain(fx, eqGains)
         player.speed = fx.speed
+        player.tempoFilter = { audioChain(fx, eqGains, it) }
+        useAutomix()
+        // Analyse what plays and what comes next, so the plan is ready by the last 45 s.
+        scope.launch {
+            kotlinx.coroutines.flow.combine(player.current, player.queue) { s, q -> s to q }.collect { (s, q) ->
+                if (!smartAutomix || s == null) return@collect
+                analyses.request(s)
+                q.getOrNull(q.indexOf(s) + 1)?.let { analyses.request(it) }
+            }
+        }
         player.trimSilence = trimSilence
         player.skipFade = skipFade
         // Once a second: the month's listening and the sleep timer.
@@ -288,7 +315,14 @@ class AppState {
 }
 
 fun main(args: Array<String>) {
-    if ("--self-check" in args) { selfCheck(); versionCheck(); println("self-check ok"); return }
+    if ("--self-check" in args) {
+        // Also written to a file: the Windows launcher has no console to print to.
+        val report = File(System.getProperty("user.home"), ".square-yuma/self-check.txt").apply { parentFile.mkdirs() }
+        val result = runCatching { selfCheck(); versionCheck(); automixCheck(); nativeCheck() }
+        report.writeText(result.fold({ "self-check ok\n" }, { "self-check failed: $it\n" }))
+        print(report.readText())
+        kotlin.system.exitProcess(if (result.isSuccess) 0 else 1)
+    }
     LogTail.install()
     runCatching { Renderer.valueOf(uiPrefs.get("renderer", "Auto")) }.getOrNull()?.api?.let { System.setProperty("skiko.renderApi", it) }
     app()

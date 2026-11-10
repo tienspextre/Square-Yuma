@@ -35,3 +35,6 @@ keystore.properties
 releases/
 *.apk
 .kotlin/
+
+# Built per OS: ffmpeg.exe (Windows CI), libyuma_analysis
+desktop/appResources/

@@ -826,6 +826,17 @@ fun SettingsScreen(state: AppState) {
                     Text(if (crossfade < 0.5f) "Off" else "${crossfade.roundToInt()} s", color = Ink, modifier = Modifier.width(60.dp).padding(start = 12.dp))
                 }
             }
+            item { Toggle("Smart Automix", state.smartAutomix) { state.useAutomix(smart = it) } }
+            if (state.smartAutomix) {
+                item { Toggle("Bass swap", state.bassSwap) { state.useAutomix(bass = it) } }
+                item { Toggle("Loop Mix", state.loopMix) { state.useAutomix(loop = it) } }
+                item {
+                    Text(
+                        tr("Each song is analysed once (beats, phrases, vocals) and mixed into the next on the beat; until then the crossfade above is used."),
+                        color = InkDim, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
             item { Toggle("Trim silence", state.trimSilence) { state.useTrimSilence(it) } }
             item { Toggle("Fade on skip", state.skipFade) { state.useSkipFade(it) } }
             item { SectionLabel("Effects", Modifier.padding(top = 18.dp)) }

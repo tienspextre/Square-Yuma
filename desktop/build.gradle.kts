@@ -41,6 +41,12 @@ val sharedSources by tasks.registering(Sync::class) {
             "dev/lelonio/square/ui/player/GlassSurface.kt",
             "dev/lelonio/square/ui/player/GlassProgressBar.kt",
             "dev/lelonio/square/ui/components/GlassMenu.kt",
+            // Smart Automix: the phone's analysis and models.
+            "moe/rukamori/archivetune/playback/smart/BeatTracker.kt",
+            "moe/rukamori/archivetune/playback/smart/MelSpectrogram.kt",
+            "moe/rukamori/archivetune/playback/smart/VocalTracker.kt",
+            "moe/rukamori/archivetune/playback/smart/TrackFeatures.kt",
+            "moe/rukamori/archivetune/playback/smart/ModelPass.kt",
         )
         // Android's halves of the glass; src/main/kotlin has the Skiko ones.
         exclude(
@@ -53,12 +59,46 @@ val sharedSources by tasks.registering(Sync::class) {
             "dev/lelonio/square/ui/glass/backdrop/internal/Paint.kt",
         )
     }
+    // The planners; the media3 processors are the desktop's own (DesktopPlayer, Automix.kt).
+    from("../core/audio-dsp/src/main/kotlin") {
+        include(
+            "moe/rukamori/archivetune/audiodsp/PairPlanner.kt",
+            "moe/rukamori/archivetune/audiodsp/TransitionPlanner.kt",
+            "moe/rukamori/archivetune/audiodsp/MixStyles.kt",
+            "moe/rukamori/archivetune/audiodsp/AutomixModels.kt",
+            "moe/rukamori/archivetune/audiodsp/TrackAnalysisResult.kt",
+            "moe/rukamori/archivetune/audiodsp/TransitionRules.kt",
+            "moe/rukamori/archivetune/audiodsp/CrossfadeConstants.kt",
+            "moe/rukamori/archivetune/audiodsp/CrossfadeConfig.kt",
+            "moe/rukamori/archivetune/audiodsp/MusicServiceCrossfadeMath.kt",
+        )
+    }
+    // The JNI library sits beside ffmpeg in the app's resources, not on java.library.path.
+    filter { it.replace("System.loadLibrary(\"yuma_analysis\")", "dev.lelonio.square.desktop.loadYumaAnalysis()") }
     into(layout.buildDirectory.dir("shared/kotlin"))
 }
+
+/** The phone's C++ analysis (app/src/main/cpp), built for this Linux machine; the Windows workflow builds the .dll. */
+val yumaAnalysisLinux by tasks.registering(Exec::class) {
+    val out = file("appResources/linux/libyuma_analysis.so")
+    val cpp = fileTree("../app/src/main/cpp") { include("analyzer/**", "jni/**") }
+    onlyIf { System.getProperty("os.name").startsWith("Linux") }
+    inputs.files(cpp)
+    outputs.file(out)
+    val jdk = javaToolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(17)) }.map { it.metadata.installationPath.asFile.path }
+    doFirst { out.parentFile.mkdirs() }
+    commandLine(
+        listOf("g++", "-O3", "-std=c++20", "-shared", "-fPIC", "-fvisibility=hidden", "-I", file("../app/src/main/cpp/analyzer").path) +
+            listOf("-I", "${jdk.get()}/include", "-I", "${jdk.get()}/include/linux") +
+            cpp.filter { it.name.endsWith(".cpp") }.map { it.path } + listOf("-o", out.path)
+    )
+}
+tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(yumaAnalysisLinux) }
 
 val sharedResources by tasks.registering(Sync::class) {
     from("../app/src/main/res/font/inter.ttf") { into("font") }
     from("../docs/square.png")
+    from("../app/src/main/assets") { include("*.onnx"); into("models") }
     into(layout.buildDirectory.dir("shared/resources"))
 }
 
@@ -84,6 +124,7 @@ dependencies {
     implementation("com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.2.2")
     implementation("org.slf4j:slf4j-nop:2.0.17")
     implementation("com.github.kwhat:jnativehook:2.2.2") // media keys on Windows
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.28.0") // the automix beat and vocal models, as on the phone
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:${libs.versions.coroutines.get()}")
 }
 
