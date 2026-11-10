@@ -478,6 +478,8 @@ fun SettingsScreen(state: AppState) {
             item { Segmented(listOf("Dark", "Light"), state.themeMode.ordinal) { state.setTheme(ThemeMode.entries[it]) } }
             item { SectionLabel("Glass", Modifier.padding(top = 18.dp)) }
             item { Segmented(GlassProfile.entries.map { it.name }, state.glassProfile.ordinal) { state.setGlass(GlassProfile.entries[it]) } }
+            item { SectionLabel("Renderer (applies after a restart)", Modifier.padding(top = 18.dp)) }
+            item { Segmented(Renderer.entries.map { it.label }, state.renderer.ordinal) { state.chooseRenderer(Renderer.entries[it]) } }
             item { SectionLabel("Crossfade", Modifier.padding(top = 18.dp)) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -18,6 +18,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mocharealm.accompanist.lyrics.core.model.ISyncedLine
+import kotlinx.coroutines.delay
 import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
@@ -100,6 +102,13 @@ fun LyricsView(
     modifier: Modifier = Modifier,
     /** Whether to read each line in the listener's language underneath it. */
     showTranslation: Boolean = false,
+    /**
+     * Keep every line sharp while the listener scrolls and this long after,
+     * instead of leaving it to Accompanist. 0 (the phone) leaves it to
+     * Accompanist, which unblurs under a finger; a mouse wheel's short
+     * scrolls never reach that, so the desktop browses blurred lines without it.
+     */
+    sharpWhileBrowsingMs: Long = 0,
     onSeek: (Long) -> Unit,
 ) {
     if (!lyrics.synced) {
@@ -132,6 +141,13 @@ fun LyricsView(
         // the view scroll to it, which switched its springs back on under the
         // finger and sent every line drifting. YumaPlayer freezes it the same way.
         val held = remember { mutableIntStateOf(-1) }
+        val browsed = remember { mutableIntStateOf(0) } // bumped by each user scroll
+        val browsing = remember { mutableStateOf(false) }
+        LaunchedEffect(browsed.intValue) {
+            if (browsed.intValue == 0) return@LaunchedEffect
+            delay(sharpWhileBrowsingMs)
+            browsing.value = false
+        }
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }.collect { if (!it) held.intValue = -1 }
         }
@@ -139,6 +155,10 @@ fun LyricsView(
             object : NestedScrollConnection {
                 override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                     if (source == NestedScrollSource.UserInput && held.intValue < 0) held.intValue = currentPosition()
+                    if (source == NestedScrollSource.UserInput && sharpWhileBrowsingMs > 0) {
+                        browsing.value = true
+                        browsed.intValue++
+                    }
                     return Offset.Zero
                 }
             }
@@ -157,7 +177,7 @@ fun LyricsView(
                 normalLineTextStyle = normal,
                 accompanimentLineTextStyle = accompaniment,
                 blendMode = BlendMode.SrcOver,
-                useBlurEffect = blur,
+                useBlurEffect = blur && !browsing.value,
                 showTranslation = showTranslation,
                 showPhonetic = false,
                 offset = maxHeight * 0.32f,

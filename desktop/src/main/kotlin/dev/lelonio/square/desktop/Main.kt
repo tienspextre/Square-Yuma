@@ -52,8 +52,16 @@ enum class GlassProfile {
     }
 }
 
+/**
+ * Skiko's drawing backend. Auto is Direct3D on Windows and OpenGL on Linux; a
+ * driver that draws the glass wrong can be swapped out here. Read once at start.
+ */
+enum class Renderer(val label: String, val api: String?) { Auto("Auto", null), OpenGL("OpenGL", "OPENGL"), Software("Software", "SOFTWARE") }
+
+private val uiPrefs = Preferences.userRoot().node("square-yuma/ui")
+
 class AppState {
-    private val ui = Preferences.userRoot().node("square-yuma/ui")
+    private val ui = uiPrefs
     val prefs = SubsonicPreferences()
     val client = SubsonicClient(Http.client, prefs)
     val player = DesktopPlayer { client.buildStreamUrl(it.id) }.apply {
@@ -83,6 +91,9 @@ class AppState {
 
     fun cover(id: String?, size: Int = 300) = client.buildCoverArtUrl(id, size)
 
+    var renderer by mutableStateOf(runCatching { Renderer.valueOf(ui.get("renderer", "Auto")) }.getOrDefault(Renderer.Auto))
+        private set
+    fun chooseRenderer(r: Renderer) { renderer = r; ui.put("renderer", r.name) }
     fun setGlass(p: GlassProfile) { glassProfile = p; ui.put("glass", p.name) }
     fun setTheme(mode: ThemeMode) { themeMode = mode; ui.put("theme", mode.name) }
     fun setCrossfade(seconds: Int) { player.crossfadeSeconds = seconds; ui.putInt("crossfade", seconds) }
@@ -108,7 +119,12 @@ class AppState {
     }
 }
 
-fun main() = application {
+fun main() {
+    runCatching { Renderer.valueOf(uiPrefs.get("renderer", "Auto")) }.getOrNull()?.api?.let { System.setProperty("skiko.renderApi", it) }
+    app()
+}
+
+private fun app() = application {
     val state = androidx.compose.runtime.remember { AppState() }
     Window(
         onCloseRequest = ::exitApplication,

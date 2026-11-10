@@ -37,6 +37,11 @@ internal class SkikoRuntimeShader(val builder: RuntimeShaderBuilder) : RuntimeSh
         else -> setIntUniform(name, values[0], values[1], values[2], values[3])
     }
 
+    /**
+     * Premultiplied, as Android's setColorUniform hands a layout(color) uniform
+     * to the shader. Passed straight, a press highlight's white at 15 % came out
+     * as full white under BlendMode.Plus and swallowed the button it lit.
+     */
     override fun setColorUniform(name: String, color: Color) =
-        builder.uniform(name, color.red, color.green, color.blue, color.alpha)
+        builder.uniform(name, color.red * color.alpha, color.green * color.alpha, color.blue * color.alpha, color.alpha)
 }

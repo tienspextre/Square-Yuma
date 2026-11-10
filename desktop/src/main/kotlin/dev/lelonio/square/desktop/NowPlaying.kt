@@ -191,7 +191,7 @@ fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> U
                                         state.showQueue -> GlassSurface(playerBackdrop, RoundedCornerShape(26.dp), Modifier.fillMaxSize()) { Queue(state) }
                                         lyrics != null -> {
                                             val position = p.positionMs.collectAsState()
-                                            LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), onSeek = p::seek)
+                                            LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), sharpWhileBrowsingMs = 2500, onSeek = p::seek)
                                         }
                                         else -> Text("No lyrics for this song", color = InkDim, modifier = Modifier.align(Alignment.Center))
                                     }
