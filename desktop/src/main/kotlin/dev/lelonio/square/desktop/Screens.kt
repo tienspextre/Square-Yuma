@@ -193,7 +193,7 @@ private fun ArtistCard(state: AppState, a: SubsonicArtistItem) =
 @Composable
 private fun Shelf(title: String, content: @Composable () -> Unit) {
     Column(Modifier.padding(bottom = 30.dp)) {
-        Text(title, style = MaterialTheme.typography.headlineLarge, color = Ink, modifier = Modifier.padding(horizontal = Gutter, vertical = 12.dp))
+        Text(tr(title), style = MaterialTheme.typography.headlineLarge, color = Ink, modifier = Modifier.padding(horizontal = Gutter, vertical = 12.dp))
         content()
     }
 }
@@ -214,7 +214,7 @@ fun HomeScreen(state: AppState) {
             LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(top = 28.dp, bottom = BarClearance)) {
                 item { Title("Home", Modifier.padding(horizontal = Gutter).padding(bottom = 18.dp)) }
                 if (newest.isFailure) item("offline") {
-                    Text("Couldn't reach the server — showing what is on this computer.", color = InkDim, modifier = Modifier.padding(horizontal = Gutter, vertical = 8.dp))
+                    Text(tr("Couldn't reach the server — showing what is on this computer."), color = InkDim, modifier = Modifier.padding(horizontal = Gutter, vertical = 8.dp))
                 }
                 val kept = state.downloads.kept.map { it.song }.reversed()
                 if (kept.isNotEmpty()) item("downloaded") {
@@ -223,7 +223,7 @@ fun HomeScreen(state: AppState) {
                             itemsIndexed(kept.take(30), key = { _, s -> "d" + s.id }) { i, s ->
                                 Box(Modifier.width(160.dp)) { Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(kept, i) }) { state.player.playQueue(kept, i) } }
                             }
-                            item { Box(Modifier.width(160.dp).aspectRatio(1f), contentAlignment = Alignment.Center) { TextButton({ state.open(Screen.Downloads) }) { Text("See all") } } }
+                            item { Box(Modifier.width(160.dp).aspectRatio(1f), contentAlignment = Alignment.Center) { TextButton({ state.open(Screen.Downloads) }) { Text(tr("See all")) } } }
                         }
                     }
                 }
@@ -254,7 +254,7 @@ fun HomeScreen(state: AppState) {
                         Shelf("Playlists on NAS") {
                             LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                                 items(list, key = { "p" + it.id }) { p ->
-                                    Box(Modifier.width(184.dp)) { Card(p.name, "${p.songCount} songs", state.cover(p.coverArt)) { state.open(Screen.Playlist(p.id, p.name)) } }
+                                    Box(Modifier.width(184.dp)) { Card(p.name, "${p.songCount} ${tr("songs")}", state.cover(p.coverArt)) { state.open(Screen.Playlist(p.id, p.name)) } }
                                 }
                             }
                         }
@@ -288,7 +288,7 @@ private fun MixTile(m: SubsonicMixes.Mix, onClick: () -> Unit) {
     ) {
         Text(m.title, style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.weight(1f))
-        Text(if (m.kind == "MOOD") "Mood · ${m.songCount} songs" else "${m.songCount} songs", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
+        Text((if (m.kind == "MOOD") tr("Mood") + " · " else "") + "${m.songCount} " + tr("songs"), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
     }
 }
 
@@ -301,7 +301,7 @@ fun MixScreen(state: AppState, screen: Screen.Mix) {
         }
     }
     Loaded(songs) { list ->
-        Tracks(state, list, screen.name, subtitle = "${list.size} songs", cover = list.firstOrNull()?.coverArt, showAlbum = true)
+        Tracks(state, list, screen.name, subtitle = "${list.size} ${tr("songs")}", cover = list.firstOrNull()?.coverArt, showAlbum = true)
     }
 }
 
@@ -310,9 +310,9 @@ fun DownloadsScreen(state: AppState) {
     val songs = state.downloads.kept.map { it.song }.reversed()
     if (songs.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Nothing downloaded yet. Right-click a song, or use Download on an album or playlist.", color = InkDim)
+            Text(tr("Nothing downloaded yet. Right-click a song, or use Download on an album or playlist."), color = InkDim)
         }
-    } else Tracks(state, songs, "Downloaded", "${songs.size} songs · %.1f GB".format(state.downloads.bytes() / 1e9), songs.first().coverArt, showAlbum = true)
+    } else Tracks(state, songs, "Downloaded", "${songs.size} ${tr("songs")} · %.1f GB".format(state.downloads.bytes() / 1e9), songs.first().coverArt, showAlbum = true)
 }
 
 @Composable
@@ -387,7 +387,7 @@ private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> U
         options.forEachIndexed { i, label ->
             val bg by animateColorAsState(if (i == selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
             Text(
-                label, style = MaterialTheme.typography.titleMedium, color = if (i == selected) Ink else InkDim,
+                tr(label), style = MaterialTheme.typography.titleMedium, color = if (i == selected) Ink else InkDim,
                 modifier = Modifier.clip(CircleShape).background(bg).clickable { onSelect(i) }
                     .pointerHoverIcon(PointerIcon.Hand).padding(horizontal = 16.dp, vertical = 6.dp),
             )
@@ -405,10 +405,10 @@ fun PlaylistsScreen(state: AppState) {
             items(list, key = { it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { p ->
                 val pin = p.id in pinned
                 val open = { state.open(Screen.Playlist(p.id, p.name)) }
-                if (state.listMode) ListEntry(state.cover(p.coverArt, 100), p.name, "${p.songCount} songs" + if (pin) " · Pinned" else "", trailing = {
+                if (state.listMode) ListEntry(state.cover(p.coverArt, 100), p.name, "${p.songCount} ${tr("songs")}" + if (pin) " · " + tr("Pinned") else "", trailing = {
                     Glyph(PhosphorIcons.Regular.PushPin, if (pin) "Unpin" else "Pin", active = pin) { state.togglePin(p.id, p.name, p.coverArt) }
                 }, onClick = open)
-                else Card(p.name, "${p.songCount} songs" + if (pin) " · Pinned" else "", state.cover(p.coverArt), onClick = open)
+                else Card(p.name, "${p.songCount} ${tr("songs")}" + if (pin) " · " + tr("Pinned") else "", state.cover(p.coverArt), onClick = open)
             }
         }
     }
@@ -446,7 +446,7 @@ fun AlbumScreen(state: AppState, screen: Screen.Album) {
 fun PlaylistScreen(state: AppState, screen: Screen.Playlist) {
     val songs = load(state, screen) { state.client.getPlaylist(screen.id) }
     Loaded(songs) { list ->
-        Tracks(state, list, screen.name, subtitle = "${list.size} songs", cover = list.firstOrNull()?.coverArt, showAlbum = true, playlistId = screen.id)
+        Tracks(state, list, screen.name, subtitle = "${list.size} ${tr("songs")}", cover = list.firstOrNull()?.coverArt, showAlbum = true, playlistId = screen.id)
     }
 }
 
@@ -496,7 +496,7 @@ private fun Tracks(state: AppState, all: List<SubsonicChildSong>, title: String,
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.dp)) {
                     OutlinedTextField(
                         find, { find = it }, Modifier.width(260.dp).onFocusChanged { state.typing = it.isFocused },
-                        placeholder = { Text("Find in ${if (showAlbum) "list" else "album"}") }, singleLine = true,
+                        placeholder = { Text(tr(if (showAlbum) "Find in list" else "Find in album")) }, singleLine = true,
                         textStyle = MaterialTheme.typography.bodyMedium, shape = RoundedCornerShape(12.dp),
                     )
                     Spacer(Modifier.weight(1f))
@@ -524,7 +524,7 @@ private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
     ) {
         Icon(icon, null, tint = ink, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium, color = ink)
+        Text(tr(label), style = MaterialTheme.typography.titleMedium, color = ink)
     }
 }
 
@@ -546,28 +546,28 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
             if (e.buttons.isSecondaryPressed) e.changes.first().position.let { menuAt = IntOffset(it.x.roundToInt(), it.y.roundToInt()) }
         })
         GlassMenu(menuAt != null, menuAt ?: IntOffset.Zero, onDismiss = { menuAt = null }) {
-            GlassMenuItem("Play next", PhosphorIcons.Regular.Queue) { state.player.playNext(s); menuAt = null }
-            GlassMenuItem("Add to queue", PhosphorIcons.Regular.ListPlus) { state.player.addToQueue(s); menuAt = null }
-            s.albumId?.let { id -> GlassMenuItem("Go to album", PhosphorIcons.Regular.Disc) { menuAt = null; state.open(Screen.Album(id, s.album.orEmpty())) } }
-            s.artistId?.let { id -> GlassMenuItem("Go to artist", PhosphorIcons.Regular.User) { menuAt = null; state.open(Screen.Artist(id, s.artist.orEmpty())) } }
-            if (state.downloads.has(s.id)) GlassMenuItem("Remove download", PhosphorIcons.Regular.XCircle) { menuAt = null; state.downloads.remove(s.id) }
-            else GlassMenuItem("Download", PhosphorIcons.Regular.DownloadSimple) { menuAt = null; state.download(listOf(s)) }
-            GlassMenuItem("Inspect", PhosphorIcons.Regular.Waveform) { menuAt = null; inspecting = true }
-            GlassMenuItem("Copy link", PhosphorIcons.Regular.LinkSimple) {
+            GlassMenuItem(tr("Play next"), PhosphorIcons.Regular.Queue) { state.player.playNext(s); menuAt = null }
+            GlassMenuItem(tr("Add to queue"), PhosphorIcons.Regular.ListPlus) { state.player.addToQueue(s); menuAt = null }
+            s.albumId?.let { id -> GlassMenuItem(tr("Go to album"), PhosphorIcons.Regular.Disc) { menuAt = null; state.open(Screen.Album(id, s.album.orEmpty())) } }
+            s.artistId?.let { id -> GlassMenuItem(tr("Go to artist"), PhosphorIcons.Regular.User) { menuAt = null; state.open(Screen.Artist(id, s.artist.orEmpty())) } }
+            if (state.downloads.has(s.id)) GlassMenuItem(tr("Remove download"), PhosphorIcons.Regular.XCircle) { menuAt = null; state.downloads.remove(s.id) }
+            else GlassMenuItem(tr("Download"), PhosphorIcons.Regular.DownloadSimple) { menuAt = null; state.download(listOf(s)) }
+            GlassMenuItem(tr("Inspect"), PhosphorIcons.Regular.Waveform) { menuAt = null; inspecting = true }
+            GlassMenuItem(tr("Copy link"), PhosphorIcons.Regular.LinkSimple) {
                 menuAt = null
                 java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(state.linkFor(s)), null)
-                state.say("Link copied")
+                state.say(tr("Link copied"))
             }
-            playlistId?.let { pid -> GlassMenuItem("Remove from playlist", PhosphorIcons.Regular.MinusCircle) { menuAt = null; remove(pid, false, "Removed from playlist") } }
-            GlassMenuItem("Delete from NAS", PhosphorIcons.Regular.Trash) { menuAt = null; confirmDelete = true }
+            playlistId?.let { pid -> GlassMenuItem(tr("Remove from playlist"), PhosphorIcons.Regular.MinusCircle) { menuAt = null; remove(pid, false, "Removed from playlist") } }
+            GlassMenuItem(tr("Delete from NAS"), PhosphorIcons.Regular.Trash) { menuAt = null; confirmDelete = true }
         }
         if (inspecting) InspectDialog(state, s) { inspecting = false }
         if (confirmDelete) androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete “${s.title}” from the NAS?") },
-            text = { Text("The file is deleted from the server and taken out of every playlist. This can't be undone.") },
-            confirmButton = { TextButton({ confirmDelete = false; remove(null, true, "Deleted “${s.title}”") }) { Text("Delete", color = Color(0xFFFF6B6B)) } },
-            dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
+            text = { Text(tr("The file is deleted from the server and taken out of every playlist. This can't be undone.")) },
+            confirmButton = { TextButton({ confirmDelete = false; remove(null, true, "Deleted “${s.title}”") }) { Text(tr("Delete"), color = Color(0xFFFF6B6B)) } },
+            dismissButton = { TextButton({ confirmDelete = false }) { Text(tr("Cancel")) } },
         )
     }
 }
@@ -585,7 +585,7 @@ private fun InspectDialog(state: AppState, s: SubsonicChildSong, onDismiss: () -
                 val r = result
                 when {
                     r == null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(12.dp)); Text("Reading the file and its spectrum…")
+                        CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(12.dp)); Text(tr("Reading the file and its spectrum…"))
                     }
                     r.isFailure -> Text("Couldn't inspect: ${r.exceptionOrNull()?.message}")
                     else -> {
@@ -599,7 +599,7 @@ private fun InspectDialog(state: AppState, s: SubsonicChildSong, onDismiss: () -
                 }
             }
         },
-        confirmButton = { TextButton(onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onDismiss) { Text(tr("Close")) } },
     )
 }
 
@@ -634,7 +634,7 @@ private fun TrackRowBody(state: AppState, s: SubsonicChildSong, number: Int?, sh
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.7f).padding(horizontal = 12.dp))
         state.downloads.progress[s.id]?.let { CircularProgressIndicator({ it }, Modifier.size(14.dp), color = Ink, strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)) }
         if (state.downloads.has(s.id)) { Icon(PhosphorIcons.Fill.CheckCircle, "Downloaded", tint = InkDim, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(10.dp)) }
-        Text("%d:%02d".format(s.duration / 60, s.duration % 60), style = MaterialTheme.typography.bodyMedium, color = InkDim)
+        Text(tr("%d:%02d").format(s.duration / 60, s.duration % 60), style = MaterialTheme.typography.bodyMedium, color = InkDim)
     }
 }
 
@@ -666,7 +666,7 @@ fun SearchScreen(state: AppState) {
             OutlinedTextField(
                 query, { query = it },
                 Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { state.typing = it.isFocused },
-                placeholder = { Text("Artists, albums, songs") },
+                placeholder = { Text(tr("Artists, albums, songs")) },
                 textStyle = MaterialTheme.typography.titleMedium,
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
@@ -675,7 +675,7 @@ fun SearchScreen(state: AppState) {
             if (query.isBlank() && state.searchHistory.isNotEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
                     SectionLabel("Recent searches", Modifier.weight(1f))
-                    TextButton({ state.clearSearches() }) { Text("Clear") }
+                    TextButton({ state.clearSearches() }) { Text(tr("Clear")) }
                 }
                 state.searchHistory.forEach { q ->
                     Row(
@@ -699,7 +699,7 @@ fun SearchScreen(state: AppState) {
                 }
             }
             if (r != null && r.album.isNotEmpty()) SectionLabel("Albums", Modifier.padding(top = 24.dp))
-            if (result?.isFailure == true) Text("Couldn't reach the server", color = InkDim, modifier = Modifier.padding(top = 16.dp))
+            if (result?.isFailure == true) Text(tr("Couldn't reach the server"), color = InkDim, modifier = Modifier.padding(top = 16.dp))
         }
     }) {
         items(r?.album.orEmpty(), key = { it.id }) { AlbumCard(state, it) }
@@ -720,9 +720,9 @@ fun SettingsScreen(state: AppState) {
         LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), contentPadding = PaddingValues(Gutter, 28.dp, Gutter, BarClearance), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Title("Settings", Modifier.padding(bottom = 10.dp)) }
             item { SectionLabel("Navidrome / Subsonic server") }
-            item { OutlinedTextField(url, { url = it }, field, label = { Text("Server URL") }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium) }
-            item { OutlinedTextField(user, { user = it }, field, label = { Text("Username") }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium) }
-            item { OutlinedTextField(pass, { pass = it }, field, label = { Text("Password") }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium, visualTransformation = PasswordVisualTransformation()) }
+            item { OutlinedTextField(url, { url = it }, field, label = { Text(tr("Server URL")) }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium) }
+            item { OutlinedTextField(user, { user = it }, field, label = { Text(tr("Username")) }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium) }
+            item { OutlinedTextField(pass, { pass = it }, field, label = { Text(tr("Password")) }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium, visualTransformation = PasswordVisualTransformation()) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Pill(PhosphorIcons.Fill.Play, "Connect", accent = true) {
@@ -741,16 +741,16 @@ fun SettingsScreen(state: AppState) {
             }
             item {
                 TextButton(onClick = { scope.launch { status = if (state.client.startScan().getOrDefault(false)) "Library rescan started" else "Rescan failed" } }) {
-                    Text("Rescan server library")
+                    Text(tr("Rescan server library"))
                 }
             }
             item { SectionLabel("Downloads", Modifier.padding(top = 18.dp)) }
             item {
                 Column {
-                    Text("${state.downloads.kept.size} songs · %.2f GB in ${state.downloads.root.path}".format(state.downloads.bytes() / 1e9), color = InkDim, style = MaterialTheme.typography.bodyMedium)
+                    Text("${state.downloads.kept.size} ${tr("songs")} · %.2f GB · ${state.downloads.root.path}".format(state.downloads.bytes() / 1e9), color = InkDim, style = MaterialTheme.typography.bodyMedium)
                     Row {
-                        TextButton({ runCatching { state.downloads.root.mkdirs(); java.awt.Desktop.getDesktop().open(state.downloads.root) } }) { Text("Open folder") }
-                        if (state.downloads.kept.isNotEmpty()) TextButton({ state.downloads.removeAll(); state.say("Removed all downloads") }) { Text("Remove all downloads") }
+                        TextButton({ runCatching { state.downloads.root.mkdirs(); java.awt.Desktop.getDesktop().open(state.downloads.root) } }) { Text(tr("Open folder")) }
+                        if (state.downloads.kept.isNotEmpty()) TextButton({ state.downloads.removeAll(); state.say(tr("Removed all downloads")) }) { Text(tr("Remove all downloads")) }
                     }
                 }
             }
@@ -791,7 +791,7 @@ fun SettingsScreen(state: AppState) {
                                 valueRange = -12f..12f, onValueChangeFinished = { state.player.reapply() },
                                 colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink, inactiveTrackColor = Ink.copy(alpha = 0.28f)),
                             )
-                            Text("%+.1f dB".format(gains[b]), color = Ink, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(72.dp).padding(start = 10.dp))
+                            Text(tr("%+.1f dB").format(gains[b]), color = Ink, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(72.dp).padding(start = 10.dp))
                         }
                     }
                 }
@@ -805,7 +805,7 @@ fun SettingsScreen(state: AppState) {
                         state.lyricsOffsetMs / 1000f, { state.setLyricsOffset(((it * 4).roundToInt() * 250).toLong()) }, Modifier.weight(1f), valueRange = -3f..3f,
                         colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink, inactiveTrackColor = Ink.copy(alpha = 0.28f)),
                     )
-                    Text("%+.2f s".format(state.lyricsOffsetMs / 1000f), color = Ink, modifier = Modifier.width(80.dp).padding(start = 12.dp))
+                    Text(tr("%+.2f s").format(state.lyricsOffsetMs / 1000f), color = Ink, modifier = Modifier.width(80.dp).padding(start = 12.dp))
                 }
             }
             item {
@@ -814,7 +814,7 @@ fun SettingsScreen(state: AppState) {
                     color = InkDim, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 18.dp),
                 )
             }
-            item { TextButton(onClick = { state.root(Screen.Home) }) { Text("Done") } }
+            item { TextButton(onClick = { state.root(Screen.Home) }) { Text(tr("Done")) } }
         }
     }
 }

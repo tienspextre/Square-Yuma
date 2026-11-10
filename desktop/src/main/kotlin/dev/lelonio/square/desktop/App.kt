@@ -226,7 +226,7 @@ private fun Sidebar(state: AppState, config: GlassEffectConfig, modifier: Modifi
             .then(glow.modifier).then(glow.gestureModifier)
             .padding(horizontal = 12.dp, vertical = 22.dp),
     ) {
-        Text("Square-Yuma", style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(start = 12.dp, bottom = 22.dp))
+        Text(tr("Square-Yuma"), style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(start = 12.dp, bottom = 22.dp))
         Box {
             if (selected >= 0) {
                 Box(
@@ -280,7 +280,7 @@ private fun NavRow(item: NavItem, selected: Boolean, onClick: () -> Unit) {
     ) {
         Icon(item.icon, null, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(14.dp))
-        Text(item.label, style = MaterialTheme.typography.titleMedium, color = Ink)
+        Text(tr(item.label), style = MaterialTheme.typography.titleMedium, color = Ink)
     }
 }
 
@@ -369,7 +369,7 @@ private fun TransportBar(state: AppState, config: GlassEffectConfig, modifier: M
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(song?.title ?: "Not playing", style = MaterialTheme.typography.bodyMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(song?.title ?: tr("Not playing"), style = MaterialTheme.typography.bodyMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(song?.artist.orEmpty(), style = MaterialTheme.typography.bodySmall, color = Ink.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -440,7 +440,7 @@ fun Glyph(icon: ImageVector, label: String, active: Boolean = false, size: Dp = 
             .background(if (active) Ink.copy(alpha = 0.16f) else if (hovered) Ink.copy(alpha = 0.08f) else Color.Transparent)
             .hoverable(hover).clickable(hover, indication = null, onClick = onClick).pointerHoverIcon(PointerIcon.Hand),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, label, tint = tint, modifier = Modifier.size(size)) }
+    ) { Icon(icon, tr(label), tint = tint, modifier = Modifier.size(size)) }
 }
 
 @Composable
@@ -470,10 +470,10 @@ private fun SharedCover(state: AppState) {
 
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    Text(text.uppercase(), style = MaterialTheme.typography.labelLarge, color = InkDim, modifier = modifier)
+    Text(tr(text).uppercase(), style = MaterialTheme.typography.labelLarge, color = InkDim, modifier = modifier)
 }
 
 @Composable
 fun Title(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = MaterialTheme.typography.displayLarge, color = Ink, modifier = modifier)
+    Text(tr(text), style = MaterialTheme.typography.displayLarge, color = Ink, modifier = modifier)
 }

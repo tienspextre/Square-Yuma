@@ -130,12 +130,12 @@ fun MonthScreen(state: AppState) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp)) {
                     Glyph(PhosphorIcons.Regular.CaretLeft, "Previous month", size = 20.dp) { month = month.minusMonths(1) }
                     Text(
-                        month.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH)),
+                        month.format(DateTimeFormatter.ofPattern("MMMM yyyy", if (Strings.current == Language.Vietnamese) Locale.forLanguageTag("vi") else Locale.ENGLISH)),
                         style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(horizontal = 10.dp),
                     )
                     if (month < YearMonth.now()) Glyph(PhosphorIcons.Regular.CaretRight, "Next month", size = 20.dp) { month = month.plusMonths(1) }
                 }
-                if (rows.isEmpty()) Text("Nothing played this month yet.", color = InkDim, style = MaterialTheme.typography.titleMedium)
+                if (rows.isEmpty()) Text(tr("Nothing played this month yet."), color = InkDim, style = MaterialTheme.typography.titleMedium)
             }
             if (rows.isNotEmpty()) {
                 item {
@@ -193,8 +193,8 @@ private fun Stat(value: String, label: String) {
     Column(Modifier.clip(RoundedCornerShape(16.dp)).background(Ink.copy(alpha = 0.07f)).padding(horizontal = 22.dp, vertical = 14.dp)) {
         Text(value, style = MaterialTheme.typography.headlineMedium, color = Ink)
         Spacer(Modifier.height(2.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = InkDim)
+        Text(tr(label), style = MaterialTheme.typography.bodyMedium, color = InkDim)
     }
 }
 
-private fun plays(n: Int) = if (n == 1) "1 play" else "$n plays"
+private fun plays(n: Int) = if (Strings.current == Language.Vietnamese) "$n lượt phát" else if (n == 1) "1 play" else "$n plays"

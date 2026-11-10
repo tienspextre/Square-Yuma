@@ -295,8 +295,8 @@ private fun SleepTimer(state: AppState) {
         }
         GlassMenu(open, androidx.compose.ui.unit.IntOffset(0, 40), onDismiss = { open = false }) {
             listOf(15, 30, 45, 60, 90).forEach { m -> GlassMenuItem("$m minutes", PhosphorIcons.Regular.Timer) { state.sleepIn(m); open = false } }
-            GlassMenuItem("End of song", PhosphorIcons.Regular.Moon) { state.sleepAtEndOfTrack(); open = false }
-            if (left.isNotEmpty()) GlassMenuItem("Turn off", PhosphorIcons.Regular.X) { state.sleepIn(null); open = false }
+            GlassMenuItem(tr("End of song"), PhosphorIcons.Regular.Moon) { state.sleepAtEndOfTrack(); open = false }
+            if (left.isNotEmpty()) GlassMenuItem(tr("Turn off"), PhosphorIcons.Regular.X) { state.sleepIn(null); open = false }
         }
     }
 }
@@ -313,7 +313,7 @@ private fun LyricsSourceRow(state: AppState, song: dev.lelonio.square.backend.su
             modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { open = true }.padding(horizontal = 6.dp, vertical = 4.dp),
         )
         GlassMenu(open, androidx.compose.ui.unit.IntOffset(0, 28), onDismiss = { open = false }) {
-            GlassMenuItem("Automatic", PhosphorIcons.Regular.Sparkle) { state.setLyricsPick(s.id, null); open = false; onPicked() }
+            GlassMenuItem(tr("Automatic"), PhosphorIcons.Regular.Sparkle) { state.setLyricsPick(s.id, null); open = false; onPicked() }
             LyricSource.entries.forEach { src ->
                 GlassMenuItem(src.label + if (src == from) "  ✓" else "", PhosphorIcons.Regular.Quotes) { state.setLyricsPick(s.id, src); open = false; onPicked() }
             }
