@@ -157,9 +157,29 @@ class AppState {
     fun setEq(gains: FloatArray, restart: Boolean = true) {
         eqGains = gains
         ui.put("eq", gains.joinToString(","))
-        player.audioFilter = Eq.filter(gains)
+        player.audioFilter = audioChain(fx, gains)
         if (restart) player.reapply()
     }
+
+    var fx by mutableStateOf(
+        Fx(ui.getFloat("speed", 1f), ui.getFloat("pitch", 1f), ui.getFloat("reverb", 0f), ui.getFloat("karaoke", 0f), ui.getBoolean("loudness", false))
+    )
+        private set
+    fun setFx(new: Fx, restart: Boolean = true) {
+        fx = new
+        ui.putFloat("speed", new.speed); ui.putFloat("pitch", new.pitch); ui.putFloat("reverb", new.reverb)
+        ui.putFloat("karaoke", new.karaoke); ui.putBoolean("loudness", new.loudness)
+        player.speed = new.speed
+        player.audioFilter = audioChain(new, eqGains)
+        if (restart) player.reapply()
+    }
+
+    var trimSilence by mutableStateOf(ui.getBoolean("trimSilence", true))
+        private set
+    fun useTrimSilence(on: Boolean) { trimSilence = on; ui.putBoolean("trimSilence", on); player.trimSilence = on }
+    var skipFade by mutableStateOf(ui.getBoolean("skipFade", true))
+        private set
+    fun useSkipFade(on: Boolean) { skipFade = on; ui.putBoolean("skipFade", on); player.skipFade = on }
 
     var language by mutableStateOf(Language.entries.firstOrNull { it.code == ui.get("lang", java.util.Locale.getDefault().language) } ?: Language.English)
         private set
@@ -210,7 +230,10 @@ class AppState {
         scope.launch { findUpdate()?.let { say(tr("Square-Yuma PC ") + it.version + tr(" is available — Settings → Updates")) } }
         dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
         Strings.current = language
-        player.audioFilter = Eq.filter(eqGains)
+        player.audioFilter = audioChain(fx, eqGains)
+        player.speed = fx.speed
+        player.trimSilence = trimSilence
+        player.skipFade = skipFade
         // Once a second: the month's listening and the sleep timer.
         scope.launch {
             var songId: String? = null

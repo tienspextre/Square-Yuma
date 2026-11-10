@@ -381,6 +381,31 @@ private fun ListEntry(cover: String?, title: String, subtitle: String, round: Bo
     }
 }
 
+/** A setting that is on or off, as the phone's switch rows. */
+@Composable
+private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
+        Text(tr(label), color = Ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        Segmented(listOf("Off", "On"), if (on) 1 else 0) { onChange(it == 1) }
+    }
+}
+
+/** A slider that is heard when let go: each change restarts the decoder, so dragging only moves the number. */
+@Composable
+private fun FxSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, show: (Float) -> String, onChange: (Float, Boolean) -> Unit) {
+    var v by remember(value) { mutableStateOf(value) }
+    Column(Modifier.padding(top = 8.dp)) {
+        Text(tr(label), color = InkDim, style = MaterialTheme.typography.bodyMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Slider(
+                v, { v = it }, Modifier.weight(1f), valueRange = range, onValueChangeFinished = { onChange(v, true) },
+                colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink, inactiveTrackColor = Ink.copy(alpha = 0.28f)),
+            )
+            Text(show(v), color = Ink, modifier = Modifier.width(70.dp).padding(start = 12.dp))
+        }
+    }
+}
+
 @Composable
 private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     Row(Modifier.clip(CircleShape).background(Ink.copy(alpha = 0.08f)).padding(3.dp)) {
@@ -801,6 +826,18 @@ fun SettingsScreen(state: AppState) {
                     Text(if (crossfade < 0.5f) "Off" else "${crossfade.roundToInt()} s", color = Ink, modifier = Modifier.width(60.dp).padding(start = 12.dp))
                 }
             }
+            item { Toggle("Trim silence", state.trimSilence) { state.useTrimSilence(it) } }
+            item { Toggle("Fade on skip", state.skipFade) { state.useSkipFade(it) } }
+            item { SectionLabel("Effects", Modifier.padding(top = 18.dp)) }
+            item {
+                val i = Fx.PRESETS.indexOfFirst { it.second.copy(loudness = state.fx.loudness, karaoke = state.fx.karaoke) == state.fx }
+                Segmented(Fx.PRESETS.map { it.first }, i) { k -> state.setFx(Fx.PRESETS[k].second.copy(loudness = state.fx.loudness, karaoke = state.fx.karaoke)) }
+            }
+            item { FxSlider("Speed", state.fx.speed, 0.5f..2f, { "%.2f×".format(it) }) { v, done -> state.setFx(state.fx.copy(speed = v), done) } }
+            item { FxSlider("Pitch", state.fx.pitch, 0.5f..2f, { "%.2f×".format(it) }) { v, done -> state.setFx(state.fx.copy(pitch = v), done) } }
+            item { FxSlider("Reverb", state.fx.reverb, 0f..1f, { "${(it * 100).roundToInt()}%" }) { v, done -> state.setFx(state.fx.copy(reverb = v), done) } }
+            item { FxSlider("Karaoke (remove vocals)", state.fx.karaoke, 0f..1f, { "${(it * 100).roundToInt()}%" }) { v, done -> state.setFx(state.fx.copy(karaoke = v), done) } }
+            item { Toggle("Match loudness", state.fx.loudness) { state.setFx(state.fx.copy(loudness = it)) } }
             item { SectionLabel("Equalizer", Modifier.padding(top = 18.dp)) }
             item {
                 val gains = state.eqGains

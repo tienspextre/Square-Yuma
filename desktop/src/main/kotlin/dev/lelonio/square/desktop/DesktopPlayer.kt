@@ -33,6 +33,12 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
     @Volatile var crossfadeSeconds = 6
     /** An ffmpeg -af chain (the equalizer); applied from the next decode, so [reapply] restarts the current one. */
     @Volatile var audioFilter: String? = null
+    /** Song time per second heard; the decoder's atempo does the work, this keeps the clock right. */
+    @Volatile var speed = 1f
+    /** Moves on once a song's last 20 s have gone quiet, as the phone's trim silence does. */
+    @Volatile var trimSilence = true
+    /** A short crossfade when the listener skips, instead of a cut. */
+    @Volatile var skipFade = true
     /** The sleep timer's "end of track": stop instead of moving on. */
     val stopAfterCurrent = MutableStateFlow(false)
 
@@ -102,16 +108,23 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         if (deck != null) seek(positionMs.value)
     }
 
-    fun play(i: Int, atMs: Long = 0L) = synchronized(lock) {
+    fun play(i: Int, atMs: Long = 0L, fade: Boolean = true) = synchronized(lock) {
         val song = queue.value.getOrNull(i) ?: return
         tail?.close(); tail = null
-        deck?.close()
+        val old = deck
+        if (fade && skipFade && isPlaying.value && old != null) {
+            old.fadeFrom = old.framesRead
+            tail = old
+            tailFadeFrames = (SKIP_FADE_MS * RATE / 1000 * old.speed).toLong()
+        } else {
+            old?.close()
+            line.flush()
+        }
         deck = Deck(song, i, atMs)
         index.value = i
         current.value = song
         positionMs.value = atMs
         error.value = null
-        line.flush()
         setPlaying(true)
     }
 
@@ -126,7 +139,7 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
 
     fun seek(ms: Long) {
         val i = index.value
-        if (i >= 0) play(i, ms.coerceIn(0L, durationMs())).also { if (!isPlaying.value) setPlaying(false) }
+        if (i >= 0) play(i, ms.coerceIn(0L, durationMs()), fade = false).also { if (!isPlaying.value) setPlaying(false) }
     }
 
     fun next() = nextIndex(auto = false)?.let { play(it) } ?: Unit
@@ -201,31 +214,47 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
                     out[i + 1] = (v shr 8).toByte()
                 }
                 if (t != null && (m <= 0 || fade!! >= 1.0)) { t.close(); tail = null }
+                if (trimSilence && tail == null && quietEnding(d, a, n)) {
+                    if (!maybeStartCrossfade(d, force = true)) onDeckEnded(d)
+                    return@synchronized
+                }
                 maybeStartCrossfade(d)
             }
             if (n > 0) {
                 line.write(out, 0, n - n % FRAME)
                 val buffered = (line.bufferSize - line.available()) / FRAME
-                val pos = ((d.framesRead - buffered) * 1000 / RATE).coerceAtLeast(0)
+                val pos = ((d.framesRead - buffered * d.speed) * 1000 / RATE).toLong().coerceAtLeast(0)
                 if (deck === d && kotlin.math.abs(pos - positionMs.value) >= 40) positionMs.value = pos
             }
         }
     }
 
-    private fun maybeStartCrossfade(d: Deck) {
+    /** True once the end of [d] has been near-silent (under -55 dBFS) for a second. */
+    private fun quietEnding(d: Deck, buf: ByteArray, n: Int): Boolean {
+        val durMs = d.song.duration * 1000
+        if (durMs < 40_000 || durMs - d.framesRead * 1000 / RATE > 20_000) { d.quiet = 0; return false }
+        var peak = 0f
+        for (i in 0 until n step 2) peak = maxOf(peak, kotlin.math.abs(sample(buf, i)))
+        d.quiet = if (peak < 58f) d.quiet + n / FRAME else 0
+        return d.quiet > RATE
+    }
+
+    /** Starts the next song under this one; [force] skips the "near the end" test (trimmed silence). */
+    private fun maybeStartCrossfade(d: Deck, force: Boolean = false): Boolean {
         val fadeMs = crossfadeSeconds * 1000L
         val durMs = d.song.duration * 1000
-        if (fadeMs <= 0 || tail != null || durMs < fadeMs * 3) return
-        if (d.framesRead * 1000 / RATE < durMs - fadeMs) return
-        if (stopAfterCurrent.value) return
-        val n = nextIndex(auto = true)?.takeIf { repeat.value != RepeatMode.ONE } ?: return
+        if (fadeMs <= 0 || tail != null || durMs < fadeMs * 3) return false
+        if (!force && d.framesRead * 1000 / RATE < durMs - fadeMs) return false
+        if (stopAfterCurrent.value) return false
+        val n = nextIndex(auto = true)?.takeIf { repeat.value != RepeatMode.ONE } ?: return false
         val song = queue.value[n]
         d.fadeFrom = d.framesRead
         tail = d
-        tailFadeFrames = fadeMs * RATE / 1000
+        tailFadeFrames = (fadeMs * RATE / 1000 * d.speed).toLong()
         deck = Deck(song, n, 0L)
         index.value = n
         current.value = song
+        return true
     }
 
     private fun onDeckEnded(d: Deck) {
@@ -257,8 +286,12 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         }.onFailure { error.value = "ffmpeg not found — install it (sudo apt install ffmpeg, or put ffmpeg.exe on PATH)" }.getOrNull()
         private val input: InputStream? = process?.inputStream?.buffered(1 shl 16)
         val startFrames = atMs * RATE / 1000
-        var framesRead = startFrames
+        val speed = this@DesktopPlayer.speed
+        private var source = startFrames.toDouble()
+        /** Where in the song the decoder is, in source frames (output frames × speed). */
+        val framesRead get() = source.toLong()
         var fadeFrom = 0L
+        var quiet = 0
 
         /** Fills [buf] as far as the stream allows; -1 once it has ended. */
         fun read(buf: ByteArray): Int {
@@ -272,7 +305,7 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
                 }
             } catch (_: java.io.IOException) {
             }
-            framesRead += n / FRAME
+            source += n / FRAME * speed.toDouble()
             return if (n == 0) -1 else n
         }
 
@@ -285,6 +318,7 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         private const val RATE = 44_100
         private const val FRAME = 4
         private const val CHUNK = 4096
+        private const val SKIP_FADE_MS = 600L
         private fun sample(buf: ByteArray, i: Int): Float = ((buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xFF)).toFloat()
 
         /** A bundled ffmpeg beside the app wins, then the one on PATH. */

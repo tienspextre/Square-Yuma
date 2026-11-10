@@ -76,6 +76,56 @@ object Eq {
     fun label(hz: Int) = if (hz >= 1000) "${hz / 1000}k" else "$hz"
 }
 
+/**
+ * The phone's speed / pitch / reverb / karaoke and loudness, as ffmpeg filters
+ * ahead of the equalizer. Speed and pitch move separately, as ExoPlayer's
+ * PlaybackParameters do: asetrate shifts both, atempo puts the tempo back.
+ */
+data class Fx(
+    val speed: Float = 1f, val pitch: Float = 1f, val reverb: Float = 0f, val karaoke: Float = 0f, val loudness: Boolean = false,
+) {
+    fun filters(): List<String> {
+        fun f(x: Float) = "%.4f".format(Locale.ROOT, x)
+        val out = mutableListOf<String>()
+        if (abs(speed - 1f) > 0.005f || abs(pitch - 1f) > 0.005f) {
+            out += "aresample=44100"
+            if (abs(pitch - 1f) > 0.005f) out += "asetrate=${f(44100 * pitch)},aresample=44100"
+            // atempo takes 0.5..100 per instance; chain halves below that.
+            var t = speed / pitch
+            while (t < 0.5f) { out += "atempo=0.5"; t /= 0.5f }
+            if (abs(t - 1f) > 0.0005f) out += "atempo=${f(t)}"
+        }
+        if (karaoke > 0.01f) {
+            // Takes the centre (where the voice sits) out above 150 Hz, so the kick and bass stay.
+            val k = karaoke / 2
+            out += "asplit[kl][kh];[kl]lowpass=f=150[klo];[kh]highpass=f=150,pan=stereo|c0=${f(1 - k)}*c0-${f(k)}*c1|c1=${f(1 - k)}*c1-${f(k)}*c0[khi];[klo][khi]amix=inputs=2:normalize=0"
+        }
+        return out
+    }
+
+    /** After the equalizer: the room, then the loudness match last so nothing after it moves the level. */
+    fun post(): List<String> {
+        fun f(x: Float) = "%.3f".format(Locale.ROOT, x)
+        val out = mutableListOf<String>()
+        // ponytail: a few early reflections, not a convolution room; an IR through afir if it ever sounds thin.
+        if (reverb > 0.01f) out += "aecho=1:${f(1 / (1 + reverb))}:29|53|79|113|167:${listOf(0.5f, 0.42f, 0.35f, 0.28f, 0.2f).joinToString("|") { f(it * reverb) }}"
+        if (loudness) out += "loudnorm=I=-14:TP=-1.5:LRA=11"
+        return out
+    }
+
+    companion object {
+        val PRESETS = listOf(
+            "Original" to Fx(),
+            "Slowed + Reverb" to Fx(0.85f, 0.92f, 0.55f),
+            "Sped Up" to Fx(1.25f, 1.25f, 0f),
+        )
+    }
+}
+
+/** The whole -af chain: effects, equalizer, room, loudness. */
+fun audioChain(fx: Fx, eq: FloatArray): String? =
+    (fx.filters() + listOfNotNull(Eq.filter(eq)) + fx.post()).takeIf { it.isNotEmpty() }?.joinToString(",")
+
 /** One song's listening in one month, as the phone's ListeningStore keeps it. */
 @Serializable
 data class Listen(

@@ -60,7 +60,7 @@ object Strings {
         "Save diagnostics report" to "Lưu báo cáo chẩn đoán", "Playback" to "Phát nhạc", "Speed" to "Tốc độ", "Pitch" to "Cao độ",
         "Reverb" to "Vang", "Karaoke (remove vocals)" to "Karaoke (tách giọng)", "Match loudness" to "Cân bằng độ to",
         "Trim silence" to "Cắt khoảng lặng", "Fade on skip" to "Giảm dần khi chuyển bài", "Effects" to "Hiệu ứng", "Reset" to "Đặt lại",
-        "On" to "Bật", "Installer opened: " to "Đã mở trình cài đặt: ", "Update failed: " to "Cập nhật lỗi: ",
+        "On" to "Bật", "Original" to "Gốc", "Slowed + Reverb" to "Chậm + Vang", "Sped Up" to "Tăng tốc", "Installer opened: " to "Đã mở trình cài đặt: ", "Update failed: " to "Cập nhật lỗi: ",
         " is available — Settings → Updates" to " đã có — Cài đặt → Cập nhật", "new" to "mới", "Version" to "Phiên bản", "Install" to "Cài",
         "You have the newest version" to "Bạn đang dùng bản mới nhất", "Downloading" to "Đang tải",
         "Report saved to " to "Đã lưu báo cáo vào ", " and copied" to " và sao chép", "Library rescan started" to "Đã bắt đầu quét thư viện",
