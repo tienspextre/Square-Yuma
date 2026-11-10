@@ -24,6 +24,11 @@ import dev.lelonio.square.backend.subsonic.SubsonicPreferences
 import dev.lelonio.square.ui.glass.GlassEffectConfig
 import dev.lelonio.square.ui.glass.GlassStyle
 import java.awt.Dimension
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.prefs.Preferences
 
 sealed interface Screen {
@@ -35,6 +40,9 @@ sealed interface Screen {
     data class Album(val id: String, val name: String) : Screen
     data class Artist(val id: String, val name: String) : Screen
     data class Playlist(val id: String, val name: String) : Screen
+    /** A mood or genre mix, keyed as SubsonicMixes keys it ("mood:Chill", "genre:Pop"). */
+    data class Mix(val key: String, val name: String) : Screen
+    data object Month : Screen
 }
 
 enum class ThemeMode { DARK, LIGHT }
@@ -85,6 +93,60 @@ class AppState {
     /** Bumped after a server change so every screen reloads. */
     var generation by mutableStateOf(0)
 
+    /** A line at the foot of the window for a moment: "Removed from playlist", a failure. */
+    var toast by mutableStateOf<String?>(null)
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    fun say(text: String) {
+        toast = text
+        scope.launch { delay(3500); if (toast == text) toast = null }
+    }
+
+    val listening = ListeningStore()
+
+    /** When the sleep timer pauses playback (epoch ms); "end of track" lives on the player. */
+    var sleepEndsAt by mutableStateOf<Long?>(null)
+        private set
+    fun sleepIn(minutes: Int?) {
+        sleepEndsAt = minutes?.let { System.currentTimeMillis() + it * 60_000L }
+        player.stopAfterCurrent.value = false
+    }
+    fun sleepAtEndOfTrack() { sleepEndsAt = null; player.stopAfterCurrent.value = true }
+
+    var eqGains by mutableStateOf(ui.get("eq", "").split(',').mapNotNull { it.toFloatOrNull() }.takeIf { it.size == Eq.BANDS.size }?.toFloatArray() ?: FloatArray(Eq.BANDS.size))
+        private set
+    fun setEq(gains: FloatArray, restart: Boolean = true) {
+        eqGains = gains
+        ui.put("eq", gains.joinToString(","))
+        player.audioFilter = Eq.filter(gains)
+        if (restart) player.reapply()
+    }
+
+    /** Moves the lyrics against the music: positive shows each line later. */
+    var lyricsOffsetMs by mutableStateOf(ui.getLong("lyricsOffset", 0L))
+        private set
+    fun setLyricsOffset(ms: Long) { lyricsOffsetMs = ms; ui.putLong("lyricsOffset", ms) }
+
+    init {
+        player.audioFilter = Eq.filter(eqGains)
+        // Once a second: the month's listening and the sleep timer.
+        scope.launch {
+            var songId: String? = null
+            var heard = 0L
+            var ticks = 0
+            while (true) {
+                delay(1000)
+                val song = player.current.value
+                if (song?.id != songId) { songId = song?.id; heard = 0 }
+                if (song != null && player.isPlaying.value) {
+                    heard += 1000
+                    listening.add(song, java.time.YearMonth.now().toString(), 1000, play = heard == ListeningStore.PLAY_MS)
+                    if (++ticks % 30 == 0) listening.save()
+                }
+                sleepEndsAt?.let { if (System.currentTimeMillis() >= it) { sleepEndsAt = null; player.pause() } }
+            }
+        }
+    }
+
     fun open(screen: Screen) { navMove = NavMove.Push; stack.add(screen); nowPlaying = false }
     fun root(screen: Screen) { navMove = NavMove.Root; stack.clear(); stack.add(screen); nowPlaying = false }
     fun back() { if (nowPlaying) nowPlaying = false else if (stack.size > 1) { navMove = NavMove.Pop; stack.removeLast() } }
@@ -127,7 +189,7 @@ fun main() {
 private fun app() = application {
     val state = androidx.compose.runtime.remember { AppState() }
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = { state.listening.save(); exitApplication() },
         title = "Square-Yuma",
         icon = painterResource("square.png"),
         state = rememberWindowState(size = DpSize(1280.dp, 840.dp)),

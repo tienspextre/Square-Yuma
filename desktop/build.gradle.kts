@@ -8,7 +8,7 @@ plugins {
 }
 
 /** Desktop releases are numbered on their own (tags yuma-pc-vX.Y.Z); the Android versionName is not touched. */
-val desktopVersion = "1.1.1"
+val desktopVersion = "1.2.0"
 
 /**
  * The Android files the desktop app compiles as they are: the Subsonic client,
@@ -21,6 +21,7 @@ val sharedSources by tasks.registering(Sync::class) {
         include(
             "dev/lelonio/square/backend/subsonic/SubsonicClient.kt",
             "dev/lelonio/square/backend/subsonic/SubsonicModels.kt",
+            "dev/lelonio/square/backend/subsonic/SubsonicMixes.kt",
             "dev/lelonio/square/data/LyricsModels.kt",
             "dev/lelonio/square/backend/lyrics/LrcLib.kt",
             "dev/lelonio/square/backend/lyrics/TrackTitle.kt",

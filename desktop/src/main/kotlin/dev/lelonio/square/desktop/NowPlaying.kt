@@ -61,6 +61,19 @@ import com.adamglin.phosphoricons.fill.SkipBack
 import com.adamglin.phosphoricons.fill.SkipForward
 import com.adamglin.phosphoricons.regular.CaretDown
 import com.adamglin.phosphoricons.regular.Queue
+import com.adamglin.phosphoricons.regular.ArrowDown
+import com.adamglin.phosphoricons.regular.ArrowUp
+import com.adamglin.phosphoricons.regular.Broom
+import com.adamglin.phosphoricons.regular.Moon
+import com.adamglin.phosphoricons.regular.Timer
+import com.adamglin.phosphoricons.regular.X
+import dev.lelonio.square.ui.components.GlassMenu
+import dev.lelonio.square.ui.components.GlassMenuItem
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.adamglin.phosphoricons.regular.Quotes
 import com.adamglin.phosphoricons.regular.Repeat
 import com.adamglin.phosphoricons.regular.RepeatOnce
@@ -134,6 +147,7 @@ fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> U
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Glyph(PhosphorIcons.Regular.CaretDown, "Close (Esc)", size = 24.dp) { state.nowPlaying = false }
                         Spacer(Modifier.weight(1f))
+                        SleepTimer(state)
                         Glyph(PhosphorIcons.Regular.Quotes, "Lyrics", active = !state.showQueue) { state.showQueue = false }
                         Glyph(PhosphorIcons.Regular.Queue, "Queue", active = state.showQueue) { state.showQueue = true }
                     }
@@ -190,8 +204,9 @@ fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> U
                                     when {
                                         state.showQueue -> GlassSurface(playerBackdrop, RoundedCornerShape(26.dp), Modifier.fillMaxSize()) { Queue(state) }
                                         lyrics != null -> {
-                                            val position = p.positionMs.collectAsState()
-                                            LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), sharpWhileBrowsingMs = 2500, onSeek = p::seek)
+                                            val raw = p.positionMs.collectAsState()
+                                            val position = remember(raw) { derivedStateOf { raw.value - state.lyricsOffsetMs } }
+                                            LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), sharpWhileBrowsingMs = 2500, onSeek = { p.seek(it + state.lyricsOffsetMs) })
                                         }
                                         else -> Text("No lyrics for this song", color = InkDim, modifier = Modifier.align(Alignment.Center))
                                     }
@@ -217,13 +232,57 @@ private fun Queue(state: AppState) {
     val list = rememberLazyListState()
     LaunchedEffect(Unit) { list.scrollToItem(index.coerceAtLeast(0)) }
     Column(Modifier.padding(16.dp)) {
-        SectionLabel("Up next", Modifier.padding(start = 12.dp, bottom = 10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, bottom = 10.dp)) {
+            SectionLabel("Up next", Modifier.weight(1f))
+            if (queue.size > 1) Glyph(PhosphorIcons.Regular.Broom, "Clear the queue") { state.player.clearQueue() }
+        }
         LazyColumn(state = list) {
             itemsIndexed(queue, key = { i, s -> "$i${s.id}" }) { i, s ->
-                Box(Modifier.background(if (i == index) Ink.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(8.dp))) {
-                    TrackRow(state, s, null, true) { state.player.play(i) }
+                val hover = remember { MutableInteractionSource() }
+                val hovered by hover.collectIsHoveredAsState()
+                Row(
+                    Modifier.hoverable(hover).background(if (i == index) Ink.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(8.dp)),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f)) { TrackRow(state, s, null, true) { state.player.play(i) } }
+                    // Up, down and out, shown on hover beside every song but the one playing.
+                    if (hovered && i != index) {
+                        if (i > 0) Glyph(PhosphorIcons.Regular.ArrowUp, "Move up") { state.player.move(i, i - 1) }
+                        if (i < queue.size - 1) Glyph(PhosphorIcons.Regular.ArrowDown, "Move down") { state.player.move(i, i + 1) }
+                        Glyph(PhosphorIcons.Regular.X, "Remove from queue") { state.player.removeAt(i) }
+                    }
                 }
             }
+        }
+    }
+}
+
+/** The phone's sleep timer: pause after a while, or at the end of the song. */
+@Composable
+private fun SleepTimer(state: AppState) {
+    var open by remember { mutableStateOf(false) }
+    val endOfTrack by state.player.stopAfterCurrent.collectAsState()
+    val endsAt = state.sleepEndsAt
+    val left by produceState("", endsAt, endOfTrack) {
+        while (true) {
+            value = when {
+                endOfTrack -> "End of song"
+                endsAt != null -> ((endsAt - System.currentTimeMillis()).coerceAtLeast(0) / 60_000 + 1).let { "$it min" }
+                else -> ""
+            }
+            if (endsAt == null) break
+            kotlinx.coroutines.delay(10_000)
+        }
+    }
+    Box {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (left.isNotEmpty()) Text(left, color = InkDim, style = MaterialTheme.typography.bodyMedium)
+            Glyph(PhosphorIcons.Regular.Moon, "Sleep timer", active = left.isNotEmpty()) { open = true }
+        }
+        GlassMenu(open, androidx.compose.ui.unit.IntOffset(0, 40), onDismiss = { open = false }) {
+            listOf(15, 30, 45, 60, 90).forEach { m -> GlassMenuItem("$m minutes", PhosphorIcons.Regular.Timer) { state.sleepIn(m); open = false } }
+            GlassMenuItem("End of song", PhosphorIcons.Regular.Moon) { state.sleepAtEndOfTrack(); open = false }
+            if (left.isNotEmpty()) GlassMenuItem("Turn off", PhosphorIcons.Regular.X) { state.sleepIn(null); open = false }
         }
     }
 }

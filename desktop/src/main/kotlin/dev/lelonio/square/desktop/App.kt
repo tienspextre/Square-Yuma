@@ -80,6 +80,7 @@ import com.adamglin.phosphoricons.fill.Pause
 import com.adamglin.phosphoricons.fill.Play
 import com.adamglin.phosphoricons.fill.SkipBack
 import com.adamglin.phosphoricons.fill.SkipForward
+import com.adamglin.phosphoricons.regular.ChartBar
 import com.adamglin.phosphoricons.regular.Queue
 import com.adamglin.phosphoricons.regular.Quotes
 import com.adamglin.phosphoricons.regular.Repeat
@@ -154,6 +155,16 @@ fun App(state: AppState) {
                     }
                 }
                 SharedCover(state)
+                androidx.compose.animation.AnimatedVisibility(
+                    state.toast != null,
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = BarHeight + 30.dp, start = SidebarWidth),
+                    enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut(),
+                ) {
+                    Text(
+                        state.toast.orEmpty(), color = Ink, style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.liquidGlass(chrome, RoundedCornerShape(50), highlightAlpha = 0.3f).padding(horizontal = 20.dp, vertical = 10.dp),
+                    )
+                }
             }
         }
     }
@@ -185,6 +196,7 @@ private fun Sidebar(state: AppState, config: GlassEffectConfig, modifier: Modifi
         NavItem(Screen.Home, PhosphorIcons.Fill.House, "Home"),
         NavItem(Screen.Library, PhosphorIcons.Regular.VinylRecord, "Library"),
         NavItem(Screen.Playlists, PhosphorIcons.Fill.MusicNotes, "Playlists"),
+        NavItem(Screen.Month, PhosphorIcons.Regular.ChartBar, "Your month"),
         NavItem(Screen.Settings, PhosphorIcons.Fill.Gear, "Settings"),
     )
     val selected = items.indexOfFirst { it.screen == state.stack.first() }
@@ -260,6 +272,8 @@ private fun Content(state: AppState, modifier: Modifier) {
             is Screen.Album -> AlbumScreen(state, screen)
             is Screen.Artist -> ArtistScreen(state, screen)
             is Screen.Playlist -> PlaylistScreen(state, screen)
+            is Screen.Mix -> MixScreen(state, screen)
+            Screen.Month -> MonthScreen(state)
         }
     }
 }

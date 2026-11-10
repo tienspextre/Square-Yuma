@@ -158,6 +158,9 @@ data class SubsonicChildSong(
     val bitRate: Int? = null,
     val path: String? = null,
     val discNumber: Int? = null,
+    /** Sent by every Subsonic server alongside the names; the desktop's "Go to album/artist" uses them. */
+    val albumId: String? = null,
+    val artistId: String? = null,
 )
 
 @Serializable

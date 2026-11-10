@@ -31,6 +31,10 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
     val repeat = MutableStateFlow(RepeatMode.OFF)
     val error = MutableStateFlow<String?>(null)
     @Volatile var crossfadeSeconds = 6
+    /** An ffmpeg -af chain (the equalizer); applied from the next decode, so [reapply] restarts the current one. */
+    @Volatile var audioFilter: String? = null
+    /** The sleep timer's "end of track": stop instead of moving on. */
+    val stopAfterCurrent = MutableStateFlow(false)
 
     private var unshuffled: List<SubsonicChildSong> = emptyList()
 
@@ -66,6 +70,38 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         unshuffled = unshuffled + song
     }
 
+    fun removeAt(i: Int) = synchronized(lock) {
+        if (i == index.value || i !in queue.value.indices) return
+        val gone = queue.value[i]
+        queue.value = queue.value.toMutableList().apply { removeAt(i) }
+        unshuffled = unshuffled.toMutableList().apply { remove(gone) }
+        if (i < index.value) { index.value -= 1; deck?.let { it.queueIndex -= 1 } }
+    }
+
+    /** Everything but the song playing. */
+    fun clearQueue() = synchronized(lock) {
+        val now = current.value ?: return
+        queue.value = listOf(now)
+        unshuffled = listOf(now)
+        index.value = 0
+        deck?.queueIndex = 0
+    }
+
+    fun move(from: Int, to: Int) = synchronized(lock) {
+        val q = queue.value
+        if (from !in q.indices || to !in q.indices || from == to) return
+        val now = current.value
+        queue.value = q.toMutableList().apply { add(to, removeAt(from)) }
+        val i = queue.value.indexOfFirst { it === now }
+        index.value = i
+        deck?.queueIndex = i
+    }
+
+    /** Restarts the playing song where it is, so a new [audioFilter] is heard at once. */
+    fun reapply() {
+        if (deck != null) seek(positionMs.value)
+    }
+
     fun play(i: Int, atMs: Long = 0L) = synchronized(lock) {
         val song = queue.value.getOrNull(i) ?: return
         tail?.close(); tail = null
@@ -85,6 +121,8 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
             queue.value.isNotEmpty() -> play(index.value.coerceAtLeast(0), positionMs.value)
         }
     }
+
+    fun pause() = synchronized(lock) { if (isPlaying.value) setPlaying(false) }
 
     fun seek(ms: Long) {
         val i = index.value
@@ -179,6 +217,7 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         val durMs = d.song.duration * 1000
         if (fadeMs <= 0 || tail != null || durMs < fadeMs * 3) return
         if (d.framesRead * 1000 / RATE < durMs - fadeMs) return
+        if (stopAfterCurrent.value) return
         val n = nextIndex(auto = true)?.takeIf { repeat.value != RepeatMode.ONE } ?: return
         val song = queue.value[n]
         d.fadeFrom = d.framesRead
@@ -192,7 +231,8 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
     private fun onDeckEnded(d: Deck) {
         d.close()
         if (d.framesRead == d.startFrames) error.value = "Couldn't play “${d.song.title}”"
-        val n = if (error.value == null) nextIndex(auto = true) else null
+        val n = if (error.value == null && !stopAfterCurrent.value) nextIndex(auto = true) else null
+        if (stopAfterCurrent.value) stopAfterCurrent.value = false
         if (n == null) {
             deck = null
             setPlaying(false)
@@ -211,6 +251,7 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
                 ffmpegPath, "-nostdin", "-loglevel", "error",
                 "-ss", "%.3f".format(java.util.Locale.ROOT, atMs / 1000.0),
                 "-i", streamUrl(song),
+                *audioFilter?.let { arrayOf("-af", it) }.orEmpty(),
                 "-f", "s16le", "-ac", "2", "-ar", RATE.toString(), "-",
             ).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         }.onFailure { error.value = "ffmpeg not found — install it (sudo apt install ffmpeg, or put ffmpeg.exe on PATH)" }.getOrNull()

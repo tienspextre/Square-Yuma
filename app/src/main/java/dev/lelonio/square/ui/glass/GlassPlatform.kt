@@ -31,3 +31,6 @@ fun isLowRamDevice(): Boolean {
 /** Combines the API-level check with the low-RAM device check; use this to gate glass. */
 @Composable
 fun isGlassAllowed(): Boolean = isGlassSupported() && !isLowRamDevice()
+
+/** The phone records the backdrop at the scale asked for; its pixels are small enough to hide it. */
+internal fun platformBackdropScale(scale: Float, density: Float): Float = scale

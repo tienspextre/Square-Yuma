@@ -423,7 +423,7 @@ fun Modifier.liquidGlass(
     onDrawTint: (DrawScope.() -> Unit)? = null,
 ): Modifier {
     val density = LocalDensity.current
-    val resolutionScale = backdropScale.coerceIn(0.05f, 1f)
+    val resolutionScale = platformBackdropScale(backdropScale, density.density).coerceIn(0.05f, 1f)
     // A surface that names its own condition (the tab bar, mid-fold) still
     // obeys the app-wide one: either reason to hold the last capture is enough.
     val appFrozen = LocalGlassFrozen.current

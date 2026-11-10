@@ -91,6 +91,11 @@ import androidx.compose.ui.unit.dp
 import dev.lelonio.square.backend.subsonic.SubsonicAlbumEntry
 import dev.lelonio.square.backend.subsonic.SubsonicArtistItem
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
+import dev.lelonio.square.backend.subsonic.SubsonicMixes
+import com.adamglin.phosphoricons.regular.Disc
+import com.adamglin.phosphoricons.regular.MinusCircle
+import com.adamglin.phosphoricons.regular.Trash
+import com.adamglin.phosphoricons.regular.User
 import dev.lelonio.square.ui.theme.Ink
 import dev.lelonio.square.ui.theme.InkDim
 import dev.lelonio.square.ui.theme.softShadow
@@ -188,11 +193,48 @@ fun HomeScreen(state: AppState) {
     val recent = load(state) { state.client.getAlbumList("recent", 24) }
     val frequent = load(state) { state.client.getAlbumList("frequent", 24) }
     val random = load(state) { state.client.getAlbumList("random", 24) }
+    val starred = load(state) { state.client.getAlbumList("starred", 24) }
+    val quick = load(state) { state.client.getRandomSongs(24) }
+    val mixes = load(state) { state.client.getGenres().map { SubsonicMixes.build(it) } }
+    val playlists = load(state) { state.client.getPlaylists() }
     Loaded(newest) { _ ->
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(top = 28.dp, bottom = BarClearance)) {
                 item { Title("Home", Modifier.padding(horizontal = Gutter).padding(bottom = 18.dp)) }
-                listOf("Recently played" to recent, "Recently added" to newest, "Most played" to frequent, "Discover" to random)
+                quick?.getOrNull()?.takeIf { it.isNotEmpty() }?.let { songs ->
+                    item("quick") {
+                        Shelf("Quick play") {
+                            LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                                itemsIndexed(songs, key = { _, s -> "q" + s.id }) { i, s ->
+                                    Box(Modifier.width(160.dp)) {
+                                        Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(songs, i) }) { state.player.playQueue(songs, i) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                mixes?.getOrNull()?.takeIf { it.isNotEmpty() }?.let { list ->
+                    item("mixes") {
+                        Shelf("Moods & genres") {
+                            LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                items(list, key = { it.key }) { m -> MixTile(m) { state.open(Screen.Mix(m.key, m.title)) } }
+                            }
+                        }
+                    }
+                }
+                playlists?.getOrNull()?.takeIf { it.isNotEmpty() }?.let { list ->
+                    item("playlists") {
+                        Shelf("Playlists on NAS") {
+                            LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                                items(list, key = { "p" + it.id }) { p ->
+                                    Box(Modifier.width(184.dp)) { Card(p.name, "${p.songCount} songs", state.cover(p.coverArt)) { state.open(Screen.Playlist(p.id, p.name)) } }
+                                }
+                            }
+                        }
+                    }
+                }
+                listOf("Recently played" to recent, "Recently added" to newest, "Most played" to frequent, "Discover" to random, "Favorites" to starred)
                     .forEach { (title, r) ->
                         val albums = r?.getOrNull().orEmpty()
                         if (albums.isNotEmpty()) item(title) {
@@ -205,6 +247,35 @@ fun HomeScreen(state: AppState) {
                     }
             }
         }
+    }
+}
+
+/** A mood or genre: a tile in a colour of its own, as on the phone's Moods & Genres shelf. */
+@Composable
+private fun MixTile(m: SubsonicMixes.Mix, onClick: () -> Unit) {
+    val hue = ((m.title.hashCode() % 360) + 360) % 360
+    val colour = Color.hsv(hue.toFloat(), 0.55f, 0.62f)
+    Column(
+        Modifier.width(184.dp).height(96.dp).clip(RoundedCornerShape(14.dp))
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(colour, colour.copy(alpha = 0.55f))))
+            .clickable(onClick = onClick).pointerHoverIcon(PointerIcon.Hand).padding(14.dp),
+    ) {
+        Text(m.title, style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.weight(1f))
+        Text(if (m.kind == "MOOD") "Mood · ${m.songCount} songs" else "${m.songCount} songs", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
+    }
+}
+
+@Composable
+fun MixScreen(state: AppState, screen: Screen.Mix) {
+    val songs = load(state, screen) {
+        state.client.getGenres().mapCatching { genres ->
+            val mix = SubsonicMixes.find(SubsonicMixes.build(genres), screen.key) ?: error("No such mix")
+            mix.rawGenres.flatMap { state.client.getSongsByGenre(it, 500).getOrDefault(emptyList()) }.distinctBy { it.id }
+        }
+    }
+    Loaded(songs) { list ->
+        Tracks(state, list, screen.name, subtitle = "${list.size} songs", cover = list.firstOrNull()?.coverArt, showAlbum = true)
     }
 }
 
@@ -299,13 +370,13 @@ fun AlbumScreen(state: AppState, screen: Screen.Album) {
 fun PlaylistScreen(state: AppState, screen: Screen.Playlist) {
     val songs = load(state, screen) { state.client.getPlaylist(screen.id) }
     Loaded(songs) { list ->
-        Tracks(state, list, screen.name, subtitle = "${list.size} songs", cover = list.firstOrNull()?.coverArt, showAlbum = true)
+        Tracks(state, list, screen.name, subtitle = "${list.size} songs", cover = list.firstOrNull()?.coverArt, showAlbum = true, playlistId = screen.id)
     }
 }
 
 /** An album or playlist page: the cover and title beside Play/Shuffle, then the songs. */
 @Composable
-private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: String, subtitle: String, cover: String?, showAlbum: Boolean) {
+private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: String, subtitle: String, cover: String?, showAlbum: Boolean, playlistId: String? = null) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(Gutter, 20.dp, Gutter, BarClearance)) {
             item {
@@ -324,7 +395,7 @@ private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: Strin
                 }
             }
             itemsIndexed(songs, key = { i, s -> "$i${s.id}" }) { i, s ->
-                TrackRow(state, s, if (showAlbum) null else (s.track ?: (i + 1)), showAlbum) { state.player.playQueue(songs, i) }
+                TrackRow(state, s, if (showAlbum) null else (s.track ?: (i + 1)), showAlbum, playlistId) { state.player.playQueue(songs, i) }
             }
         }
     }
@@ -347,8 +418,16 @@ private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boolean, onClick: () -> Unit) {
+fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boolean, playlistId: String? = null, onClick: () -> Unit) {
     var menuAt by remember { mutableStateOf<IntOffset?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    fun remove(fromPlaylist: String?, deleteFile: Boolean, done: String) = scope.launch {
+        state.client.bridgeRemove(s.id, fromPlaylist, deleteFile).fold(
+            { state.say(done); state.generation++ },
+            { state.say("Couldn't: ${it.message}") },
+        )
+    }
     Box {
         TrackRowBody(state, s, number, showArt, onClick, Modifier.onPointerEvent(PointerEventType.Press) { e ->
             if (e.buttons.isSecondaryPressed) e.changes.first().position.let { menuAt = IntOffset(it.x.roundToInt(), it.y.roundToInt()) }
@@ -356,7 +435,18 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
         GlassMenu(menuAt != null, menuAt ?: IntOffset.Zero, onDismiss = { menuAt = null }) {
             GlassMenuItem("Play next", PhosphorIcons.Regular.Queue) { state.player.playNext(s); menuAt = null }
             GlassMenuItem("Add to queue", PhosphorIcons.Regular.ListPlus) { state.player.addToQueue(s); menuAt = null }
+            s.albumId?.let { id -> GlassMenuItem("Go to album", PhosphorIcons.Regular.Disc) { menuAt = null; state.open(Screen.Album(id, s.album.orEmpty())) } }
+            s.artistId?.let { id -> GlassMenuItem("Go to artist", PhosphorIcons.Regular.User) { menuAt = null; state.open(Screen.Artist(id, s.artist.orEmpty())) } }
+            playlistId?.let { pid -> GlassMenuItem("Remove from playlist", PhosphorIcons.Regular.MinusCircle) { menuAt = null; remove(pid, false, "Removed from playlist") } }
+            GlassMenuItem("Delete from NAS", PhosphorIcons.Regular.Trash) { menuAt = null; confirmDelete = true }
         }
+        if (confirmDelete) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete “${s.title}” from the NAS?") },
+            text = { Text("The file is deleted from the server and taken out of every playlist. This can't be undone.") },
+            confirmButton = { TextButton({ confirmDelete = false; remove(null, true, "Deleted “${s.title}”") }) { Text("Delete", color = Color(0xFFFF6B6B)) } },
+            dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -474,6 +564,11 @@ fun SettingsScreen(state: AppState) {
                     status?.let { Text(it, color = InkDim, style = MaterialTheme.typography.bodyMedium) }
                 }
             }
+            item {
+                TextButton(onClick = { scope.launch { status = if (state.client.startScan().getOrDefault(false)) "Library rescan started" else "Rescan failed" } }) {
+                    Text("Rescan server library")
+                }
+            }
             item { SectionLabel("Appearance", Modifier.padding(top = 18.dp)) }
             item { Segmented(listOf("Dark", "Light"), state.themeMode.ordinal) { state.setTheme(ThemeMode.entries[it]) } }
             item { SectionLabel("Glass", Modifier.padding(top = 18.dp)) }
@@ -489,6 +584,37 @@ fun SettingsScreen(state: AppState) {
                         colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink, inactiveTrackColor = Ink.copy(alpha = 0.28f)),
                     )
                     Text(if (crossfade < 0.5f) "Off" else "${crossfade.roundToInt()} s", color = Ink, modifier = Modifier.width(60.dp).padding(start = 12.dp))
+                }
+            }
+            item { SectionLabel("Equalizer", Modifier.padding(top = 18.dp)) }
+            item {
+                val gains = state.eqGains
+                val preset = Eq.PRESETS.indexOfFirst { it.second.contentEquals(gains) }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Eq.PRESETS.chunked(4).forEach { row ->
+                        Segmented(row.map { it.first }, row.indexOfFirst { Eq.PRESETS.indexOf(it) == preset }) { i -> state.setEq(row[i].second.copyOf()) }
+                    }
+                    Eq.BANDS.forEachIndexed { b, hz ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(Eq.label(hz), color = InkDim, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(44.dp))
+                            Slider(
+                                gains[b], { v -> state.setEq(gains.copyOf().also { it[b] = (v * 2).roundToInt() / 2f }, restart = false) }, Modifier.weight(1f),
+                                valueRange = -12f..12f, onValueChangeFinished = { state.player.reapply() },
+                                colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink, inactiveTrackColor = Ink.copy(alpha = 0.28f)),
+                            )
+                            Text("%+.1f dB".format(gains[b]), color = Ink, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(72.dp).padding(start = 10.dp))
+                        }
+                    }
+                }
+            }
+            item { SectionLabel("Lyrics timing", Modifier.padding(top = 18.dp)) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(
+                        state.lyricsOffsetMs / 1000f, { state.setLyricsOffset(((it * 4).roundToInt() * 250).toLong()) }, Modifier.weight(1f), valueRange = -3f..3f,
+                        colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink, inactiveTrackColor = Ink.copy(alpha = 0.28f)),
+                    )
+                    Text("%+.2f s".format(state.lyricsOffsetMs / 1000f), color = Ink, modifier = Modifier.width(80.dp).padding(start = 12.dp))
                 }
             }
             item {
