@@ -756,6 +756,10 @@ fun SettingsScreen(state: AppState) {
             }
             item { SectionLabel("Appearance", Modifier.padding(top = 18.dp)) }
             item { Segmented(listOf("Dark", "Light"), state.themeMode.ordinal) { state.setTheme(ThemeMode.entries[it]) } }
+            item { SectionLabel("Font", Modifier.padding(top = 18.dp)) }
+            item { Segmented(listOf("Inter", "System"), if (state.systemFont) 1 else 0) { state.useSystemFont(it == 1) } }
+            item { SectionLabel("Language", Modifier.padding(top = 18.dp)) }
+            item { Segmented(Language.entries.map { it.label }, state.language.ordinal) { state.chooseLanguage(Language.entries[it]) } }
             item { SectionLabel("Glass", Modifier.padding(top = 18.dp)) }
             item { Segmented(GlassProfile.entries.map { it.name }, state.glassProfile.ordinal) { state.setGlass(GlassProfile.entries[it]) } }
             item { SectionLabel("Renderer (applies after a restart)", Modifier.padding(top = 18.dp)) }
@@ -792,6 +796,8 @@ fun SettingsScreen(state: AppState) {
                     }
                 }
             }
+            item { SectionLabel("Lyrics style", Modifier.padding(top = 18.dp)) }
+            item { Segmented(listOf("Animated", "Classic"), if (state.classicLyrics) 1 else 0) { state.useClassicLyrics(it == 1) } }
             item { SectionLabel("Lyrics timing", Modifier.padding(top = 18.dp)) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {

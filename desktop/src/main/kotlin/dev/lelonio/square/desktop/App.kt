@@ -122,6 +122,20 @@ fun App(state: AppState) {
     val song by state.player.current.collectAsState()
     val seed by rememberArtworkColor(state.cover(song?.coverArt, 300))
     SquareTheme(seed = seed, darkTheme = state.themeMode == ThemeMode.DARK) {
+      // The shared theme names Inter only for the styles the phone's screens use; the rest
+      // (the lyrics' headlineMedium among them) would fall back to Skia's default face here.
+      val base = MaterialTheme.typography
+      val family = if (state.systemFont) androidx.compose.ui.text.font.FontFamily.Default else dev.lelonio.square.ui.theme.Inter
+      fun androidx.compose.ui.text.TextStyle.inter() = if (fontFamily == null) copy(fontFamily = family) else this
+      MaterialTheme(typography = remember(base, family) {
+          base.copy(
+              displayLarge = base.displayLarge.inter(), displayMedium = base.displayMedium.inter(), displaySmall = base.displaySmall.inter(),
+              headlineLarge = base.headlineLarge.inter(), headlineMedium = base.headlineMedium.inter(), headlineSmall = base.headlineSmall.inter(),
+              titleLarge = base.titleLarge.inter(), titleMedium = base.titleMedium.inter(), titleSmall = base.titleSmall.inter(),
+              bodyLarge = base.bodyLarge.inter(), bodyMedium = base.bodyMedium.inter(), bodySmall = base.bodySmall.inter(),
+              labelLarge = base.labelLarge.inter(), labelMedium = base.labelMedium.inter(), labelSmall = base.labelSmall.inter(),
+          )
+      }) {
         val config = state.glassProfile.config()
         val pageBackdrop = rememberLayerBackdrop()
         val scope = rememberCoroutineScope()
@@ -169,6 +183,7 @@ fun App(state: AppState) {
                 }
             }
         }
+      }
     }
 }
 

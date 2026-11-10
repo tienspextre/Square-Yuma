@@ -25,6 +25,14 @@ val sharedSources by tasks.registering(Sync::class) {
             "dev/lelonio/square/data/LyricsModels.kt",
             "dev/lelonio/square/backend/lyrics/LrcLib.kt",
             "dev/lelonio/square/backend/lyrics/TrackTitle.kt",
+            "dev/lelonio/square/backend/lyrics/Ttml.kt",
+            "dev/lelonio/square/backend/lyrics/Lossless.kt",
+            "dev/lelonio/square/backend/lyrics/BetterLyrics.kt",
+            "dev/lelonio/square/backend/lyrics/NetEase.kt",
+            "dev/lelonio/square/backend/lyrics/KuGou.kt",
+            "dev/lelonio/square/backend/lyrics/LyricsOvh.kt",
+            "dev/lelonio/square/backend/lyrics/Translate.kt",
+            "dev/lelonio/square/ui/player/ClassicLyricsView.kt",
             "dev/lelonio/square/ui/theme/Theme.kt",
             "dev/lelonio/square/ui/theme/PageTones.kt",
             "dev/lelonio/square/ui/player/LyricsView.kt",
@@ -71,6 +79,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation("com.squareup.okhttp3:okhttp:5.3.2") // what the Android app resolves to; the shared LrcLib needs its non-null body
     implementation("org.json:json:20240303")
+    implementation("net.sf.kxml:kxml2:2.3.0") // XmlPullParser for the shared TTML reader
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:${libs.versions.coroutines.get()}")
 }
 

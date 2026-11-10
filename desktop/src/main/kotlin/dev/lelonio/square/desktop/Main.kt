@@ -161,12 +161,39 @@ class AppState {
         if (restart) player.reapply()
     }
 
+    var language by mutableStateOf(Language.entries.firstOrNull { it.code == ui.get("lang", java.util.Locale.getDefault().language) } ?: Language.English)
+        private set
+    fun chooseLanguage(l: Language) { language = l; ui.put("lang", l.code); Strings.current = l }
+
+    /** The phone's font choice: Inter, the app's own, or the system's. */
+    var systemFont by mutableStateOf(ui.getBoolean("systemFont", false))
+        private set
+    fun useSystemFont(on: Boolean) { systemFont = on; ui.putBoolean("systemFont", on); dev.lelonio.square.ui.theme.DesktopSystemFont.value = on }
+
+    private val picks = Preferences.userRoot().node("square-yuma/lyrics-pick")
+    /** The source the listener chose for one song in the picker, kept for next time. */
+    fun lyricsPick(songId: String): LyricSource? = picks.get(songId, null)?.let { runCatching { LyricSource.valueOf(it) }.getOrNull() }
+    fun setLyricsPick(songId: String, source: LyricSource?) { if (source == null) picks.remove(songId) else picks.put(songId, source.name) }
+
+    /** Animated (Accompanist's karaoke) or Classic, the phone's two lyric styles. */
+    var classicLyrics by mutableStateOf(ui.getBoolean("classicLyrics", false))
+        private set
+    fun useClassicLyrics(on: Boolean) { classicLyrics = on; ui.putBoolean("classicLyrics", on) }
+
+    var translateLyrics by mutableStateOf(ui.getBoolean("translateLyrics", false))
+        private set
+    fun useTranslation(on: Boolean) { translateLyrics = on; ui.putBoolean("translateLyrics", on) }
+    /** The language lyrics are translated into: the app's language, as on the phone. */
+    val translateTo: String get() = language.code
+
     /** Moves the lyrics against the music: positive shows each line later. */
     var lyricsOffsetMs by mutableStateOf(ui.getLong("lyricsOffset", 0L))
         private set
     fun setLyricsOffset(ms: Long) { lyricsOffsetMs = ms; ui.putLong("lyricsOffset", ms) }
 
     init {
+        dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
+        Strings.current = language
         player.audioFilter = Eq.filter(eqGains)
         // Once a second: the month's listening and the sleep timer.
         scope.launch {

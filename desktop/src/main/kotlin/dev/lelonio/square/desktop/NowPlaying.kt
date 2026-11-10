@@ -65,6 +65,10 @@ import com.adamglin.phosphoricons.regular.ArrowDown
 import com.adamglin.phosphoricons.regular.ArrowUp
 import com.adamglin.phosphoricons.regular.Broom
 import com.adamglin.phosphoricons.regular.Moon
+import com.adamglin.phosphoricons.regular.Translate
+import com.adamglin.phosphoricons.regular.Sparkle
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import com.adamglin.phosphoricons.regular.Timer
 import com.adamglin.phosphoricons.regular.X
 import dev.lelonio.square.ui.components.GlassMenu
@@ -111,17 +115,17 @@ fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> U
     val seed by rememberArtworkColor(state.cover(song?.coverArt, 300))
     val ground = pageColorFor(seed)
     val playerBackdrop = rememberLayerBackdrop()
-    val lyrics by produceState<Lyrics?>(null, song?.id) {
+    // Bumped by the source picker, so the same song is asked again.
+    var lyricsAsk by remember { mutableStateOf(0) }
+    val found by produceState<Pair<LyricSource, Lyrics>?>(null, song?.id, lyricsAsk) {
         value = null
         val s = song ?: return@produceState
-        // The server's own lyrics first, then LrcLib, as the phone does.
-        value = state.client.getLyrics(s.id).getOrNull().orEmpty()
-            .takeIf { it.isNotEmpty() }
-            ?.let { lines ->
-                val synced = lines.any { it.start > 0 }
-                Lyrics(lines.map { LyricLine(it.start.takeIf { synced }, it.value) }, synced = synced, source = "Navidrome")
-            }
-            ?: dev.lelonio.square.backend.lyrics.LrcLib.lyrics(s.title, s.artist.orEmpty(), s.duration * 1000)
+        value = bestLyrics(state, s)
+    }
+    val lyrics by produceState<Lyrics?>(null, found, state.translateLyrics, state.translateTo) {
+        val l = found?.second
+        value = l
+        if (l != null && state.translateLyrics) value = translated(l, state.translateTo)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -148,6 +152,9 @@ fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> U
                         Glyph(PhosphorIcons.Regular.CaretDown, "Close (Esc)", size = 24.dp) { state.nowPlaying = false }
                         Spacer(Modifier.weight(1f))
                         SleepTimer(state)
+                        Glyph(PhosphorIcons.Regular.Translate, if (state.translateLyrics) "Hide translation" else "Translate lyrics", active = state.translateLyrics) {
+                            state.useTranslation(!state.translateLyrics)
+                        }
                         Glyph(PhosphorIcons.Regular.Quotes, "Lyrics", active = !state.showQueue) { state.showQueue = false }
                         Glyph(PhosphorIcons.Regular.Queue, "Queue", active = state.showQueue) { state.showQueue = true }
                     }
@@ -203,12 +210,19 @@ fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> U
                                 Box(Modifier.weight(1.1f).fillMaxHeight().padding(vertical = 12.dp)) {
                                     when {
                                         state.showQueue -> GlassSurface(playerBackdrop, RoundedCornerShape(26.dp), Modifier.fillMaxSize()) { Queue(state) }
-                                        lyrics != null -> {
+                                        lyrics != null -> Column(Modifier.fillMaxSize()) {
+                                            LyricsSourceRow(state, song, found?.first) { lyricsAsk++ }
                                             val raw = p.positionMs.collectAsState()
                                             val position = remember(raw) { derivedStateOf { raw.value - state.lyricsOffsetMs } }
-                                            LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), sharpWhileBrowsingMs = 2500, onSeek = { p.seek(it + state.lyricsOffsetMs) })
+                                            val seek = { ms: Long -> p.seek(ms + state.lyricsOffsetMs) }
+                                            val show = state.translateLyrics
+                                            if (state.classicLyrics) dev.lelonio.square.ui.player.ClassicLyricsView(lyrics!!, position, Modifier.fillMaxSize(), showTranslation = show, onSeek = seek)
+                                            else LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), showTranslation = show, sharpWhileBrowsingMs = 2500, onSeek = seek)
                                         }
-                                        else -> Text("No lyrics for this song", color = InkDim, modifier = Modifier.align(Alignment.Center))
+                                        else -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(if (found == null && song != null) "No lyrics for this song" else "", color = InkDim)
+                                            LyricsSourceRow(state, song, null) { lyricsAsk++ }
+                                        }
                                     }
                                 }
                             }
@@ -283,6 +297,26 @@ private fun SleepTimer(state: AppState) {
             listOf(15, 30, 45, 60, 90).forEach { m -> GlassMenuItem("$m minutes", PhosphorIcons.Regular.Timer) { state.sleepIn(m); open = false } }
             GlassMenuItem("End of song", PhosphorIcons.Regular.Moon) { state.sleepAtEndOfTrack(); open = false }
             if (left.isNotEmpty()) GlassMenuItem("Turn off", PhosphorIcons.Regular.X) { state.sleepIn(null); open = false }
+        }
+    }
+}
+
+/** Where these words came from, and the phone's "More sources": try another, and keep that choice for this song. */
+@Composable
+private fun LyricsSourceRow(state: AppState, song: dev.lelonio.square.backend.subsonic.SubsonicChildSong?, from: LyricSource?, onPicked: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val s = song ?: return
+    Box(Modifier.padding(bottom = 6.dp)) {
+        Text(
+            (if (from != null) "Lyrics from ${from.label}" else "Try another source") + "  ·  Change",
+            color = InkDim, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { open = true }.padding(horizontal = 6.dp, vertical = 4.dp),
+        )
+        GlassMenu(open, androidx.compose.ui.unit.IntOffset(0, 28), onDismiss = { open = false }) {
+            GlassMenuItem("Automatic", PhosphorIcons.Regular.Sparkle) { state.setLyricsPick(s.id, null); open = false; onPicked() }
+            LyricSource.entries.forEach { src ->
+                GlassMenuItem(src.label + if (src == from) "  ✓" else "", PhosphorIcons.Regular.Quotes) { state.setLyricsPick(s.id, src); open = false; onPicked() }
+            }
         }
     }
 }
