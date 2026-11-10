@@ -8,7 +8,7 @@ plugins {
 }
 
 /** Desktop releases are numbered on their own (tags yuma-pc-vX.Y.Z); the Android versionName is not touched. */
-val desktopVersion = "1.1.0"
+val desktopVersion = "1.1.1"
 
 /**
  * The Android files the desktop app compiles as they are: the Subsonic client,
@@ -76,7 +76,9 @@ dependencies {
 compose.desktop.application {
     mainClass = "dev.lelonio.square.desktop.MainKt"
     nativeDistributions {
-        targetFormats(TargetFormat.Deb)
+        targetFormats(TargetFormat.Deb, TargetFormat.Msi)
+        // The Windows CI drops a static ffmpeg.exe into appResources/windows; Linux uses the system one.
+        appResourcesRootDir.set(project.layout.projectDirectory.dir("appResources"))
         packageName = "square-yuma"
         packageVersion = desktopVersion
         description = "Navidrome/Subsonic music player"
@@ -89,6 +91,15 @@ compose.desktop.application {
             menuGroup = "AudioVideo;Audio;Player"
             appCategory = "sound"
             debMaintainer = "tienspextre@users.noreply.github.com"
+        }
+        windows {
+            iconFile.set(project.file("../docs/square.ico"))
+            shortcut = true
+            menu = true
+            menuGroup = "Square-Yuma"
+            dirChooser = true
+            perUserInstall = true
+            upgradeUuid = "67fc8a84-7a38-4b2f-bb0f-8df4ac7267af" // fixed forever, so a new MSI upgrades the old one
         }
     }
     buildTypes.release.proguard { isEnabled = false }

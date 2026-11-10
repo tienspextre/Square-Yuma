@@ -213,7 +213,7 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
                 "-i", streamUrl(song),
                 "-f", "s16le", "-ac", "2", "-ar", RATE.toString(), "-",
             ).redirectError(ProcessBuilder.Redirect.DISCARD).start()
-        }.onFailure { error.value = "ffmpeg not found — install it (sudo apt install ffmpeg)" }.getOrNull()
+        }.onFailure { error.value = "ffmpeg not found — install it (sudo apt install ffmpeg, or put ffmpeg.exe on PATH)" }.getOrNull()
         private val input: InputStream? = process?.inputStream?.buffered(1 shl 16)
         val startFrames = atMs * RATE / 1000
         var framesRead = startFrames
@@ -249,7 +249,8 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         /** A bundled ffmpeg beside the app wins, then the one on PATH. */
         val ffmpegPath: String by lazy {
             System.getProperty("compose.application.resources.dir")
-                ?.let { java.io.File(it, "ffmpeg") }?.takeIf { it.canExecute() }?.path ?: "ffmpeg"
+                ?.let { dir -> listOf("ffmpeg", "ffmpeg.exe").map { java.io.File(dir, it) }.firstOrNull { it.canExecute() } }
+                ?.path ?: "ffmpeg"
         }
     }
 }
