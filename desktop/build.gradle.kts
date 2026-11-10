@@ -80,6 +80,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.3.2") // what the Android app resolves to; the shared LrcLib needs its non-null body
     implementation("org.json:json:20240303")
     implementation("net.sf.kxml:kxml2:2.3.0") // XmlPullParser for the shared TTML reader
+    implementation("com.github.hypfvieh:dbus-java-core:5.2.2") // MPRIS on Linux
+    implementation("com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.2.2")
+    implementation("org.slf4j:slf4j-nop:2.0.17")
+    implementation("com.github.kwhat:jnativehook:2.2.2") // media keys on Windows
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:${libs.versions.coroutines.get()}")
 }
 
@@ -95,7 +99,7 @@ compose.desktop.application {
         description = "Navidrome/Subsonic music player"
         vendor = "Square-Yuma"
         licenseFile.set(project.file("../LICENSE"))
-        modules("java.naming", "java.prefs", "java.sql", "jdk.unsupported", "java.net.http")
+        modules("java.naming", "java.prefs", "java.sql", "jdk.unsupported", "java.net.http", "java.logging")
         linux {
             iconFile.set(project.file("../docs/square.png"))
             shortcut = true

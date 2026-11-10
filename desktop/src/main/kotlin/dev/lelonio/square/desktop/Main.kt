@@ -206,6 +206,7 @@ class AppState {
     }
 
     init {
+        Thread({ startMediaKeys(this) }, "media-keys").apply { isDaemon = true }.start()
         scope.launch { findUpdate()?.let { say(tr("Square-Yuma PC ") + it.version + tr(" is available — Settings → Updates")) } }
         dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
         Strings.current = language
