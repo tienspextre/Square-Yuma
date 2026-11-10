@@ -8,7 +8,7 @@ plugins {
 }
 
 /** Desktop releases are numbered on their own (tags yuma-pc-vX.Y.Z); the Android versionName is not touched. */
-val desktopVersion = "1.2.0"
+val desktopVersion = "1.3.0"
 
 /**
  * The Android files the desktop app compiles as they are: the Subsonic client,
@@ -99,7 +99,7 @@ compose.desktop.application {
         description = "Navidrome/Subsonic music player"
         vendor = "Square-Yuma"
         licenseFile.set(project.file("../LICENSE"))
-        modules("java.naming", "java.prefs", "java.sql", "jdk.unsupported", "java.net.http", "java.logging")
+        modules("java.naming", "java.prefs", "java.sql", "jdk.unsupported", "java.net.http", "java.logging", "jdk.security.auth")
         linux {
             iconFile.set(project.file("../docs/square.png"))
             shortcut = true
