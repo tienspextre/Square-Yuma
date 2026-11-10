@@ -2812,21 +2812,6 @@ private fun ToggleIcon(
 }
 
 /**
- * The ink on every glass surface in the app.
- *
- * Fixed white was the reasoning here for a long time, and it held while the
- * only thing behind a control was album art under a *dark* wash. With the
- * system's light setting that wash goes the other way — the artwork is taken up
- * towards paper, and the film over it is white — so white ink on it is nothing
- * at all. It follows the app's own ink now, which is what decides that
- * direction; see SquareTheme.
- */
-internal val GlassInk: Color
-    @Composable get() = dev.lelonio.square.ui.theme.Ink
-internal val GlassInkDim: Color
-    @Composable get() = dev.lelonio.square.ui.theme.Ink.copy(alpha = 0.68f)
-
-/**
  * The film every glass surface is tinted with.
  *
  * One value, shared, because the surfaces looked like different materials when

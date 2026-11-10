@@ -8,10 +8,9 @@
  */
 package dev.lelonio.square.ui.glass.shapes.path
 
-import android.graphics.RectF
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asAndroidPath
 import dev.lelonio.square.ui.glass.shapes.core.Point
 import java.lang.Math.PI
 import kotlin.math.cos
@@ -55,15 +54,16 @@ sealed interface PathSegment {
             )
 
         override fun drawTo(path: Path) {
-            path.asAndroidPath().arcTo(
-                RectF(
+            path.arcTo(
+                Rect(
                     (center.x - radius).toFloat(),
                     (center.y - radius).toFloat(),
                     (center.x + radius).toFloat(),
                     (center.y + radius).toFloat()
                 ),
                 (startAngle * (180.0 / PI)).toFloat(),
-                (sweepAngle * (180.0 / PI)).toFloat()
+                (sweepAngle * (180.0 / PI)).toFloat(),
+                forceMoveTo = false
             )
         }
     }
@@ -80,11 +80,14 @@ sealed interface PathSegment {
             get() = from
 
         override fun drawTo(path: Path) {
-            path.asAndroidPath().addCircle(
-                center.x.toFloat(),
-                center.y.toFloat(),
-                radius.toFloat(),
-                android.graphics.Path.Direction.CW
+            path.addOval(
+                Rect(
+                    (center.x - radius).toFloat(),
+                    (center.y - radius).toFloat(),
+                    (center.x + radius).toFloat(),
+                    (center.y + radius).toFloat()
+                ),
+                Path.Direction.Clockwise
             )
         }
     }

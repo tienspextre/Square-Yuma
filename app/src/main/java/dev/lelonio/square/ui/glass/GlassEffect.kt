@@ -5,8 +5,6 @@
 
 package dev.lelonio.square.ui.glass
 
-import android.app.ActivityManager
-import android.os.Build
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -28,12 +26,13 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import dev.lelonio.square.ui.glass.backdrop.BackdropEffectScope
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import dev.lelonio.square.ui.glass.backdrop.Backdrop
 import dev.lelonio.square.ui.glass.backdrop.drawBackdrop
 import dev.lelonio.square.ui.glass.backdrop.isRenderEffectSupported
+import dev.lelonio.square.ui.glass.backdrop.isRuntimeShaderSupported
+import dev.lelonio.square.ui.theme.toHsv
 import dev.lelonio.square.ui.glass.backdrop.effects.blur
 import dev.lelonio.square.ui.glass.backdrop.effects.colorControls
 import dev.lelonio.square.ui.glass.backdrop.effects.lens
@@ -248,30 +247,6 @@ fun glassResolutionScale(blurRadiusDp: Float): Float {
     val t = (blurRadiusDp / FULL_QUALITY_BLUR_DP).coerceIn(0f, 1f)
     return 1f - t * (1f - MIN_GLASS_RESOLUTION_SCALE)
 }
-
-/**
- * The backdrop blur pipeline requires [android.graphics.RenderEffect] on a
- * [android.graphics.RenderNode], which is available from Android 12 (API 31).
- */
-fun isGlassSupported(sdkInt: Int = Build.VERSION.SDK_INT): Boolean = sdkInt >= Build.VERSION_CODES.S
-
-/**
- * Devices Android flags as low-RAM ([ActivityManager.isLowRamDevice]) can't push the
- * RenderEffect/RuntimeShader chain (blur + lens + vibrancy, several offscreen layers
- * per glass surface) without dropped frames, so glass is skipped there in favor of the
- * translucent film and rim [liquidGlass] draws where the blur is not available.
- */
-@Composable
-fun isLowRamDevice(): Boolean {
-    val context = LocalContext.current
-    return remember {
-        context.getSystemService(ActivityManager::class.java)?.isLowRamDevice ?: false
-    }
-}
-
-/** Combines the API-level check with the low-RAM device check; use this to gate glass. */
-@Composable
-fun isGlassAllowed(): Boolean = isGlassSupported() && !isLowRamDevice()
 
 /**
  * Maps the user-facing vibrancy preference (0..2, default 1) to a saturation multiplier.
@@ -610,7 +585,7 @@ fun Modifier.liquidGlass(
             }
             if (!plainBlur &&
                 applyEdgeEffects &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                isRuntimeShaderSupported() &&
                 (lensHeightPx > 0f || lensAmountPx > 0f) &&
                 // A pane too small to hold a lens is drawn without one: the
                 // shader's cost climbs as its reach approaches the surface,
@@ -733,11 +708,9 @@ private fun tinted(base: Color, config: GlassEffectConfig): Color {
     if (config.tintHue < 0f) return base
     val strength = config.tintStrength.coerceIn(0f, 1f)
     if (strength <= 0f) return base
-    val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(base.toArgb(), hsv)
+    val hsv = base.toHsv()
     val saturation = (hsv[1] + (TINT_SATURATION - hsv[1]) * strength).coerceIn(0f, 1f)
-    return Color(android.graphics.Color.HSVToColor(floatArrayOf(config.tintHue, saturation, hsv[2])))
-        .copy(alpha = base.alpha)
+    return Color.hsv(config.tintHue, saturation, hsv[2]).copy(alpha = base.alpha)
 }
 
 /** The rim, which goes the whole way: it is the part that reads as lit. */
@@ -745,9 +718,7 @@ private fun tintedRim(base: Color, config: GlassEffectConfig): Color {
     if (config.tintHue < 0f) return base
     val strength = config.tintStrength.coerceIn(0f, 1f)
     if (strength <= 0f) return base
-    val hue = Color(
-        android.graphics.Color.HSVToColor(floatArrayOf(config.tintHue, TINT_RIM_SATURATION, 1f)),
-    )
+    val hue = Color.hsv(config.tintHue, TINT_RIM_SATURATION, 1f)
     return lerp(base, hue, strength).copy(alpha = base.alpha)
 }
 

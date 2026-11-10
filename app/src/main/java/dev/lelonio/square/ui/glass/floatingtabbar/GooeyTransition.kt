@@ -32,8 +32,8 @@ private const val ThresholdMidpoint255 = 0.5f * 255f
 // published artifact — visible where the library is vendored whole, not where
 // it is a dependency. The two compose the same thing: a blur with a colour
 // matrix applied after it.
-private val ThresholdColorFilter = android.graphics.ColorMatrixColorFilter(
-    android.graphics.ColorMatrix(
+private val ThresholdColorFilter = androidx.compose.ui.graphics.ColorFilter.colorMatrix(
+    androidx.compose.ui.graphics.ColorMatrix(
         floatArrayOf(
             1f, 0f, 0f, 0f, 0f,
             0f, 1f, 0f, 0f, 0f,
@@ -66,22 +66,21 @@ private var gooeyUnsupported = false
  * moto g24 power (Mali, Android 14) the app closed whenever the tab indicator
  * was swiped (#24). The same as the tab bar's other blur, fixed in 2.2.8.
  */
-@androidx.annotation.RequiresApi(31)
 private fun gooeyRenderEffect(blurRadiusPx: Float): RenderEffect? {
     val key = blurRadiusPx.toInt()
     if (key <= 0 || gooeyUnsupported) return null
     gooeyEffectCache[key]?.let { return it }
     return try {
-        android.graphics.RenderEffect.createColorFilterEffect(
-            ThresholdColorFilter,
-            android.graphics.RenderEffect.createBlurEffect(
+        dev.lelonio.square.ui.glass.backdrop.internal.ColorFilterEffect(
+            androidx.compose.ui.graphics.BlurEffect(
                 key.toFloat(),
                 key.toFloat(),
-                android.graphics.Shader.TileMode.DECAL,
+                androidx.compose.ui.graphics.TileMode.Decal,
             ),
-        ).asComposeRenderEffect().also { gooeyEffectCache[key] = it }
+            ThresholdColorFilter,
+        ).also { gooeyEffectCache[key] = it }
     } catch (e: IllegalArgumentException) {
-        android.util.Log.w("SquareGlass", "gooey blur refused at $key px, turning it off: $e")
+        System.err.println("SquareGlass: gooey blur refused at $key px, turning it off: $e")
         gooeyUnsupported = true
         null
     }

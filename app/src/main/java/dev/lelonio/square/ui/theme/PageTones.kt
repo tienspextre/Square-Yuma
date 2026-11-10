@@ -31,7 +31,7 @@ val PageCeiling = Color(0xFFF1F1F5)
  * the colour of what is playing.
  */
 internal fun liftedTone(colour: Color, mix: Float): Color {
-    val (hue, saturation) = colour.hueAndSaturation()
+    val (hue, saturation) = colour.toHsv()
     return Color.hsv(
         hue,
         (saturation * (1f - mix * 0.55f)).coerceIn(0.08f, 0.46f),
@@ -39,17 +39,17 @@ internal fun liftedTone(colour: Color, mix: Float): Color {
     )
 }
 
-/** Hue in degrees and HSV saturation; what android.graphics.Color.colorToHSV gave, without Android. */
-private fun Color.hueAndSaturation(): Pair<Float, Float> {
+/** Hue in degrees, saturation and value, as android.graphics.Color.colorToHSV gives them, without Android. */
+fun Color.toHsv(): FloatArray {
     val max = maxOf(red, green, blue)
     val delta = max - minOf(red, green, blue)
-    if (delta == 0f) return 0f to 0f
+    if (delta == 0f) return floatArrayOf(0f, 0f, max)
     val hue = when (max) {
         red -> 60f * (((green - blue) / delta) % 6f)
         green -> 60f * ((blue - red) / delta + 2f)
         else -> 60f * ((red - green) / delta + 4f)
     }
-    return (if (hue < 0f) hue + 360f else hue) to delta / max
+    return floatArrayOf(if (hue < 0f) hue + 360f else hue, delta / max, max)
 }
 
 /**
