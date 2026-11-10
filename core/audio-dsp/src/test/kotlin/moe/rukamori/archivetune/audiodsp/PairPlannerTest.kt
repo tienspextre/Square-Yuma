@@ -64,9 +64,23 @@ class PairPlannerTest {
         val plan = PairPlanner.plan(out, inc, 200_000L, 6000L, bassSwap = true, loopMix = true)!!
         assertEquals(150_000L, plan.loopStartMs)
         assertEquals(158_000L, plan.loopEndMs)
-        assertEquals(158_000L, plan.triggerAtMs) // the overlap runs over the loop
+        assertEquals(150_000L, plan.triggerAtMs) // the mix starts as the loop bars play
+        assertEquals(16_000L, plan.durationMs) // the bars once as the song, then one repeat
         assertEquals(MixStyle.BLEND, plan.style)
         assertEquals(0.0, plan.vocalClash, 1e-9)
+    }
+
+    @Test
+    fun aFastSongsShortLoopCutsTheOverlapToOneRepeat() {
+        // 171 BPM, one clean 2-bar stretch (~2.8 s) near the end: an 8-bar fade would loop it 4 times.
+        val bar = 4 * 60.0 / 171.0
+        val from = bar * 130 // inside the last 60 s
+        val out = MixFeatures.parse(track(200.0, 171.0, "F minor", { it < from - 0.5 || it >= from + 2 * bar + 0.5 }))!!
+        val inc = MixFeatures.parse(track(240.0, 171.0, "F minor", { it >= 20.0 }))!!
+        val plan = PairPlanner.plan(out, inc, 200_000L, 6000L, true, loopMix = true)!!
+        val len = plan.loopEndMs!! - plan.loopStartMs!!
+        assertEquals(plan.loopStartMs, plan.triggerAtMs)
+        assertTrue("fade ${plan.durationMs} over a $len ms loop", plan.durationMs <= 2 * len + 1)
     }
 
     @Test

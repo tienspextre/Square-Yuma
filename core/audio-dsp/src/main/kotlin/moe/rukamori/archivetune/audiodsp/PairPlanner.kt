@@ -210,7 +210,9 @@ object PairPlanner {
     const val ENTRY_WINDOW_S = 40.0
     /** Loop mix: only when the singer would otherwise be on for more than this share of the overlap. */
     const val LOOP_WHEN_SUNG = 0.25
-    private val LOOP_BARS = intArrayOf(4, 2, 1)
+    private val LOOP_BARS = intArrayOf(4, 2) // one bar repeats too fast to be a bed
+    /** The loop bars as the song plays them, plus one repeat. */
+    const val LOOP_PASSES = 2.0
     const val LOOP_SEARCH_S = 60.0
     const val LOOP_LYRIC_GUARD_S = 0.3
     const val LOOP_MIN_LOUDNESS = 0.6
@@ -253,8 +255,11 @@ object PairPlanner {
         // Loop mix: the singer would still be on through the overlap, so the outgoing side loops
         // its last clean bars instead and the overlap runs over that.
         val loop = if (loopMix && match && outSung > LOOP_WHEN_SUNG) findLoop(out, end, beat) else null
-        val exit = loop?.second ?: choice.exit
-        val entry = if (loop != null) loopEntry(out, inc, loop, fade, speed, match) else choice.entry
+        // The mix starts as the song plays the loop bars, and lasts at most one more pass of
+        // them: a loop heard over and over is a stuck record, not a mix.
+        val mixFade = if (loop != null) minOf(choice.fade, LOOP_PASSES * (loop.second - loop.first)) else choice.fade
+        val exit = loop?.first ?: choice.exit
+        val entry = if (loop != null) loopEntry(out, inc, loop, mixFade, speed, match) else choice.entry
         val clash = if (loop == null && outSung > 0.25 && incSung > 0.25) kotlin.math.sqrt(outSung * incSung) else 0.0
 
         val style = when {
@@ -268,18 +273,18 @@ object PairPlanner {
             }
             else -> MixStyle.EQUAL_POWER
         }
-        val beatsInFade = if (beat > 0 && style != MixStyle.EQUAL_POWER) fade / beat else 0.0
+        val beatsInFade = if (beat > 0 && style != MixStyle.EQUAL_POWER) mixFade / beat else 0.0
         val swapAt = MixStyles.onBeat(
             if (style == MixStyle.BASS_HANDOFF) MixStyles.HANDOFF_SWAP_AT else MixStyles.SWEEP_SWAP_AT,
             beatsInFade,
         )
         return AutomixPlan(
             triggerOffsetMs = durationMs - (exit * 1000).roundToLong(),
-            durationMs = (choice.fade * 1000).roundToLong(),
+            durationMs = (mixFade * 1000).roundToLong(),
             incomingStartMs = (entry * 1000).roundToLong(),
             enableBassSwap = bassSwap && style != MixStyle.EQUAL_POWER,
             triggerAtMs = (exit * 1000).roundToLong(),
-            prepareAheadMs = maxOf((choice.fade * 1000).roundToLong() + 2000L, 8000L),
+            prepareAheadMs = maxOf((mixFade * 1000).roundToLong() + 2000L, 8000L),
             tier = if (match) TransitionTier.SMART_BEATMATCH else TransitionTier.PLAIN_CROSSFADE,
             incomingTempoRatio = speed.toFloat(),
             style = style,
