@@ -28,6 +28,20 @@ val sharedSources by tasks.registering(Sync::class) {
             "dev/lelonio/square/ui/theme/PageTones.kt",
             "dev/lelonio/square/ui/player/LyricsView.kt",
             "dev/lelonio/square/ui/player/LyricsTiming.kt",
+            "dev/lelonio/square/ui/glass/**",
+            "dev/lelonio/square/ui/player/GlassSurface.kt",
+            "dev/lelonio/square/ui/player/GlassProgressBar.kt",
+            "dev/lelonio/square/ui/components/GlassMenu.kt",
+        )
+        // Android's halves of the glass; src/main/kotlin has the Skiko ones.
+        exclude(
+            "dev/lelonio/square/ui/glass/GlassPlatform.kt",
+            "dev/lelonio/square/ui/glass/Coroutines.kt",
+            "dev/lelonio/square/ui/glass/WaveformSeekBar.kt", // reads a media3 Player
+            "dev/lelonio/square/ui/glass/backdrop/Platform.kt",
+            "dev/lelonio/square/ui/glass/backdrop/RuntimeShaderAndroid.kt",
+            "dev/lelonio/square/ui/glass/backdrop/internal/RenderEffect.kt",
+            "dev/lelonio/square/ui/glass/backdrop/internal/Paint.kt",
         )
     }
     into(layout.buildDirectory.dir("shared/kotlin"))
@@ -50,6 +64,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.compose.material3:material3:1.9.0")
     implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
+    implementation(libs.phosphor)
     implementation(libs.accompanist.lyrics.ui)
     implementation(libs.accompanist.lyrics.core)
     implementation(libs.kotlinx.serialization.json)

@@ -55,6 +55,17 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         play(start)
     }
 
+    fun playNext(song: SubsonicChildSong) = synchronized(lock) {
+        val at = (index.value + 1).coerceIn(0, queue.value.size)
+        queue.value = queue.value.toMutableList().apply { add(at, song) }
+        unshuffled = unshuffled + song
+    }
+
+    fun addToQueue(song: SubsonicChildSong) = synchronized(lock) {
+        queue.value = queue.value + song
+        unshuffled = unshuffled + song
+    }
+
     fun play(i: Int, atMs: Long = 0L) = synchronized(lock) {
         val song = queue.value.getOrNull(i) ?: return
         tail?.close(); tail = null

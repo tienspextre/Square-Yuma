@@ -55,7 +55,10 @@ suspend fun loadArtwork(url: String): ImageBitmap? {
 
 @Composable
 fun Artwork(url: String?, modifier: Modifier = Modifier) {
-    val image by produceState<ImageBitmap?>(null, url) { value = url?.let { loadArtwork(it) } }
+    // Seeded from the cache, so a cover already shown elsewhere (the one in flight
+    // between the bar and the player) never blinks through the placeholder.
+    val cached = url?.let { u -> synchronized(bitmaps) { bitmaps[key(u)] } }
+    val image by produceState(cached, url) { value = url?.let { loadArtwork(it) } }
     Box(modifier.background(Ink.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
         Crossfade(image, animationSpec = tween(250)) { img ->
             if (img != null) {

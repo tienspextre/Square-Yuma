@@ -39,15 +39,30 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Shuffle
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.fill.Play
+import com.adamglin.phosphoricons.regular.CaretLeft
+import com.adamglin.phosphoricons.regular.ListPlus
+import com.adamglin.phosphoricons.regular.Queue
+import com.adamglin.phosphoricons.regular.Shuffle
+import dev.lelonio.square.ui.components.GlassMenu
+import dev.lelonio.square.ui.components.GlassMenuItem
+import dev.lelonio.square.ui.glass.LiquidButton
+import dev.lelonio.square.ui.glass.LocalAppBackdrop
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -111,7 +126,7 @@ private fun Grid(header: @Composable () -> Unit, items: LazyGridScope.() -> Unit
         LazyVerticalGrid(
             GridCells.Adaptive(176.dp),
             Modifier.widthIn(max = MaxContent).fillMaxSize(),
-            contentPadding = PaddingValues(Gutter, 28.dp, Gutter, 40.dp),
+            contentPadding = PaddingValues(Gutter, 28.dp, Gutter, BarClearance),
             horizontalArrangement = Arrangement.spacedBy(22.dp),
             verticalArrangement = Arrangement.spacedBy(26.dp),
         ) {
@@ -132,7 +147,9 @@ fun Card(title: String, subtitle: String?, cover: String?, round: Boolean = fals
             Artwork(cover, Modifier.fillMaxSize().clip(shape))
             if (onPlay != null) {
                 androidx.compose.animation.AnimatedVisibility(hovered, Modifier.align(Alignment.BottomEnd).padding(10.dp), enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
-                    PlayButton(false, 40.dp, onPlay)
+                    LiquidButton(onPlay, LocalAppBackdrop.current, Modifier.size(42.dp), contentHeight = 42.dp, contentPadding = 0.dp, flat = true) {
+                        Icon(PhosphorIcons.Fill.Play, "Play", tint = Ink, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }
@@ -173,7 +190,7 @@ fun HomeScreen(state: AppState) {
     val random = load(state) { state.client.getAlbumList("random", 24) }
     Loaded(newest) { _ ->
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(top = 28.dp, bottom = 40.dp)) {
+            LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(top = 28.dp, bottom = BarClearance)) {
                 item { Title("Home", Modifier.padding(horizontal = Gutter).padding(bottom = 18.dp)) }
                 listOf("Recently played" to recent, "Recently added" to newest, "Most played" to frequent, "Discover" to random)
                     .forEach { (title, r) ->
@@ -290,7 +307,7 @@ fun PlaylistScreen(state: AppState, screen: Screen.Playlist) {
 @Composable
 private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: String, subtitle: String, cover: String?, showAlbum: Boolean) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(Gutter, 20.dp, Gutter, 40.dp)) {
+        LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(Gutter, 20.dp, Gutter, BarClearance)) {
             item {
                 BackButton(state)
                 Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(bottom = 26.dp)) {
@@ -298,10 +315,10 @@ private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: Strin
                     Spacer(Modifier.width(28.dp))
                     Column {
                         Title(title)
-                        Text(subtitle, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
+                        Text(subtitle, style = MaterialTheme.typography.titleMedium, color = InkDim, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Pill(Icons.Rounded.PlayArrow, "Play") { state.player.playQueue(songs) }
-                            Pill(Icons.Rounded.Shuffle, "Shuffle") { state.player.playQueue(songs.shuffled()) }
+                            Pill(PhosphorIcons.Fill.Play, "Play", accent = true) { state.player.playQueue(songs) }
+                            Pill(PhosphorIcons.Regular.Shuffle, "Shuffle") { state.player.playQueue(songs.shuffled()) }
                         }
                     }
                 }
@@ -313,31 +330,46 @@ private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: Strin
     }
 }
 
+/** The phone's glass chip: a LiquidButton, lit with the accent when it is the main action. */
 @Composable
-private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    val hover = remember { MutableInteractionSource() }
-    val hovered by hover.collectIsHoveredAsState()
-    Row(
-        Modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = if (hovered) 1f else 0.9f))
-            .hoverable(hover).clickable(onClick = onClick).pointerHoverIcon(PointerIcon.Hand).padding(horizontal = 22.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, accent: Boolean = false, onClick: () -> Unit) {
+    // The phone's Play: a solid pill of the ink, its label in the page's colour.
+    val ink = if (accent) (if (dev.lelonio.square.ui.theme.LocalLightTheme.current) Color.White else Color.Black) else Ink
+    LiquidButton(
+        onClick, LocalAppBackdrop.current, flat = true, contentHeight = 40.dp, contentPadding = 20.dp,
+        surfaceColor = if (accent) Ink else Color.Unspecified,
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimary)
+        Icon(icon, null, tint = ink, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.titleMedium, color = ink)
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boolean, onClick: () -> Unit) {
+    var menuAt by remember { mutableStateOf<IntOffset?>(null) }
+    Box {
+        TrackRowBody(state, s, number, showArt, onClick, Modifier.onPointerEvent(PointerEventType.Press) { e ->
+            if (e.buttons.isSecondaryPressed) e.changes.first().position.let { menuAt = IntOffset(it.x.roundToInt(), it.y.roundToInt()) }
+        })
+        GlassMenu(menuAt != null, menuAt ?: IntOffset.Zero, onDismiss = { menuAt = null }) {
+            GlassMenuItem("Play next", PhosphorIcons.Regular.Queue) { state.player.playNext(s); menuAt = null }
+            GlassMenuItem("Add to queue", PhosphorIcons.Regular.ListPlus) { state.player.addToQueue(s); menuAt = null }
+        }
     }
 }
 
 @Composable
-fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boolean, onClick: () -> Unit) {
+private fun TrackRowBody(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val current by state.player.current.collectAsState()
     val isCurrent = current?.id == s.id
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     val bg by animateColorAsState(if (hovered) Ink.copy(alpha = 0.07f) else Color.Transparent)
-    val ink = if (isCurrent) MaterialTheme.colorScheme.primary else Ink
+    val ink = Ink
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(bg).hoverable(hover)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(bg).hoverable(hover)
             .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = if (showArt) 6.dp else 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -346,7 +378,7 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
             Spacer(Modifier.width(14.dp))
         } else {
             Box(Modifier.width(34.dp)) {
-                if (hovered) Icon(Icons.Rounded.PlayArrow, null, tint = ink, modifier = Modifier.size(18.dp))
+                if (hovered) Icon(PhosphorIcons.Fill.Play, null, tint = ink, modifier = Modifier.size(16.dp))
                 else Text(number?.toString().orEmpty(), style = MaterialTheme.typography.bodyMedium, color = if (isCurrent) ink else InkDim)
             }
         }
@@ -364,7 +396,7 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
 @Composable
 private fun BackButton(state: AppState) {
     if (state.stack.size > 1) {
-        Box(Modifier.padding(bottom = 10.dp)) { IconBtn(Icons.AutoMirrored.Rounded.ArrowBack, "Back") { state.back() } }
+        Box(Modifier.padding(bottom = 10.dp)) { Glyph(PhosphorIcons.Regular.CaretLeft, "Back", size = 22.dp) { state.back() } }
     }
 }
 
@@ -420,7 +452,7 @@ fun SettingsScreen(state: AppState) {
     val scope = rememberCoroutineScope()
     val field = Modifier.fillMaxWidth().onFocusChanged { state.typing = it.isFocused }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), contentPadding = PaddingValues(Gutter, 28.dp, Gutter, 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), contentPadding = PaddingValues(Gutter, 28.dp, Gutter, BarClearance), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Title("Settings", Modifier.padding(bottom = 10.dp)) }
             item { SectionLabel("Navidrome / Subsonic server") }
             item { OutlinedTextField(url, { url = it }, field, label = { Text("Server URL") }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium) }
@@ -428,7 +460,7 @@ fun SettingsScreen(state: AppState) {
             item { OutlinedTextField(pass, { pass = it }, field, label = { Text("Password") }, singleLine = true, textStyle = MaterialTheme.typography.titleMedium, visualTransformation = PasswordVisualTransformation()) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Pill(Icons.Rounded.PlayArrow, "Connect") {
+                    Pill(PhosphorIcons.Fill.Play, "Connect", accent = true) {
                         prefs.save(url, user, pass)
                         status = "Connecting…"
                         scope.launch {
@@ -444,11 +476,17 @@ fun SettingsScreen(state: AppState) {
             }
             item { SectionLabel("Appearance", Modifier.padding(top = 18.dp)) }
             item { Segmented(listOf("Dark", "Light"), state.themeMode.ordinal) { state.setTheme(ThemeMode.entries[it]) } }
+            item { SectionLabel("Glass", Modifier.padding(top = 18.dp)) }
+            item { Segmented(GlassProfile.entries.map { it.name }, state.glassProfile.ordinal) { state.setGlass(GlassProfile.entries[it]) } }
             item { SectionLabel("Crossfade", Modifier.padding(top = 18.dp)) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Slider(crossfade, { crossfade = it; state.setCrossfade(it.toInt()) }, Modifier.weight(1f), valueRange = 0f..12f, steps = 11)
-                    Text(if (crossfade < 1f) "Off" else "${crossfade.toInt()} s", color = Ink, modifier = Modifier.width(60.dp).padding(start = 12.dp))
+                    // A plain slider, as in the phone's settings: glass inside the page would sample the layer it is drawn into.
+                    Slider(
+                        crossfade, { crossfade = it; state.setCrossfade(it.roundToInt()) }, Modifier.weight(1f), valueRange = 0f..12f, steps = 11,
+                        colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink, inactiveTrackColor = Ink.copy(alpha = 0.28f)),
+                    )
+                    Text(if (crossfade < 0.5f) "Off" else "${crossfade.roundToInt()} s", color = Ink, modifier = Modifier.width(60.dp).padding(start = 12.dp))
                 }
             }
             item {

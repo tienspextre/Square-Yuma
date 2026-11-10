@@ -9,6 +9,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,15 +25,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Lyrics
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,20 +40,40 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.fill.Pause
+import com.adamglin.phosphoricons.fill.Play
+import com.adamglin.phosphoricons.fill.SkipBack
+import com.adamglin.phosphoricons.fill.SkipForward
+import com.adamglin.phosphoricons.regular.CaretDown
+import com.adamglin.phosphoricons.regular.Queue
+import com.adamglin.phosphoricons.regular.Quotes
+import com.adamglin.phosphoricons.regular.Repeat
+import com.adamglin.phosphoricons.regular.RepeatOnce
+import com.adamglin.phosphoricons.regular.Shuffle
 import dev.lelonio.square.data.LyricLine
 import dev.lelonio.square.data.Lyrics
+import dev.lelonio.square.ui.glass.LiquidButton
+import dev.lelonio.square.ui.glass.LocalAppBackdrop
+import dev.lelonio.square.ui.glass.backdrop.Backdrop
+import dev.lelonio.square.ui.glass.backdrop.backdrops.layerBackdrop
+import dev.lelonio.square.ui.glass.backdrop.backdrops.rememberLayerBackdrop
+import dev.lelonio.square.ui.player.GlassProgressBar
+import dev.lelonio.square.ui.player.GlassSurface
 import dev.lelonio.square.ui.player.LyricsView
 import dev.lelonio.square.ui.theme.Ink
 import dev.lelonio.square.ui.theme.InkDim
@@ -60,15 +82,22 @@ import dev.lelonio.square.ui.theme.inkOn
 import dev.lelonio.square.ui.theme.pageColorFor
 import dev.lelonio.square.ui.theme.softShadow
 
-/** The full player: the cover large on the left, the Android app's lyrics view (or the queue) on the right. */
+/**
+ * The full player, as a sheet that rises out of the transport bar on the phone's
+ * expand spring and can be dragged back down. Its own room behind it (the cover,
+ * blurred and drifting), recorded so its controls are glass over that room: the
+ * phone's 62/76 dp round LiquidButtons and its glass progress bar.
+ */
 @Composable
-fun NowPlaying(state: AppState) {
+fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> Unit) {
     val p = state.player
     val song by p.current.collectAsState()
     val playing by p.isPlaying.collectAsState()
+    val shuffle by p.shuffle.collectAsState()
+    val repeat by p.repeat.collectAsState()
     val seed by rememberArtworkColor(state.cover(song?.coverArt, 300))
     val ground = pageColorFor(seed)
-    var showQueue by remember { mutableStateOf(false) }
+    val playerBackdrop = rememberLayerBackdrop()
     val lyrics by produceState<Lyrics?>(null, song?.id) {
         value = null
         val s = song ?: return@produceState
@@ -82,60 +111,90 @@ fun NowPlaying(state: AppState) {
             ?: dev.lelonio.square.backend.lyrics.LrcLib.lyrics(s.title, s.artist.orEmpty(), s.duration * 1000)
     }
 
-    // The player owns its colour, as on the phone: the ink is whatever reads on it.
-    CompositionLocalProvider(LocalInkOverride provides inkOn(ground)) {
-        Box(
-            Modifier.fillMaxSize().background(ground)
-                .clickable(remember { MutableInteractionSource() }, indication = null) {}, // swallow clicks meant for the page below
-        ) {
-            Artwork(state.cover(song?.coverArt, 600), Modifier.fillMaxSize().scale(1.4f).blur(110.dp))
-            Box(Modifier.fillMaxSize().background(ground.copy(alpha = 0.55f)))
-
-            Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 22.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconBtn(Icons.Rounded.KeyboardArrowDown, "Close (Esc)", size = 30.dp) { state.nowPlaying = false }
-                    Spacer(Modifier.weight(1f))
-                    IconBtn(Icons.Rounded.Lyrics, "Lyrics", active = !showQueue) { showQueue = false }
-                    IconBtn(Icons.Rounded.QueueMusic, "Queue", active = showQueue) { showQueue = true }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val heightPx = constraints.maxHeight.toFloat()
+        val e = state.expand.value
+        val drag = rememberDraggableState { onDrag(it / heightPx) }
+        CompositionLocalProvider(LocalInkOverride provides inkOn(ground), LocalAppBackdrop provides playerBackdrop) {
+            Box(
+                Modifier.fillMaxSize()
+                    .graphicsLayer {
+                        translationY = (1f - e) * heightPx
+                        shape = RoundedCornerShape(((1f - e).coerceIn(0f, 1f) * 40f).dp)
+                        clip = true
+                    }
+                    .draggable(drag, Orientation.Vertical, onDragStopped = { v -> onRelease(v / heightPx) })
+                    .clickable(remember { MutableInteractionSource() }, indication = null) {}, // swallow clicks meant for the page below
+            ) {
+                Box(Modifier.fillMaxSize().layerBackdrop(playerBackdrop)) {
+                    AmbientBackground(state.cover(song?.coverArt, 600), ground)
                 }
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val wide = maxWidth > 900.dp
-                    // Room left for the cover once the title and controls below it are laid out.
-                    val cover = (maxHeight - 250.dp).coerceIn(160.dp, 560.dp)
-                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(56.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(
-                            Modifier.weight(if (wide) 0.9f else 1f).widthIn(max = cover),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            // The cover sits back a little while paused, as Apple Music's does.
-                            val scale by animateFloatAsState(if (playing) 1f else 0.86f, spring(dampingRatio = 0.62f, stiffness = 260f))
-                            Box(Modifier.fillMaxWidth().aspectRatio(1f).scale(scale).softShadow(RoundedCornerShape(18.dp), 40.dp, spot = 0.45f)) {
-                                AnimatedContent(song?.coverArt, transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(400)) }) { id ->
-                                    Artwork(state.cover(id, 900), Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)))
-                                }
-                            }
-                            Spacer(Modifier.height(28.dp))
-                            Text(song?.title.orEmpty(), style = MaterialTheme.typography.headlineLarge, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                listOfNotNull(song?.artist, song?.album).joinToString(" — "),
-                                style = MaterialTheme.typography.titleMedium, color = InkDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            ProgressBar(state, Modifier.fillMaxWidth())
-                            Spacer(Modifier.height(8.dp))
-                            Controls(state, big = true)
-                            Spacer(Modifier.height(14.dp))
-                            VolumeBar(state, Modifier.fillMaxWidth(0.6f))
-                        }
-                        if (wide) {
-                            Box(Modifier.weight(1.1f).fillMaxHeight()) {
-                                when {
-                                    showQueue -> Queue(state)
-                                    lyrics != null -> {
-                                        val position = p.positionMs.collectAsState()
-                                        LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), onSeek = p::seek)
+
+                Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 22.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Glyph(PhosphorIcons.Regular.CaretDown, "Close (Esc)", size = 24.dp) { state.nowPlaying = false }
+                        Spacer(Modifier.weight(1f))
+                        Glyph(PhosphorIcons.Regular.Quotes, "Lyrics", active = !state.showQueue) { state.showQueue = false }
+                        Glyph(PhosphorIcons.Regular.Queue, "Queue", active = state.showQueue) { state.showQueue = true }
+                    }
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val wide = maxWidth > 900.dp
+                        // Room left for the cover once the title and controls below it are laid out.
+                        val cover = (maxHeight - 290.dp).coerceIn(160.dp, 560.dp)
+                        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(56.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(
+                                Modifier.weight(if (wide) 0.9f else 1f).widthIn(max = cover + 60.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                // The cover sits back a little while paused, as Apple Music's does.
+                                val scale by animateFloatAsState(if (playing) 1f else 0.86f, spring(dampingRatio = 0.62f, stiffness = 260f))
+                                Box(
+                                    Modifier.size(cover)
+                                        .onGloballyPositioned {
+                                            // Where the cover will be once the sheet is up: the flight's destination.
+                                            state.bigArt = it.boundsInRoot().translate(0f, -(1f - state.expand.value) * heightPx)
+                                        }
+                                        .graphicsLayer { alpha = if (state.expand.value < 0.999f) 0f else 1f }
+                                        .scale(scale).softShadow(RoundedCornerShape(18.dp), 40.dp, spot = 0.45f),
+                                ) {
+                                    AnimatedContent(song?.coverArt, transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(400)) }) { id ->
+                                        Artwork(state.cover(id, 900), Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)))
                                     }
-                                    else -> Text("No lyrics for this song", color = InkDim, modifier = Modifier.align(Alignment.Center))
+                                }
+                                Spacer(Modifier.height(26.dp))
+                                Text(song?.title.orEmpty(), style = MaterialTheme.typography.headlineLarge, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    listOfNotNull(song?.artist, song?.album).joinToString(" — "),
+                                    style = MaterialTheme.typography.titleMedium, color = InkDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                GlassProgressBar(
+                                    positionMs = p.positionMs.collectAsState(), durationMs = (song?.duration ?: 0L) * 1000, onSeek = p::seek,
+                                    accentColor = Ink, trackColor = Ink.copy(alpha = 0.28f), modifier = Modifier.fillMaxWidth(), backdrop = playerBackdrop,
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                                    Glyph(PhosphorIcons.Regular.Shuffle, "Shuffle", active = shuffle, size = 22.dp) { p.toggleShuffle() }
+                                    RoundGlassButton(playerBackdrop, 62, onClick = p::previous) { Icon(PhosphorIcons.Fill.SkipBack, "Previous", tint = Ink, modifier = Modifier.size(26.dp)) }
+                                    RoundGlassButton(playerBackdrop, 76, onClick = p::toggle) {
+                                        Icon(if (playing) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play, if (playing) "Pause" else "Play", tint = Ink, modifier = Modifier.size(34.dp))
+                                    }
+                                    RoundGlassButton(playerBackdrop, 62, onClick = p::next) { Icon(PhosphorIcons.Fill.SkipForward, "Next", tint = Ink, modifier = Modifier.size(26.dp)) }
+                                    Glyph(if (repeat == RepeatMode.ONE) PhosphorIcons.Regular.RepeatOnce else PhosphorIcons.Regular.Repeat, "Repeat", active = repeat != RepeatMode.OFF, size = 22.dp) { p.cycleRepeat() }
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                Volume(state, Modifier.width(260.dp), playerBackdrop)
+                            }
+                            if (wide) {
+                                Box(Modifier.weight(1.1f).fillMaxHeight().padding(vertical = 12.dp)) {
+                                    when {
+                                        state.showQueue -> GlassSurface(playerBackdrop, RoundedCornerShape(26.dp), Modifier.fillMaxSize()) { Queue(state) }
+                                        lyrics != null -> {
+                                            val position = p.positionMs.collectAsState()
+                                            LyricsView(lyrics!!, position, playing, Modifier.fillMaxSize(), onSeek = p::seek)
+                                        }
+                                        else -> Text("No lyrics for this song", color = InkDim, modifier = Modifier.align(Alignment.Center))
+                                    }
                                 }
                             }
                         }
@@ -146,14 +205,19 @@ fun NowPlaying(state: AppState) {
     }
 }
 
+/** The phone's RoundGlassButton: a LiquidButton exactly its size, with no padding to squeeze the icon. */
+@Composable
+private fun RoundGlassButton(backdrop: Backdrop, size: Int, onClick: () -> Unit = {}, content: @Composable () -> Unit) =
+    LiquidButton(onClick, backdrop, Modifier.size(size.dp), contentHeight = size.dp, contentPadding = 0.dp) { content() }
+
 @Composable
 private fun Queue(state: AppState) {
     val queue by state.player.queue.collectAsState()
     val index by state.player.index.collectAsState()
     val list = rememberLazyListState()
     LaunchedEffect(Unit) { list.scrollToItem(index.coerceAtLeast(0)) }
-    Column {
-        SectionLabel("Up next", Modifier.padding(bottom = 10.dp))
+    Column(Modifier.padding(16.dp)) {
+        SectionLabel("Up next", Modifier.padding(start = 12.dp, bottom = 10.dp))
         LazyColumn(state = list) {
             itemsIndexed(queue, key = { i, s -> "$i${s.id}" }) { i, s ->
                 Box(Modifier.background(if (i == index) Ink.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(8.dp))) {
