@@ -8,7 +8,7 @@ plugins {
 }
 
 /** Desktop releases are numbered on their own (tags yuma-pc-vX.Y.Z); the Android versionName is not touched. */
-val desktopVersion = "1.0.0"
+val desktopVersion = "1.1.0"
 
 /**
  * The Android files the desktop app compiles as they are: the Subsonic client,
