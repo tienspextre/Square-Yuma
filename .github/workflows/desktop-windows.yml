@@ -70,7 +70,8 @@ jobs:
       - name: Smoke test
         run: |
           app=desktop/build/compose/binaries/main-release/app/square-yuma
-          test -f "$app/resources/ffmpeg.exe"
+          find "$app" -iname 'ffmpeg.exe'
+          test -f "$app/app/resources/ffmpeg.exe" # $APPDIR is app/ on Windows (lib/app on Linux)
           "$app/square-yuma.exe" &
           sleep 25
           tasklist //FI "IMAGENAME eq square-yuma.exe" | grep -i square-yuma.exe
