@@ -85,6 +85,7 @@ dependencies {
 
 compose.desktop.application {
     mainClass = "dev.lelonio.square.desktop.MainKt"
+    jvmArgs += "-Dsquare.version=$desktopVersion"
     nativeDistributions {
         targetFormats(TargetFormat.Deb, TargetFormat.Msi)
         // The Windows CI drops a static ffmpeg.exe into appResources/windows; Linux uses the system one.

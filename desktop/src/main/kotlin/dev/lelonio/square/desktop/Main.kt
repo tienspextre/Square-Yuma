@@ -191,7 +191,22 @@ class AppState {
         private set
     fun setLyricsOffset(ms: Long) { lyricsOffsetMs = ms; ui.putLong("lyricsOffset", ms) }
 
+    /** A newer PC release, found at start or from Settings. */
+    var update by mutableStateOf<Update?>(null)
+    var updateProgress by mutableStateOf<Float?>(null)
+    suspend fun findUpdate(): Update? = runCatching { checkForUpdate() }.getOrNull().also { update = it }
+    fun installUpdate() {
+        val u = update ?: return
+        scope.launch {
+            updateProgress = 0f
+            runCatching { installUpdate(u) { p -> scope.launch { updateProgress = p } } }
+                .onSuccess { say(tr("Installer opened: ") + it.name) }.onFailure { say(tr("Update failed: ") + it.message) }
+            updateProgress = null
+        }
+    }
+
     init {
+        scope.launch { findUpdate()?.let { say(tr("Square-Yuma PC ") + it.version + tr(" is available — Settings → Updates")) } }
         dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
         Strings.current = language
         player.audioFilter = Eq.filter(eqGains)
@@ -249,7 +264,8 @@ class AppState {
 }
 
 fun main(args: Array<String>) {
-    if ("--self-check" in args) { selfCheck(); println("self-check ok"); return }
+    if ("--self-check" in args) { selfCheck(); versionCheck(); println("self-check ok"); return }
+    LogTail.install()
     runCatching { Renderer.valueOf(uiPrefs.get("renderer", "Auto")) }.getOrNull()?.api?.let { System.setProperty("skiko.renderApi", it) }
     app()
 }

@@ -754,6 +754,32 @@ fun SettingsScreen(state: AppState) {
                     }
                 }
             }
+            item { SectionLabel("Updates", Modifier.padding(top = 18.dp)) }
+            item {
+                Column {
+                    val u = state.update
+                    Text(
+                        tr("Version") + " $AppVersion" + (u?.let { " · " + tr("new") + " ${it.version}" } ?: ""),
+                        color = InkDim, style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Row {
+                        TextButton({ scope.launch { if (state.findUpdate() == null) state.say(tr("You have the newest version")) } }) { Text(tr("Check for updates")) }
+                        if (u != null) TextButton({ state.installUpdate() }, enabled = state.updateProgress == null) {
+                            Text(state.updateProgress?.let { tr("Downloading") + " ${(it * 100).toInt()}%" } ?: (tr("Install") + " ${u.version}"))
+                        }
+                    }
+                }
+            }
+            item { SectionLabel("Diagnostics", Modifier.padding(top = 18.dp)) }
+            item {
+                TextButton({
+                    scope.launch {
+                        val f = diagnostics(state)
+                        runCatching { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(f.readText()), null) }
+                        state.say(tr("Report saved to ") + f.path + tr(" and copied"))
+                    }
+                }) { Text(tr("Save diagnostics report")) }
+            }
             item { SectionLabel("Appearance", Modifier.padding(top = 18.dp)) }
             item { Segmented(listOf("Dark", "Light"), state.themeMode.ordinal) { state.setTheme(ThemeMode.entries[it]) } }
             item { SectionLabel("Font", Modifier.padding(top = 18.dp)) }
