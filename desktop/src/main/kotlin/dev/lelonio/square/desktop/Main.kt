@@ -3,6 +3,7 @@ package dev.lelonio.square.desktop
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
@@ -43,6 +44,7 @@ sealed interface Screen {
     /** A mood or genre mix, keyed as SubsonicMixes keys it ("mood:Chill", "genre:Pop"). */
     data class Mix(val key: String, val name: String) : Screen
     data object Month : Screen
+    data object Downloads : Screen
 }
 
 enum class ThemeMode { DARK, LIGHT }
@@ -72,7 +74,8 @@ class AppState {
     private val ui = uiPrefs
     val prefs = SubsonicPreferences()
     val client = SubsonicClient(Http.client, prefs)
-    val player = DesktopPlayer { client.buildStreamUrl(it.id) }.apply {
+    val downloads = DownloadStore()
+    val player = DesktopPlayer { downloads.fileFor(it.id)?.path ?: client.buildStreamUrl(it.id) }.apply {
         volume.value = ui.getFloat("volume", 0.8f)
         crossfadeSeconds = ui.getInt("crossfade", 6)
     }
@@ -102,6 +105,43 @@ class AppState {
     }
 
     val listening = ListeningStore()
+
+    /** Grid or list for the Library and Playlists pages, as the phone's layout toggle. */
+    var listMode by mutableStateOf(ui.getBoolean("listMode", false))
+        private set
+    fun toggleListMode() { listMode = !listMode; ui.putBoolean("listMode", listMode) }
+
+    /** The last searches, newest first. */
+    val searchHistory = mutableStateListOf<String>().apply { addAll(ui.get("searches", "").split('\n').filter { it.isNotBlank() }) }
+    fun remember(query: String) {
+        val q = query.trim().takeIf { it.length > 1 } ?: return
+        searchHistory.remove(q); searchHistory.add(0, q)
+        while (searchHistory.size > 20) searchHistory.removeLast()
+        ui.put("searches", searchHistory.joinToString("\n"))
+    }
+    fun clearSearches() { searchHistory.clear(); ui.remove("searches") }
+
+    /** Playlists pinned to the sidebar, as the phone pins them to the top of Library. */
+    data class Pin(val id: String, val name: String, val cover: String?)
+    val pins = mutableStateListOf<Pin>().apply {
+        ui.get("pins", "").split('\n').mapNotNull { l -> l.split('\t').takeIf { it.size >= 2 }?.let { Pin(it[0], it[1], it.getOrNull(2)?.ifBlank { null }) } }.let(::addAll)
+    }
+    fun togglePin(id: String, name: String, cover: String?) {
+        if (pins.removeAll { it.id == id }.not()) pins.add(Pin(id, name, cover))
+        ui.put("pins", pins.joinToString("\n") { "${it.id}\t${it.name}\t${it.cover.orEmpty()}" })
+    }
+
+    fun download(songs: List<SubsonicChildSong>) = scope.launch {
+        var failed = 0
+        songs.filterNot { downloads.has(it.id) }.forEach { s -> downloads.download(s, client.buildDownloadUrl(s.id)).onFailure { failed++ } }
+        say(if (failed == 0) "Downloaded ${songs.size} song${if (songs.size == 1) "" else "s"}" else "$failed download(s) failed")
+    }
+
+    /** The song's page in Navidrome's own web player, the link a listener can send. */
+    fun linkFor(s: SubsonicChildSong): String {
+        val base = prefs.serverUrl.value.trimEnd('/')
+        return if (s.albumId != null) "$base/app/#/album/${s.albumId}/show" else "$base/app/#/song/${s.id}/show"
+    }
 
     /** When the sleep timer pauses playback (epoch ms); "end of track" lives on the player. */
     var sleepEndsAt by mutableStateOf<Long?>(null)
@@ -181,7 +221,8 @@ class AppState {
     }
 }
 
-fun main() {
+fun main(args: Array<String>) {
+    if ("--self-check" in args) { selfCheck(); println("self-check ok"); return }
     runCatching { Renderer.valueOf(uiPrefs.get("renderer", "Auto")) }.getOrNull()?.api?.let { System.setProperty("skiko.renderApi", it) }
     app()
 }

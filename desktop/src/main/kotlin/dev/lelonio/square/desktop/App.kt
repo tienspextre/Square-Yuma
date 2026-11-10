@@ -14,6 +14,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -222,6 +224,25 @@ private fun Sidebar(state: AppState, config: GlassEffectConfig, modifier: Modifi
                 items.forEachIndexed { i, item -> NavRow(item, i == selected) { state.root(item.screen) } }
             }
         }
+        // Pinned playlists, as Apple Music lists playlists under the sidebar's sections.
+        if (state.pins.isNotEmpty()) {
+            SectionLabel("Pinned", Modifier.padding(start = 12.dp, top = 22.dp, bottom = 8.dp))
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                state.pins.forEach { pin ->
+                    val open = state.stack.lastOrNull().let { it is Screen.Playlist && it.id == pin.id }
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (open) Ink.copy(alpha = 0.1f) else Color.Transparent)
+                            .clickable { state.root(Screen.Playlists); state.open(Screen.Playlist(pin.id, pin.name)) }
+                            .pointerHoverIcon(PointerIcon.Hand).padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(state.cover(pin.cover, 100), Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)))
+                        Spacer(Modifier.width(12.dp))
+                        Text(pin.name, style = MaterialTheme.typography.bodyMedium, color = Ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -274,6 +295,7 @@ private fun Content(state: AppState, modifier: Modifier) {
             is Screen.Playlist -> PlaylistScreen(state, screen)
             is Screen.Mix -> MixScreen(state, screen)
             Screen.Month -> MonthScreen(state)
+            Screen.Downloads -> DownloadsScreen(state)
         }
     }
 }

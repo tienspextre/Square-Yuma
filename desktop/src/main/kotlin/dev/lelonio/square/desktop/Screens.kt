@@ -93,6 +93,17 @@ import dev.lelonio.square.backend.subsonic.SubsonicArtistItem
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import dev.lelonio.square.backend.subsonic.SubsonicMixes
 import com.adamglin.phosphoricons.regular.Disc
+import com.adamglin.phosphoricons.regular.ClockCounterClockwise
+import com.adamglin.phosphoricons.regular.DownloadSimple
+import com.adamglin.phosphoricons.regular.LinkSimple
+import com.adamglin.phosphoricons.regular.ListBullets
+import com.adamglin.phosphoricons.regular.PushPin
+import com.adamglin.phosphoricons.regular.SortAscending
+import com.adamglin.phosphoricons.regular.SortDescending
+import com.adamglin.phosphoricons.regular.SquaresFour
+import com.adamglin.phosphoricons.regular.Waveform
+import com.adamglin.phosphoricons.regular.XCircle
+import com.adamglin.phosphoricons.fill.CheckCircle
 import com.adamglin.phosphoricons.regular.MinusCircle
 import com.adamglin.phosphoricons.regular.Trash
 import com.adamglin.phosphoricons.regular.User
@@ -197,10 +208,25 @@ fun HomeScreen(state: AppState) {
     val quick = load(state) { state.client.getRandomSongs(24) }
     val mixes = load(state) { state.client.getGenres().map { SubsonicMixes.build(it) } }
     val playlists = load(state) { state.client.getPlaylists() }
-    Loaded(newest) { _ ->
+    if (newest == null) { Loaded<Unit>(null) {}; return }
+    run {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(top = 28.dp, bottom = BarClearance)) {
                 item { Title("Home", Modifier.padding(horizontal = Gutter).padding(bottom = 18.dp)) }
+                if (newest.isFailure) item("offline") {
+                    Text("Couldn't reach the server — showing what is on this computer.", color = InkDim, modifier = Modifier.padding(horizontal = Gutter, vertical = 8.dp))
+                }
+                val kept = state.downloads.kept.map { it.song }.reversed()
+                if (kept.isNotEmpty()) item("downloaded") {
+                    Shelf("Downloaded") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                            itemsIndexed(kept.take(30), key = { _, s -> "d" + s.id }) { i, s ->
+                                Box(Modifier.width(160.dp)) { Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(kept, i) }) { state.player.playQueue(kept, i) } }
+                            }
+                            item { Box(Modifier.width(160.dp).aspectRatio(1f), contentAlignment = Alignment.Center) { TextButton({ state.open(Screen.Downloads) }) { Text("See all") } } }
+                        }
+                    }
+                }
                 quick?.getOrNull()?.takeIf { it.isNotEmpty() }?.let { songs ->
                     item("quick") {
                         Shelf("Quick play") {
@@ -280,6 +306,16 @@ fun MixScreen(state: AppState, screen: Screen.Mix) {
 }
 
 @Composable
+fun DownloadsScreen(state: AppState) {
+    val songs = state.downloads.kept.map { it.song }.reversed()
+    if (songs.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Nothing downloaded yet. Right-click a song, or use Download on an album or playlist.", color = InkDim)
+        }
+    } else Tracks(state, songs, "Downloaded", "${songs.size} songs · %.1f GB".format(state.downloads.bytes() / 1e9), songs.first().coverArt, showAlbum = true)
+}
+
+@Composable
 fun LibraryScreen(state: AppState) {
     var artists by remember { mutableStateOf(false) }
     val albums = remember(state.generation) { mutableStateListOf<SubsonicAlbumEntry>() }
@@ -296,19 +332,52 @@ fun LibraryScreen(state: AppState) {
     Grid(header = {
         Row(verticalAlignment = Alignment.Bottom) {
             Title("Library", Modifier.weight(1f))
-            Segmented(listOf("Albums", "Artists"), if (artists) 1 else 0) { artists = it == 1 }
+            LayoutToggle(state)
+            Spacer(Modifier.width(12.dp))
+            Segmented(listOf("Albums", "Artists", "Downloaded"), if (artists) 1 else 0) { if (it == 2) state.open(Screen.Downloads) else artists = it == 1 }
         }
         failed?.let { Text("Couldn't reach the server: $it", color = InkDim) }
     }) {
         if (artists) {
-            items(artistList?.getOrNull().orEmpty(), key = { "ar" + it.id }) { ArtistCard(state, it) }
+            items(artistList?.getOrNull().orEmpty(), key = { "ar" + it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) {
+                if (state.listMode) ListEntry(state.cover(it.coverArt, 100), it.name, "${it.albumCount} albums", round = true) { state.open(Screen.Artist(it.id, it.name)) }
+                else ArtistCard(state, it)
+            }
         } else {
-            items(albums, key = { "al" + it.id }) { AlbumCard(state, it) }
+            items(albums, key = { "al" + it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) {
+                if (state.listMode) ListEntry(state.cover(it.coverArt, 100), it.name, listOfNotNull(it.artist, it.year?.toString()).joinToString(" · ")) { state.open(Screen.Album(it.id, it.name)) }
+                else AlbumCard(state, it)
+            }
             if (more) item(span = { GridItemSpan(maxLineSpan) }) {
                 LaunchedEffect(albums.size) { page() }
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp)) }
             }
         }
+    }
+}
+
+/** The phone's grid/list switch. */
+@Composable
+private fun LayoutToggle(state: AppState) =
+    Glyph(if (state.listMode) PhosphorIcons.Regular.SquaresFour else PhosphorIcons.Regular.ListBullets, if (state.listMode) "Show as grid" else "Show as list", size = 20.dp) { state.toggleListMode() }
+
+/** One row of the list layout: a small cover, the name, a line under it. */
+@Composable
+private fun ListEntry(cover: String?, title: String, subtitle: String, round: Boolean = false, trailing: @Composable () -> Unit = {}, onClick: () -> Unit) {
+    val hover = remember { MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (hovered) Ink.copy(alpha = 0.07f) else Color.Transparent)
+            .hoverable(hover).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(cover, Modifier.size(48.dp).clip(if (round) CircleShape else RoundedCornerShape(6.dp)))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = InkDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        trailing()
     }
 }
 
@@ -329,10 +398,17 @@ private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> U
 @Composable
 fun PlaylistsScreen(state: AppState) {
     val result = load(state) { state.client.getPlaylists() }
-    Loaded(result) { list ->
-        Grid(header = { Title("Playlists") }) {
-            items(list, key = { it.id }) { p ->
-                Card(p.name, "${p.songCount} songs", state.cover(p.coverArt)) { state.open(Screen.Playlist(p.id, p.name)) }
+    Loaded(result) { all ->
+        val pinned = state.pins.map { it.id }.toSet()
+        val list = all.sortedByDescending { it.id in pinned }
+        Grid(header = { Row(verticalAlignment = Alignment.Bottom) { Title("Playlists", Modifier.weight(1f)); LayoutToggle(state) } }) {
+            items(list, key = { it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { p ->
+                val pin = p.id in pinned
+                val open = { state.open(Screen.Playlist(p.id, p.name)) }
+                if (state.listMode) ListEntry(state.cover(p.coverArt, 100), p.name, "${p.songCount} songs" + if (pin) " · Pinned" else "", trailing = {
+                    Glyph(PhosphorIcons.Regular.PushPin, if (pin) "Unpin" else "Pin", active = pin) { state.togglePin(p.id, p.name, p.coverArt) }
+                }, onClick = open)
+                else Card(p.name, "${p.songCount} songs" + if (pin) " · Pinned" else "", state.cover(p.coverArt), onClick = open)
             }
         }
     }
@@ -376,7 +452,23 @@ fun PlaylistScreen(state: AppState, screen: Screen.Playlist) {
 
 /** An album or playlist page: the cover and title beside Play/Shuffle, then the songs. */
 @Composable
-private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: String, subtitle: String, cover: String?, showAlbum: Boolean, playlistId: String? = null) {
+private fun Tracks(state: AppState, all: List<SubsonicChildSong>, title: String, subtitle: String, cover: String?, showAlbum: Boolean, playlistId: String? = null) {
+    var find by remember(all) { mutableStateOf("") }
+    var sort by remember { mutableStateOf(0) }
+    var descending by remember { mutableStateOf(false) }
+    val songs = remember(all, find, sort, descending) {
+        val q = find.trim().lowercase()
+        val hits = if (q.isEmpty()) all else all.filter { s -> listOfNotNull(s.title, s.artist, s.album).any { q in it.lowercase() } }
+        val sorted = when (SORTS[sort]) {
+            "Title" -> hits.sortedBy { it.title.lowercase() }
+            "Artist" -> hits.sortedBy { it.artist.orEmpty().lowercase() }
+            "Album" -> hits.sortedBy { it.album.orEmpty().lowercase() }
+            "Added" -> hits.sortedByDescending { it.created.orEmpty() }
+            "Length" -> hits.sortedBy { it.duration }
+            else -> hits
+        }
+        if (descending) sorted.reversed() else sorted
+    }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(Gutter, 20.dp, Gutter, BarClearance)) {
             item {
@@ -390,8 +482,26 @@ private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: Strin
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Pill(PhosphorIcons.Fill.Play, "Play", accent = true) { state.player.playQueue(songs) }
                             Pill(PhosphorIcons.Regular.Shuffle, "Shuffle") { state.player.playQueue(songs.shuffled()) }
+                            val missing = all.count { !state.downloads.has(it.id) }
+                            if (missing > 0) Pill(PhosphorIcons.Regular.DownloadSimple, "Download") { state.download(all) }
+                            if (playlistId != null) {
+                                val pinned = state.pins.any { it.id == playlistId }
+                                Pill(PhosphorIcons.Regular.PushPin, if (pinned) "Unpin" else "Pin") { state.togglePin(playlistId, title, cover) }
+                            }
                         }
                     }
+                }
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.dp)) {
+                    OutlinedTextField(
+                        find, { find = it }, Modifier.width(260.dp).onFocusChanged { state.typing = it.isFocused },
+                        placeholder = { Text("Find in ${if (showAlbum) "list" else "album"}") }, singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium, shape = RoundedCornerShape(12.dp),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Segmented(SORTS, sort) { sort = it }
+                    Glyph(if (descending) PhosphorIcons.Regular.SortDescending else PhosphorIcons.Regular.SortAscending, if (descending) "Descending" else "Ascending", size = 20.dp) { descending = !descending }
                 }
             }
             itemsIndexed(songs, key = { i, s -> "$i${s.id}" }) { i, s ->
@@ -400,6 +510,8 @@ private fun Tracks(state: AppState, songs: List<SubsonicChildSong>, title: Strin
         }
     }
 }
+
+private val SORTS = listOf("Order", "Title", "Artist", "Album", "Added", "Length")
 
 /** The phone's glass chip: a LiquidButton, lit with the accent when it is the main action. */
 @Composable
@@ -421,6 +533,7 @@ private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
 fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boolean, playlistId: String? = null, onClick: () -> Unit) {
     var menuAt by remember { mutableStateOf<IntOffset?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var inspecting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun remove(fromPlaylist: String?, deleteFile: Boolean, done: String) = scope.launch {
         state.client.bridgeRemove(s.id, fromPlaylist, deleteFile).fold(
@@ -437,9 +550,18 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
             GlassMenuItem("Add to queue", PhosphorIcons.Regular.ListPlus) { state.player.addToQueue(s); menuAt = null }
             s.albumId?.let { id -> GlassMenuItem("Go to album", PhosphorIcons.Regular.Disc) { menuAt = null; state.open(Screen.Album(id, s.album.orEmpty())) } }
             s.artistId?.let { id -> GlassMenuItem("Go to artist", PhosphorIcons.Regular.User) { menuAt = null; state.open(Screen.Artist(id, s.artist.orEmpty())) } }
+            if (state.downloads.has(s.id)) GlassMenuItem("Remove download", PhosphorIcons.Regular.XCircle) { menuAt = null; state.downloads.remove(s.id) }
+            else GlassMenuItem("Download", PhosphorIcons.Regular.DownloadSimple) { menuAt = null; state.download(listOf(s)) }
+            GlassMenuItem("Inspect", PhosphorIcons.Regular.Waveform) { menuAt = null; inspecting = true }
+            GlassMenuItem("Copy link", PhosphorIcons.Regular.LinkSimple) {
+                menuAt = null
+                java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(state.linkFor(s)), null)
+                state.say("Link copied")
+            }
             playlistId?.let { pid -> GlassMenuItem("Remove from playlist", PhosphorIcons.Regular.MinusCircle) { menuAt = null; remove(pid, false, "Removed from playlist") } }
             GlassMenuItem("Delete from NAS", PhosphorIcons.Regular.Trash) { menuAt = null; confirmDelete = true }
         }
+        if (inspecting) InspectDialog(state, s) { inspecting = false }
         if (confirmDelete) androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete “${s.title}” from the NAS?") },
@@ -448,6 +570,37 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
             dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
         )
     }
+}
+
+@Composable
+private fun InspectDialog(state: AppState, s: SubsonicChildSong, onDismiss: () -> Unit) {
+    val result by produceState<Result<Inspection>?>(null, s.id) {
+        value = runCatching { inspect(s, state.downloads.fileFor(s.id)?.path ?: state.client.buildDownloadUrl(s.id)) }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(s.title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val r = result
+                when {
+                    r == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(12.dp)); Text("Reading the file and its spectrum…")
+                    }
+                    r.isFailure -> Text("Couldn't inspect: ${r.exceptionOrNull()?.message}")
+                    else -> {
+                        val i = r.getOrThrow()
+                        Text(i.verdict, style = MaterialTheme.typography.titleMedium, color = Ink)
+                        Spacer(Modifier.height(6.dp))
+                        i.facts.forEach { (k, v) ->
+                            Row { Text(k, color = InkDim, modifier = Modifier.width(90.dp)); Text(v, color = Ink, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onDismiss) { Text("Close") } },
+    )
 }
 
 @Composable
@@ -479,6 +632,8 @@ private fun TrackRowBody(state: AppState, s: SubsonicChildSong, number: Int?, sh
         }
         if (showArt) Text(s.album.orEmpty(), style = MaterialTheme.typography.bodyMedium, color = InkDim, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.7f).padding(horizontal = 12.dp))
+        state.downloads.progress[s.id]?.let { CircularProgressIndicator({ it }, Modifier.size(14.dp), color = Ink, strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)) }
+        if (state.downloads.has(s.id)) { Icon(PhosphorIcons.Fill.CheckCircle, "Downloaded", tint = InkDim, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(10.dp)) }
         Text("%d:%02d".format(s.duration / 60, s.duration % 60), style = MaterialTheme.typography.bodyMedium, color = InkDim)
     }
 }
@@ -497,6 +652,10 @@ fun SearchScreen(state: AppState) {
         if (query.isBlank()) { value = null; return@produceState }
         delay(280) // typing pause
         value = state.client.search(query)
+        if (value?.getOrNull()?.let { it.song.isNotEmpty() || it.album.isNotEmpty() || it.artist.isNotEmpty() } == true) {
+            delay(1500) // only what the listener settled on, not every prefix typed on the way
+            state.remember(query)
+        }
     }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
@@ -513,6 +672,22 @@ fun SearchScreen(state: AppState) {
                 shape = RoundedCornerShape(12.dp),
                 keyboardActions = KeyboardActions.Default,
             )
+            if (query.isBlank() && state.searchHistory.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
+                    SectionLabel("Recent searches", Modifier.weight(1f))
+                    TextButton({ state.clearSearches() }) { Text("Clear") }
+                }
+                state.searchHistory.forEach { q ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { query = q }.padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(PhosphorIcons.Regular.ClockCounterClockwise, null, tint = InkDim, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text(q, color = Ink, style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
             if (r != null && r.song.isNotEmpty()) {
                 SectionLabel("Songs", Modifier.padding(top = 24.dp, bottom = 8.dp))
                 r.song.take(8).forEachIndexed { i, s -> TrackRow(state, s, null, true) { state.player.playQueue(r.song, i) } }
@@ -567,6 +742,16 @@ fun SettingsScreen(state: AppState) {
             item {
                 TextButton(onClick = { scope.launch { status = if (state.client.startScan().getOrDefault(false)) "Library rescan started" else "Rescan failed" } }) {
                     Text("Rescan server library")
+                }
+            }
+            item { SectionLabel("Downloads", Modifier.padding(top = 18.dp)) }
+            item {
+                Column {
+                    Text("${state.downloads.kept.size} songs · %.2f GB in ${state.downloads.root.path}".format(state.downloads.bytes() / 1e9), color = InkDim, style = MaterialTheme.typography.bodyMedium)
+                    Row {
+                        TextButton({ runCatching { state.downloads.root.mkdirs(); java.awt.Desktop.getDesktop().open(state.downloads.root) } }) { Text("Open folder") }
+                        if (state.downloads.kept.isNotEmpty()) TextButton({ state.downloads.removeAll(); state.say("Removed all downloads") }) { Text("Remove all downloads") }
+                    }
                 }
             }
             item { SectionLabel("Appearance", Modifier.padding(top = 18.dp)) }

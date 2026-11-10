@@ -161,6 +161,8 @@ data class SubsonicChildSong(
     /** Sent by every Subsonic server alongside the names; the desktop's "Go to album/artist" uses them. */
     val albumId: String? = null,
     val artistId: String? = null,
+    /** When the server first saw the file (ISO 8601); the desktop sorts "Recently added" by it. */
+    val created: String? = null,
 )
 
 @Serializable

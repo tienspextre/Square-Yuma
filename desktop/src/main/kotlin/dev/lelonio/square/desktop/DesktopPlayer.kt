@@ -281,11 +281,11 @@ class DesktopPlayer(private val streamUrl: (SubsonicChildSong) -> String) {
         }
     }
 
-    private companion object {
-        const val RATE = 44_100
-        const val FRAME = 4
-        const val CHUNK = 4096
-        fun sample(buf: ByteArray, i: Int): Float = ((buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xFF)).toFloat()
+    companion object {
+        private const val RATE = 44_100
+        private const val FRAME = 4
+        private const val CHUNK = 4096
+        private fun sample(buf: ByteArray, i: Int): Float = ((buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xFF)).toFloat()
 
         /** A bundled ffmpeg beside the app wins, then the one on PATH. */
         val ffmpegPath: String by lazy {
