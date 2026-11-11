@@ -6573,37 +6573,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .onFailure { android.util.Log.w(TAG, "saved albums unavailable: ${describe(it)}") }
     }
 
-    /** The whole library's songs, for the library's Songs chip; see [loadAllSongs]. */
-    data class AllSongsState(val tracks: List<CatalogTrack> = emptyList(), val loading: Boolean = false)
-
-    private val _allSongs = MutableStateFlow(AllSongsState())
-    val allSongs: StateFlow<AllSongsState> = _allSongs.asStateFlow()
-    private var allSongsJob: Job? = null
-    private var allSongsBackend: BackendId? = null
-
-    /**
-     * Read when the chip is first opened rather than with the rest of the
-     * library: a big NAS is tens of thousands of songs, and most visits to the
-     * library never look at them. Kept for the session, per source.
-     */
-    fun loadAllSongs() {
-        val backend = container.activeBackend
-        if (allSongsJob?.isActive == true && allSongsBackend == backend.id) return
-        if (allSongsBackend == backend.id && _allSongs.value.tracks.isNotEmpty()) return
-        allSongsJob?.cancel()
-        allSongsBackend = backend.id
-        _allSongs.value = AllSongsState(loading = true)
-        allSongsJob = viewModelScope.launch {
-            val tracks = runCatching { backend.allSongs() }
-                .onFailure {
-                    if (it is kotlinx.coroutines.CancellationException) throw it
-                    android.util.Log.w(TAG, "all songs unavailable: ${describe(it)}")
-                }
-                .getOrDefault(emptyList())
-            _allSongs.value = AllSongsState(tracks = tracks)
-        }
-    }
-
     private val _podcastShelves = MutableStateFlow<List<HomeShelf>>(emptyList())
 
     /** Spotify's own podcast home, for Home's chip of it; see [loadPodcastShelves]. */
