@@ -140,4 +140,15 @@ Java_dev_lelonio_square_playback_Stretcher_nativeProcess(
 	return frames;
 }
 
+/**
+ * How far the output lags the input, in input frames: the audio that went in
+ * and has not come out yet. Only valid after the first process call.
+ */
+JNIEXPORT jdouble JNICALL
+Java_dev_lelonio_square_playback_Stretcher_nativeLatency(JNIEnv *, jclass, jlong handle)
+{
+	auto *context = reinterpret_cast<Context *>(handle);
+	return context ? context->stream.latency() : 0.;
+}
+
 } // extern "C"

@@ -78,6 +78,8 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
     override fun onReset() {
         stretcher?.release()
         stretcher = null
+        stretched = false
+        historyFrames = 0
         failureReported = false
     }
 
@@ -88,13 +90,28 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
         // Nothing to do at rest, and doing nothing is worth the check: this
         // runs on the audio thread for every packet of every track.
         if (!isAltering) {
-            replaceOutputBuffer(size).put(inputBuffer).flip()
+            val held = stretcher?.takeIf { stretched }?.latencyFrames() ?: 0
+            if (stretcher != null) {
+                // Back to speed one: the stretcher still holds what went in and was not
+                // heard yet. Dropping it skipped that much of the song, the stumble at the
+                // end of a tempo-matched mix; it is played from the history instead.
+                stretcher?.release()
+                stretcher = null
+                stretched = false
+            }
+            val heldBytes = minOf(held, historyFrames) * frameBytes
+            val out = replaceOutputBuffer(heldBytes + size)
+            if (heldBytes > 0) copyHistoryTail(heldBytes, out)
+            out.put(inputBuffer).flip()
+            historyFrames = 0
             return
         }
 
         val frames = size / (inputAudioFormat.channelCount * BYTES_PER_SAMPLE)
         val stretcher = stretcher(frames)
+        remember(inputBuffer, size)
         val produced = stretcher?.process(inputBuffer, size, speed, pitch)
+        if (produced != null) stretched = true
         if (produced == null) {
             if (!failureReported) {
                 failureReported = true
@@ -128,6 +145,42 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
         return Stretcher.create(rate, channels, maxFrames).also { stretcher = it }
     }
 
+    /** The last input that went into the stretcher, interleaved, as a ring. */
+    private val history = ByteArray(HISTORY_FRAMES * MAX_CHANNELS * BYTES_PER_SAMPLE)
+    private var historyEnd = 0
+    private var historyFrames = 0
+    private var stretched = false
+    private val frameBytes get() = inputAudioFormat.channelCount * BYTES_PER_SAMPLE
+
+    private fun remember(source: ByteBuffer, size: Int) {
+        val fb = frameBytes
+        if (fb * HISTORY_FRAMES > history.size) return
+        val cap = fb * HISTORY_FRAMES
+        val view = source.duplicate()
+        var left = size
+        // Only the newest [cap] bytes matter.
+        if (left > cap) { view.position(view.position() + left - cap); left = cap }
+        while (left > 0) {
+            val n = minOf(left, cap - historyEnd)
+            view.get(history, historyEnd, n)
+            historyEnd = (historyEnd + n) % cap
+            left -= n
+        }
+        historyFrames = minOf(HISTORY_FRAMES, historyFrames + size / fb)
+    }
+
+    private fun copyHistoryTail(bytes: Int, out: ByteBuffer) {
+        val cap = frameBytes * HISTORY_FRAMES
+        var start = (historyEnd - bytes + cap) % cap
+        var left = bytes
+        while (left > 0) {
+            val n = minOf(left, cap - start)
+            out.put(history, start, n)
+            start = (start + n) % cap
+            left -= n
+        }
+    }
+
     private var maxFrames = 0
     private var builtForRate = 0
     private var builtForChannels = 0
@@ -138,6 +191,10 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
 
         /** A decoder's packet, with room to spare, so the first one fits. */
         const val MIN_PACKET_FRAMES = 8192
+
+        /** Far more than Bungee's window holds back, at any rate this plays. */
+        const val HISTORY_FRAMES = 16384
+        const val MAX_CHANNELS = 8
     }
 }
 

@@ -97,7 +97,6 @@ class YumaDualDeckPlayer private constructor(
     // The listener's own speed/pitch. A beat-matched handoff leaves the new song at the old one's
     // tempo and eases it back here, so the decks' live parameters are not always this.
     private var userParams = PlaybackParameters(AudioEffects.speed.value, AudioEffects.pitch.value)
-    private var tempoEaseJob: Job? = null
     private var loopSince: Long? = null
 
     private class PairCache(
@@ -178,11 +177,12 @@ class YumaDualDeckPlayer private constructor(
         // rest; if matched kicks flam on a device, set this to that delay.
         private const val STRETCH_LATENCY_MS = 0.0
 
-        // automix-engine brings the new song back to its own tempo over ~6.5 s after the handoff.
-        private const val TEMPO_EASE_MS = 6500L
+        // The matched tempo returns to the listener's own over the last 35% of the mix, where the
+        // old song is already below -6 dB, so it is home by the handoff. Knob: lower starts sooner.
+        private const val TEMPO_RETURN_FROM = 0.65f
+        private const val TEMPO_STEP = 0.004f
         // Longer than the incoming deck's own ready timeout, so a slow start still gets its bed.
         private const val LOOP_HOLD_MAX_MS = 8000L
-        private const val EASE_STEP_MS = 250L
 
         operator fun invoke(host: PlaybackHost): YumaDualDeckPlayer {
             val filterA = DjFilterAudioProcessor()
@@ -334,7 +334,7 @@ class YumaDualDeckPlayer private constructor(
     private fun forwardPlayerEvents(player: ExoPlayer) {
         player.addListener(object : Player.Listener {
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
-                if (player === activeDeck.player && !isCrossfading && tempoEaseJob?.isActive != true) {
+                if (player === activeDeck.player && !isCrossfading) {
                     AudioEffects.rememberSpeedAndPitch(playbackParameters.speed, playbackParameters.pitch)
                 }
             }
@@ -759,7 +759,6 @@ class YumaDualDeckPlayer private constructor(
         outgoing.maxGainFactor = 1f
         incoming.maxGainFactor = 1f
 
-        tempoEaseJob?.cancel()
         outgoing.player.playbackParameters = userParams
         val matchedParams = if (plan.tier == TransitionTier.SMART_BEATMATCH && plan.incomingTempoRatio != 1f) {
             PlaybackParameters(userParams.speed * plan.incomingTempoRatio, userParams.pitch)
@@ -830,7 +829,17 @@ class YumaDualDeckPlayer private constructor(
                         outgoing.applyAutomation(progress, plan)
                         incoming.applyAutomation(progress, plan)
                         AutomixStateHolder.update { it.copy(crossfadeProgress = progress) }
-                        if (plan.tier == TransitionTier.SMART_BEATMATCH && exitMs != null && now - lastNudge >= NUDGE_EVERY_MS) {
+                        if (matchedParams != userParams && progress >= TEMPO_RETURN_FROM) {
+                            // The new song is back at its own tempo by the handoff, not seconds
+                            // after it: brought home while the old one is on its way out.
+                            val f = ((progress - TEMPO_RETURN_FROM) / (1f - TEMPO_RETURN_FROM)).coerceIn(0f, 1f)
+                            val eased = f * f * (3f - 2f * f)
+                            val speed = matchedParams.speed + (userParams.speed - matchedParams.speed) * eased
+                            // Each change drains the sink's processors; a few dozen steps, not one per frame.
+                            if (abs(speed - incoming.player.playbackParameters.speed) >= TEMPO_STEP || f >= 1f) {
+                                incoming.player.playbackParameters = PlaybackParameters(speed, userParams.pitch)
+                            }
+                        } else if (plan.tier == TransitionTier.SMART_BEATMATCH && exitMs != null && now - lastNudge >= NUDGE_EVERY_MS) {
                             lastNudge = now
                             holdBeatPhase(outgoing, incoming, plan, exitMs, matchedParams)
                         }
@@ -870,34 +879,11 @@ class YumaDualDeckPlayer private constructor(
         if (inc.playbackParameters != wanted) inc.playbackParameters = wanted
     }
 
-    /** From the matched tempo back to the listener's own, smoothly, as automix-engine does. */
-    private fun easeTempoBack(player: ExoPlayer) {
-        tempoEaseJob?.cancel()
-        val from = player.playbackParameters.speed
-        tempoEaseJob = scope.launch {
-            val steps = (TEMPO_EASE_MS / EASE_STEP_MS).toInt()
-            for (i in 1..steps) {
-                delay(EASE_STEP_MS)
-                if (player !== activeDeck.player) return@launch
-                val f = i.toFloat() / steps
-                val eased = f * f * (3f - 2f * f)
-                player.playbackParameters = PlaybackParameters(from + (userParams.speed - from) * eased, userParams.pitch)
-            }
-            player.playbackParameters = userParams
-        }
-    }
-
-    private fun stopTempoEase() {
-        if (tempoEaseJob?.isActive != true) return
-        tempoEaseJob?.cancel()
-        activeDeck.player.playbackParameters = userParams
-    }
-
     private fun completeHandoff(incoming: ExoDeck, outgoing: ExoDeck, plan: AutomixPlan) {
         outgoing.player.pauseAtEndOfMediaItems = false
         incoming.player.pauseAtEndOfMediaItems = false
 
-        if (incoming.player.playbackParameters != userParams) easeTempoBack(incoming.player)
+        if (incoming.player.playbackParameters != userParams) incoming.player.playbackParameters = userParams
 
         // Hand audio focus over: release on the outgoing first, then claim on the incoming.
         val attrs = outgoing.player.audioAttributes
@@ -997,7 +983,6 @@ class YumaDualDeckPlayer private constructor(
 
     // Every position jump goes through here so the scheduler never acts on a stale position.
     private fun beforeSeek() {
-        stopTempoEase()
         activeDeck.loop.arm = null
         standbyDeck.loop.arm = null
         lastSeekTimestamp = android.os.SystemClock.elapsedRealtime()
@@ -1097,7 +1082,6 @@ class YumaDualDeckPlayer private constructor(
 
     override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {
         userParams = playbackParameters
-        tempoEaseJob?.cancel()
         playerA.playbackParameters = playbackParameters
         playerB.playbackParameters = playbackParameters
     }
@@ -1125,7 +1109,6 @@ class YumaDualDeckPlayer private constructor(
     override fun release() {
         AutomixStateHolder.update { it.copy(quality = null) }
         schedulerJob?.cancel()
-        tempoEaseJob?.cancel()
         cancelCrossfade()
         hardwareEffectsManager.detachSession()
         playerA.release()

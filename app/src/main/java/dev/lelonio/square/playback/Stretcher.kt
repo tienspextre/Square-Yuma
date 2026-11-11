@@ -63,6 +63,9 @@ class Stretcher private constructor(
         return output
     }
 
+    /** Input frames taken in but not yet heard; call only after a [process]. */
+    fun latencyFrames(): Int = if (handle == 0L) 0 else nativeLatency(handle).toInt().coerceAtLeast(0)
+
     fun release() {
         if (handle != 0L) {
             nativeDestroy(handle)
@@ -101,6 +104,9 @@ class Stretcher private constructor(
 
         @JvmStatic
         private external fun nativeDestroy(handle: Long)
+
+        @JvmStatic
+        private external fun nativeLatency(handle: Long): Double
 
         @JvmStatic
         private external fun nativeProcess(
