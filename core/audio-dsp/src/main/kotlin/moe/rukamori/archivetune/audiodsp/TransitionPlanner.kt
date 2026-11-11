@@ -205,6 +205,8 @@ object TransitionPlanner {
             durationMs = durationMs,
             incomingStartMs = incomingStartMs,
             enableBassSwap = enableBassSwap,
+            // No analysis: a sweep needs no grid and still sounds mixed rather than faded.
+            style = MixStyle.FILTER_SWEEP,
         )
     }
 
@@ -325,6 +327,7 @@ object TransitionPlanner {
             prepareAheadMs = prepareAheadMs,
             tier = tier,
             incomingTempoRatio = incomingTempoRatio,
+            style = if (tier == TransitionTier.SMART_BEATMATCH) MixStyle.BLEND else MixStyle.FILTER_SWEEP,
         )
     }
 

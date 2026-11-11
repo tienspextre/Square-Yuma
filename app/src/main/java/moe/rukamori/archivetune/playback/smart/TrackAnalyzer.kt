@@ -25,7 +25,7 @@ import timber.log.Timber
 
 object TrackAnalyzer : AnalysisStore {
     private const val KICK_OFF_COOLDOWN_MS = 10_000L
-    private const val CACHE_VERSION = 3
+    private const val CACHE_VERSION = 4
     private val analyzerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val memoryCache = ConcurrentHashMap<String, TrackAnalysisResult>()
     private val inFlight = ConcurrentHashMap<String, Deferred<TrackAnalysisResult?>>()
@@ -111,9 +111,10 @@ object TrackAnalyzer : AnalysisStore {
         return null
     }
 
-    fun putCached(trackId: String, result: TrackAnalysisResult) {
+    fun putCached(trackId: String, result: TrackAnalysisResult, persist: Boolean = true) {
         memoryCache[trackId] = result
         _analysisEvents.tryEmit(trackId to result)
+        if (!persist) return
         analyzerScope.async(Dispatchers.IO) {
             runCatching {
                 val file = cacheFileFor(trackId) ?: return@runCatching
@@ -266,7 +267,11 @@ object TrackAnalyzer : AnalysisStore {
                     val dsp = analyzeDsp(duration, decodeHeadSamples, decodeTailSamples, decodeFullSamples)
                         ?: return@withPermit null
                     val result = dsp.copy(modelJson = ModelPass.run(duration, decodeStereo))
-                    putCached(trackId, result)
+                    // A stream whose tail or model pass failed (a dropped connection, an unseekable
+                    // transcode) is kept for this run only, so the next play analyses it again.
+                    val complete = result.modelJson.isNotEmpty() &&
+                        (decodeFullSamples != null || decodeTailSamples == null || result.tailRawJson.isNotEmpty())
+                    putCached(trackId, result, persist = complete)
                     result
                 } catch (e: Exception) {
                     Timber.tag("TrackAnalyzer").e(e, "Analysis failed for trackId=$trackId source=$source")

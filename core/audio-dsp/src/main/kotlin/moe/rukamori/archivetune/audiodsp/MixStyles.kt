@@ -96,7 +96,14 @@ object MixStyles {
                 DeckShape(vocalSafe(styledOut, fall(p.pow(VOCAL_SAFE_FALL_SHAPE)), clash), outLp, OFF_HZ, outBass) to
                     DeckShape(vocalSafe(styledIn, rise(p.pow(VOCAL_SAFE_RISE_SHAPE)), clash), OPEN_HZ, inHp, inBass)
             }
-            MixStyle.EQUAL_POWER, MixStyle.BLEND -> {
+            MixStyle.BLEND -> {
+                // Beat-matched: both play full range, one kick and bassline at a time, the low end
+                // changing hands on the beat the planner picked. Vocals pulled apart only on a clash.
+                val outLp = if (clash > 0) glide(OPEN_HZ, glide(OPEN_HZ, VOCAL_SEPARATION_FLOOR_HZ, clash), p.toDouble().pow(FILTER_SWEEP_SHAPE)) else OPEN_HZ
+                val inHp = if (clash > 0) entryHighPass(p, clash, VOCAL_SEPARATION_HIGH_PASS_HZ, VOCAL_OPEN_BY) else OFF_HZ
+                DeckShape(fall(p), outLp, OFF_HZ, outBass) to DeckShape(rise(p), OPEN_HZ, inHp, inBass)
+            }
+            MixStyle.EQUAL_POWER -> {
                 // Damage control only: nudge two colliding vocals apart, as far as they collide.
                 val floor = glide(OPEN_HZ, VOCAL_SEPARATION_FLOOR_HZ, clash)
                 val outLp = if (clash > 0) glide(OPEN_HZ, floor, p.toDouble().pow(FILTER_SWEEP_SHAPE)) else OPEN_HZ

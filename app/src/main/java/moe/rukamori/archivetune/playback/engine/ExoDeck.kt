@@ -31,14 +31,14 @@ class ExoDeck(
     override fun applyAutomation(progress: Float, plan: AutomixPlan) {
         val clamped = progress.coerceIn(0f, 1f)
         val style = plan.style
-        if (style != null && style != MixStyle.BLEND) {
+        if (style != null) {
             // The pair planner's filter mixes: both decks from one shape, so they stay complementary.
             val (out, inc) = MixStyles.shape(style, clamped, plan.swapAt, plan.swapWidth, plan.vocalClash)
             val shape = if (isIncoming) inc else out
             player.volume = (baseVolume * shape.gain).coerceIn(0f, maxGainFactor)
             djFilter.lowPassCutoffHz = shape.lowPassHz
             djFilter.highPassHz = shape.highPassHz
-            djFilter.bassGainDb = shape.bassDb
+            djFilter.bassGainDb = if (style == MixStyle.BLEND && !plan.enableBassSwap) 0.0 else shape.bassDb
             return
         }
         val isAutomix = plan.tier != TransitionTier.PLAIN_CROSSFADE || plan.enableBassSwap

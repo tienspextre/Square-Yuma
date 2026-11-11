@@ -193,6 +193,11 @@ class YumaDualDeckPlayer private constructor(
             val loopB = LoopAudioProcessor()
             val playerA = buildDeckPlayer(host, filterA, bungeeA, loopA, handleAudioFocus = true)
             val playerB = buildDeckPlayer(host, filterB, bungeeB, loopB, handleAudioFocus = false)
+            // One audio session for both decks: the session effects (bass boost, virtualizer,
+            // loudness, the system EQ) are attached once and cover whichever deck is audible.
+            // Attaching them to the incoming deck's own session at handoff made Android rebuild
+            // its live AudioTrack, dropping what it had buffered: the next song jumped ahead.
+            playerB.audioSessionId = playerA.audioSessionId
             val forwarding = DualForwardingPlayer(playerA)
             return YumaDualDeckPlayer(
                 host = host,
@@ -728,6 +733,12 @@ class YumaDualDeckPlayer private constructor(
 
         lastTriggeredIndex = outgoing.player.currentMediaItemIndex
         lastTriggeredMediaId = outgoing.player.currentMediaItem?.mediaId
+        // One line per mix: which plan won, so "it only fades" can be told apart on a device.
+        android.util.Log.i(
+            "Automix",
+            "mix style=${plan.style} tier=${plan.tier} fade=${plan.durationMs}ms tempo=${plan.incomingTempoRatio} " +
+                "loop=${plan.loopStartMs}-${plan.loopEndMs} bassSwap=${plan.enableBassSwap} clash=${plan.vocalClash}",
+        )
 
         val cueInMs = plan.incomingStartMs.coerceAtLeast(0L)
         if (preparedStandbyIndex != nextIndex) {
@@ -894,7 +905,6 @@ class YumaDualDeckPlayer private constructor(
         incoming.player.setAudioAttributes(attrs, focusHandled)
 
         forwardingPlayer.attachPlayer(incoming.player)
-        hardwareEffectsManager.attachSession(incoming.player.audioSessionId)
 
         activeDeck = incoming
         standbyDeck = outgoing

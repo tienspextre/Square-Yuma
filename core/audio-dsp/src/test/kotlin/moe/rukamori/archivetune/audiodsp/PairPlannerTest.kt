@@ -110,6 +110,16 @@ class PairPlannerTest {
     }
 
     @Test
+    fun blendHandsTheBassOverInsteadOfDivingIntoAFade() {
+        val (o0, i0) = MixStyles.shape(MixStyle.BLEND, 0.2f, 0.5, 0.03, 0.0)
+        assertEquals(0.0, o0.bassDb, 1e-9); assertEquals(MixStyles.CUT_DB, i0.bassDb, 1e-9)
+        assertTrue("both audible early", o0.gain > 0.9f && i0.gain > 0.25f)
+        assertTrue(o0.lowPassHz >= MixStyles.OPEN_HZ - 1e-6) // no underwater outgoing
+        val (o1, i1) = MixStyles.shape(MixStyle.BLEND, 0.8f, 0.5, 0.03, 0.0)
+        assertEquals(MixStyles.CUT_DB, o1.bassDb, 1e-9); assertEquals(0.0, i1.bassDb, 1e-9)
+    }
+
+    @Test
     fun twoKicksAtTheJoinGetABassHandoff() {
         val out = MixFeatures.parse(track(200.0, 90.0, "C major", { false }, low = 0.9))!!
         val inc = MixFeatures.parse(track(200.0, 128.0, "C major", { false }, low = 0.9))!!
