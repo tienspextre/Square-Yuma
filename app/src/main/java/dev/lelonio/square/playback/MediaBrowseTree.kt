@@ -153,24 +153,21 @@ class MediaBrowseTree(
             .setSlots(CommandButton.SLOT_BACK_SECONDARY, CommandButton.SLOT_OVERFLOW)
             .build()
 
-        if (!shadeAndCar) {
-            return ImmutableList.of(
-                shuffle,
-                CommandButton.Builder(
-                    when (player.repeatMode) {
-                        androidx.media3.common.Player.REPEAT_MODE_ONE ->
-                            CommandButton.ICON_REPEAT_ONE
-                        androidx.media3.common.Player.REPEAT_MODE_ALL ->
-                            CommandButton.ICON_REPEAT_ALL
-                        else -> CommandButton.ICON_REPEAT_OFF
-                    },
-                )
-                    .setSessionCommand(SessionCommand(CMD_REPEAT, Bundle.EMPTY))
-                    .setDisplayName(strings.getString(R.string.repeat))
-                    .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
-                    .build(),
-            )
-        }
+        val repeat = CommandButton.Builder(
+            when (player.repeatMode) {
+                androidx.media3.common.Player.REPEAT_MODE_ONE ->
+                    CommandButton.ICON_REPEAT_ONE
+                androidx.media3.common.Player.REPEAT_MODE_ALL ->
+                    CommandButton.ICON_REPEAT_ALL
+                else -> CommandButton.ICON_REPEAT_OFF
+            },
+        )
+            .setSessionCommand(SessionCommand(CMD_REPEAT, Bundle.EMPTY))
+            .setDisplayName(strings.getString(R.string.repeat))
+            .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
+            .build()
+
+        if (!shadeAndCar) return ImmutableList.of(shuffle, repeat)
 
         val currentUri = player.currentMediaItem?.mediaId
         val liked = isLiked ?: app.likedStore.isLiked(currentUri)
@@ -182,15 +179,10 @@ class MediaBrowseTree(
             )
             .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
             .build()
-        val radio = CommandButton.Builder(CommandButton.ICON_RADIO)
-            .setSessionCommand(SessionCommand(CMD_RADIO, Bundle.EMPTY))
-            .setDisplayName(strings.getString(R.string.radio))
-            // Beside the transport where there is no heart to put there.
-            .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
-            .build()
         // The heart only where it can do something: a button that did nothing
         // was what a YouTube Music listener with no account found here.
-        return if (likeable(currentUri)) ImmutableList.of(shuffle, heart, radio) else ImmutableList.of(shuffle, radio)
+        // Repeat rather than radio in the shade: the one a listener reaches for there.
+        return if (likeable(currentUri)) ImmutableList.of(shuffle, heart, repeat) else ImmutableList.of(shuffle, repeat)
     }
 
     /**
