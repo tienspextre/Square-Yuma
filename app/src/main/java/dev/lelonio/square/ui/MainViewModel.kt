@@ -568,6 +568,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!force && _youtubeHome.value.rows.isNotEmpty()) return
 
         youtubeParams = null
+        if (force) youtubePages.clear()
         _youtubeHome.value = _youtubeHome.value.copy(loading = true, error = null, chip = null)
         youtubeHomeJob = viewModelScope.launch { readYouTubeHome(replace = true) }
     }
@@ -600,6 +601,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (chip?.title == _youtubeHome.value.chip) return
         youtubeHomeJob?.cancel()
         youtubeParams = chip?.params
+        // A page already read this session comes back at once: a mood on a
+        // NAS is every song of every genre behind it, too slow to ask twice.
+        youtubePages[pageKey(chip?.params)]?.let { kept ->
+            _youtubeHome.value = kept.copy(chips = _youtubeHome.value.chips, chip = chip?.title)
+            return
+        }
         _youtubeHome.value = _youtubeHome.value.copy(
             rows = emptyList(),
             chip = chip?.title,
@@ -612,9 +619,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var youtubeParams: String? = null
 
+    /** Pages read this session, by source and filter; see [selectYouTubeChip]. */
+    private val youtubePages = HashMap<String, YouTubeHomeState>()
+    private fun pageKey(params: String?) = "${container.activeBackend.id}|$params"
+
     private suspend fun readYouTubeHome(replace: Boolean) {
         val backend = container.activeBackend
         val before = _youtubeHome.value
+        val key = pageKey(youtubeParams)
         runCatching {
             backend.homeFeed(
                 cursor = if (replace) null else before.cursor,
@@ -633,6 +645,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     error = null,
                     cursor = feed.cursor,
                 )
+                youtubePages[key] = _youtubeHome.value
             }
             .onFailure {
                 if (it is kotlinx.coroutines.CancellationException) throw it
@@ -4053,6 +4066,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Told by the screen itself; see the detail route. */
     fun detailShown() {
         pageOnScreen = true
+        // Every way onto the detail route fills the page first, so an empty one
+        // here is the route brought back after the process was killed, with this
+        // model new and blank: the album came back as an empty page. Reopened
+        // from the last page opened, which is on disk.
+        // ponytail: a station or an unnamed page is not recorded there, so the one before it opens instead.
+        if (_playlist.value.uri == null) {
+            container.widgetPlaylists.recent(container.activeBackend.id).firstOrNull()?.let {
+                openPlaylist(CatalogPlaylist(uri = it.uri, name = it.name, artworkUrl = it.artworkUrl))
+            }
+        }
     }
 
     /** And when it goes, so does everything behind it. */
@@ -6548,6 +6571,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
             .onSuccess { _savedAlbums.value = it }
             .onFailure { android.util.Log.w(TAG, "saved albums unavailable: ${describe(it)}") }
+    }
+
+    /** The whole library's songs, for the library's Songs chip; see [loadAllSongs]. */
+    data class AllSongsState(val tracks: List<CatalogTrack> = emptyList(), val loading: Boolean = false)
+
+    private val _allSongs = MutableStateFlow(AllSongsState())
+    val allSongs: StateFlow<AllSongsState> = _allSongs.asStateFlow()
+    private var allSongsJob: Job? = null
+    private var allSongsBackend: BackendId? = null
+
+    /**
+     * Read when the chip is first opened rather than with the rest of the
+     * library: a big NAS is tens of thousands of songs, and most visits to the
+     * library never look at them. Kept for the session, per source.
+     */
+    fun loadAllSongs() {
+        val backend = container.activeBackend
+        if (allSongsJob?.isActive == true && allSongsBackend == backend.id) return
+        if (allSongsBackend == backend.id && _allSongs.value.tracks.isNotEmpty()) return
+        allSongsJob?.cancel()
+        allSongsBackend = backend.id
+        _allSongs.value = AllSongsState(loading = true)
+        allSongsJob = viewModelScope.launch {
+            val tracks = runCatching { backend.allSongs() }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    android.util.Log.w(TAG, "all songs unavailable: ${describe(it)}")
+                }
+                .getOrDefault(emptyList())
+            _allSongs.value = AllSongsState(tracks = tracks)
+        }
     }
 
     private val _podcastShelves = MutableStateFlow<List<HomeShelf>>(emptyList())

@@ -1038,6 +1038,8 @@ private fun SkeletonSection(
     tileHeight: Dp,
     round: Boolean = false,
     card: Boolean = false,
+    /** The name and the line under it, as PlaylistTile draws them. */
+    caption: Boolean = false,
 ) {
     val fill = Ink.copy(alpha = 0.07f)
     Column(Modifier.padding(top = 22.dp)) {
@@ -1067,13 +1069,75 @@ private fun SkeletonSection(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 repeat(SKELETON_TILES) {
+                    Column(Modifier.width(tileWidth)) {
+                        Box(
+                            Modifier
+                                .width(tileWidth)
+                                .height(tileHeight)
+                                .clip(if (round) CircleShape else RoundedCornerShape(if (caption) 20.dp else 18.dp))
+                                .background(fill),
+                        )
+                        if (caption) SkeletonLines(fill, Modifier.padding(top = 12.dp, start = 2.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A title and the line under it, at the widths a name usually runs to. */
+@Composable
+private fun SkeletonLines(fill: Color, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Box(
+            Modifier
+                .fillMaxWidth(0.7f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(fill),
+        )
+        Box(
+            Modifier
+                .padding(top = 7.dp)
+                .fillMaxWidth(0.45f)
+                .height(11.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(fill),
+        )
+    }
+}
+
+/** [QuickPicks] before it arrives: a heading and one column of four songs. */
+@Composable
+private fun SkeletonQuickPicks() {
+    val fill = Ink.copy(alpha = 0.07f)
+    Column(Modifier.padding(top = 22.dp)) {
+        Box(
+            Modifier
+                .padding(horizontal = 20.dp)
+                .width(140.dp)
+                .height(20.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(fill),
+        )
+        Column(
+            Modifier
+                .padding(start = 20.dp, end = 24.dp, top = 14.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            repeat(QUICK_PICK_ROWS) {
+                Row(
+                    Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Box(
                         Modifier
-                            .width(tileWidth)
-                            .height(tileHeight)
-                            .clip(if (round) CircleShape else RoundedCornerShape(18.dp))
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(fill),
                     )
+                    SkeletonLines(fill, Modifier.padding(start = 12.dp).weight(1f))
                 }
             }
         }
@@ -1301,7 +1365,10 @@ private fun YouTubeHome(
     onSignIn: () -> Unit,
     backendId: BackendId = BackendId.YOUTUBE_MUSIC,
 ) {
-    val empty = home.rows.isEmpty() && recent.isEmpty()
+    // Still loading is not empty: the list goes up with the chips and the
+    // shelves' outline in it, rather than a spinner or (with something in
+    // "play again") nothing at all under a mood chip until it lands.
+    val empty = home.rows.isEmpty() && recent.isEmpty() && !home.loading
     if (empty) {
         Box(Modifier.fillMaxSize()) {
             Centered {
@@ -1402,6 +1469,18 @@ private fun YouTubeHome(
                     backdrop = backdrop,
                     onPick = onPickChip,
                 )
+            }
+        }
+
+        // The shape of a mood or genre page (its tile, its songs, its albums),
+        // and near enough the home page's, until the rows replace it.
+        if (home.loading && home.rows.isEmpty()) {
+            item(key = "outline-tiles", contentType = "skeleton") {
+                SkeletonSection(tileWidth = 152.dp, tileHeight = 152.dp, caption = true)
+            }
+            item(key = "outline-picks", contentType = "skeleton") { SkeletonQuickPicks() }
+            item(key = "outline-albums", contentType = "skeleton") {
+                SkeletonSection(tileWidth = 152.dp, tileHeight = 152.dp, caption = true)
             }
         }
 

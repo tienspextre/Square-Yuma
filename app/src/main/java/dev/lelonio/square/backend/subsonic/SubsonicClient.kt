@@ -206,10 +206,23 @@ class SubsonicClient(
         }
     }
 
-    suspend fun search(query: String): Result<SubsonicSearchResult3> = withContext(Dispatchers.IO) {
+    /** An empty [query] lists the whole library on Navidrome, paged with [songOffset]. */
+    suspend fun search(
+        query: String,
+        songCount: Int = 50,
+        songOffset: Int = 0,
+        albumCount: Int = 20,
+        artistCount: Int = 20,
+    ): Result<SubsonicSearchResult3> = withContext(Dispatchers.IO) {
         val url = buildUrl(
             "search3.view",
-            mapOf("query" to query, "songCount" to "50", "albumCount" to "20", "artistCount" to "20"),
+            mapOf(
+                "query" to query,
+                "songCount" to "$songCount",
+                "songOffset" to "$songOffset",
+                "albumCount" to "$albumCount",
+                "artistCount" to "$artistCount",
+            ),
         ) ?: return@withContext Result.failure(IOException("Invalid URL"))
         try {
             val request = Request.Builder().url(url).build()

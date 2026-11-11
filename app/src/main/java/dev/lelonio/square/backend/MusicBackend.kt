@@ -161,6 +161,12 @@ interface MusicBackend {
     /** The artists the account follows, for the same shelf's artists chip. */
     suspend fun followedArtists(): List<SearchItem> = emptyList()
 
+    /**
+     * Every song in the library, for the library's songs chip. Empty for a
+     * source that has no whole library to list.
+     */
+    suspend fun allSongs(): List<CatalogTrack> = emptyList()
+
     /** The podcasts the account follows, for the library's podcast chip. */
     suspend fun savedShows(): List<CatalogPlaylist> = emptyList()
 

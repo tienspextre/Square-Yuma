@@ -106,6 +106,7 @@
     <string name="item_count">%1$d items</string>
     <string name="artist_count">%1$d artists</string>
     <string name="album_count">%1$d albums</string>
+    <string name="song_total">%1$d songs</string>
 
     <!-- Playlist, album, artist -->
     <string name="playlist_order">Playlist order</string>

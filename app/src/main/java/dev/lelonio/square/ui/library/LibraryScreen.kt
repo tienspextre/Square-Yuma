@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,6 +113,8 @@ private enum class Filter(@StringRes val label: Int, @StringRes val count: Int) 
     ARTISTS(R.string.artists, R.string.artist_count),
     ALBUMS(R.string.albums, R.string.album_count),
     PODCASTS(R.string.podcasts, R.string.podcast_count),
+    /** Every song on the source, for one that has a whole library (the NAS). */
+    SONGS(R.string.tracks, R.string.song_total),
 }
 
 /**
@@ -149,6 +152,12 @@ fun LibraryScreen(
     albums: List<CatalogPlaylist> = emptyList(),
     /** The podcasts the account follows; none leaves their chip out. */
     podcasts: List<CatalogPlaylist> = emptyList(),
+    /** The whole library's songs; null leaves the Songs chip out. See MainViewModel.loadAllSongs. */
+    songs: MainViewModel.AllSongsState? = null,
+    /** The Songs chip was opened: read them if they are not in hand yet. */
+    onWantSongs: () -> Unit = {},
+    /** A song in the Songs chip, played with the rest of the list as shown. */
+    onPlaySong: (List<dev.lelonio.square.data.CatalogTrack>, Int) -> Unit = { _, _ -> },
     /** Tries the servers again from the offline banner; null hides the button. */
     onRetryOnline: (suspend () -> Boolean)? = null,
     /**
@@ -239,9 +248,20 @@ fun LibraryScreen(
                 }
             }
 
+            // Songs drawn as the library's own rows, so the search, the sort and
+            // both layouts work on them unchanged; tapping one plays it instead.
+            val songTracks = songs?.tracks.orEmpty()
+            val songItems = remember(songTracks) {
+                songTracks.map { CatalogPlaylist(uri = it.uri, name = it.name, artworkUrl = it.artworkUrl, subtitle = it.artist) }
+            }
+            val songsByUri = remember(songTracks) { songTracks.associateBy { it.uri } }
+            LaunchedEffect(filter) { if (filter == Filter.SONGS) onWantSongs() }
+            val songsLoading = filter == Filter.SONGS && songs?.loading == true && songTracks.isEmpty()
+
             // What the chips are asking for, before any sorting.
-            val shown = remember(state.playlists, albums, artistItems, podcasts, filter) {
+            val shown = remember(state.playlists, albums, artistItems, podcasts, songItems, filter) {
                 when (filter) {
+                    Filter.SONGS -> songItems
                     Filter.ALL -> (state.playlists + albums + podcasts).distinctBy { it.uri }
                     Filter.PODCASTS -> podcasts.distinctBy { it.uri }
                     Filter.PLAYLISTS -> state.playlists.distinctBy { it.uri }
@@ -322,6 +342,7 @@ fun LibraryScreen(
                         order = order,
                         filter = filter,
                         hasPodcasts = podcasts.isNotEmpty(),
+                        hasSongs = songs != null,
                         backdrop = backdrop,
                         topPadding = contentPadding.calculateTopPadding(),
                         onLayout = {
@@ -338,6 +359,19 @@ fun LibraryScreen(
                     )
                 }
                 if (!sideways) heading()
+
+                val onItem: (CatalogPlaylist) -> Unit = { item ->
+                    if (filter == Filter.SONGS) {
+                        val queue = playlists.mapNotNull { songsByUri[it.uri] }
+                        onPlaySong(queue, queue.indexOfFirst { it.uri == item.uri }.coerceAtLeast(0))
+                    } else {
+                        open(item, artists, onOpenPlaylist, onOpenArtist)
+                    }
+                }
+                // The playlist menu (pin, rename, delete) means nothing for a song.
+                val onItemMenu: (CatalogPlaylist) -> (() -> Unit)? = { item ->
+                    if (filter == Filter.SONGS) null else ({ onPlaylistMenu(item) })
+                }
 
                 val listPadding = PaddingValues(
                     start = 20.dp,
@@ -396,14 +430,20 @@ fun LibraryScreen(
                             }
                         }
 
+                        if (songsLoading) {
+                            items(SONG_OUTLINES, key = { "song-outline-$it" }, span = { GridItemSpan(maxLineSpan) }, contentType = { "skeleton" }) {
+                                dev.lelonio.square.ui.browse.SkeletonTrackRow(Modifier.bleed(20.dp))
+                            }
+                        }
+
                         items(playlists, key = { "pl_${it.uri}" }) { playlist ->
                             GridTile(
                                 playlist,
                                 pinned = playlist.uri in pinned,
-                                onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
-                                // Always: the menu's first entry is pin, which needs no
-                                // account — the actions that do are hidden by the menu itself.
-                                onLongClick = { onPlaylistMenu(playlist) },
+                                onClick = { onItem(playlist) },
+                                // Always outside the Songs chip: the menu's first entry is pin,
+                                // which needs no account — the actions that do are hidden by the menu itself.
+                                onLongClick = onItemMenu(playlist),
                             )
                         }
                     }
@@ -453,14 +493,20 @@ fun LibraryScreen(
                             item(key = "artists") { ArtistShelf(artists, onOpenArtist) }
                         }
 
+                        if (songsLoading) {
+                            items(SONG_OUTLINES, key = { "song-outline-$it" }, contentType = { "skeleton" }) {
+                                dev.lelonio.square.ui.browse.SkeletonTrackRow(Modifier.bleed(20.dp))
+                            }
+                        }
+
                         items(playlists, key = { "pl_${it.uri}" }) { playlist ->
                             ListRow(
                                 playlist,
                                 pinned = playlist.uri in pinned,
-                                onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
-                                // Always: the menu's first entry is pin, which needs no
-                                // account — the actions that do are hidden by the menu itself.
-                                onLongClick = { onPlaylistMenu(playlist) },
+                                onClick = { onItem(playlist) },
+                                // Always outside the Songs chip: the menu's first entry is pin,
+                                // which needs no account — the actions that do are hidden by the menu itself.
+                                onLongClick = onItemMenu(playlist),
                             )
                         }
                     }
@@ -543,6 +589,8 @@ private fun Header(
     filter: Filter,
     /** Whether the podcast chip has anything under it. */
     hasPodcasts: Boolean = false,
+    /** Whether the source has a whole library of songs to list. */
+    hasSongs: Boolean = false,
     backdrop: Backdrop,
     topPadding: Dp,
     onLayout: (Layout) -> Unit,
@@ -648,7 +696,7 @@ private fun Header(
                     .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-            Filter.entries.filter { it != Filter.PODCASTS || hasPodcasts }.forEach { entry ->
+            Filter.entries.filter { (it != Filter.PODCASTS || hasPodcasts) && (it != Filter.SONGS || hasSongs) }.forEach { entry ->
                 dev.lelonio.square.ui.components.FilterChip(
                     label = stringResource(entry.label),
                     selected = entry == filter,
@@ -875,3 +923,6 @@ private fun Modifier.bleed(horizontal: androidx.compose.ui.unit.Dp): Modifier =
         )
         layout(constraints.maxWidth, placeable.height) { placeable.place(-extra, 0) }
     }
+
+/** Enough song outlines to fill the screen while the Songs chip loads. */
+private const val SONG_OUTLINES = 8

@@ -711,6 +711,7 @@ fun SquareApp(
     val addFriendState by viewModel.addFriendState.collectAsStateWithLifecycle()
     val followedArtists by viewModel.followedArtists.collectAsStateWithLifecycle()
     val savedAlbums by viewModel.savedAlbums.collectAsStateWithLifecycle()
+    val allSongs by viewModel.allSongs.collectAsStateWithLifecycle()
     val savedShows by viewModel.savedShows.collectAsStateWithLifecycle()
     val podcastShelves by viewModel.podcastShelves.collectAsStateWithLifecycle()
     val podcastsLoading by viewModel.podcastsLoading.collectAsStateWithLifecycle()
@@ -1227,6 +1228,7 @@ fun SquareApp(
     // that start one are not composables of their own.
     val playAgainLabel = stringResource(R.string.play_again)
     val trendingLabel = stringResource(R.string.trending_now)
+    val songsLabel = stringResource(R.string.tracks)
     val newLabel = stringResource(R.string.tab_new)
     val searchLabel = stringResource(R.string.search)
     val radioLabel = stringResource(R.string.radio)
@@ -1980,6 +1982,12 @@ fun SquareApp(
                                 artists = followedArtists,
                                 albums = savedAlbums,
                                 podcasts = savedShows,
+                                // The NAS is the one source with a whole library to list.
+                                songs = allSongs.takeIf { backend == dev.lelonio.square.backend.BackendId.SUBSONIC },
+                                onWantSongs = viewModel::loadAllSongs,
+                                onPlaySong = { tracks, index ->
+                                    onPlay(tracks, index, null, false, songsLabel, 0L)
+                                },
                                 onRetryOnline = viewModel::retryOnline,
                                 signInHint = backend == dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC &&
                                     youtubeAccountName == null,

@@ -152,17 +152,7 @@ class SubsonicBackend(
             )
         }
 
-        // 2. Quick Play & Discovery (Tracks from NAS)
-        val randomTracks = client.getRandomSongs(30).getOrDefault(emptyList())
-        if (randomTracks.isNotEmpty()) {
-            rows.add(
-                HomeRow(
-                    title = "Quick Play & Discovery",
-                    strapline = "SONGS ON NAS",
-                    tracks = randomTracks.map { it.toCatalogTrack(client, offlineStore) },
-                ),
-            )
-        }
+        // The whole-library songs shelf lives in the Library's Songs chip now; see allSongs.
 
         // Moods first, then genres: each tile opens the whole list, playable or shufflable.
         if (mixes.isNotEmpty()) {
@@ -321,16 +311,6 @@ class SubsonicBackend(
                 )
             },
         )
-        // Add virtual All Songs item for quick library browsing
-        list.add(
-            CatalogPlaylist(
-                uri = "subsonic:all_songs",
-                name = "All Songs on NAS",
-                artworkUrl = serverPlaylists.firstOrNull()?.coverArt?.let { client.buildCoverArtUrl(it) },
-                subtitle = "Browse & shuffle library tracks",
-                mine = true,
-            ),
-        )
         list
     }
 
@@ -343,6 +323,22 @@ class SubsonicBackend(
             if (page.size < 500) break
         }
         all.map { it.toCatalogPlaylist(client) }
+    }
+
+    override suspend fun allSongs(): List<CatalogTrack> = withContext(Dispatchers.IO) {
+        // search3 with no query is the whole library on Navidrome, 500 at a time.
+        val seen = HashSet<String>()
+        val all = mutableListOf<SubsonicChildSong>()
+        while (true) {
+            val page = client.search("", songCount = SONG_PAGE, songOffset = all.size, albumCount = 0, artistCount = 0)
+                .getOrNull()?.song.orEmpty()
+            // A server that ignores the offset hands the same page back: stop rather than loop.
+            val fresh = page.filter { seen.add(it.id) }
+            all += fresh
+            if (page.size < SONG_PAGE || fresh.isEmpty()) break
+        }
+        all.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            .map { it.toCatalogTrack(client, offlineStore) }
     }
 
     override suspend fun followedArtists(): List<SearchItem> = withContext(Dispatchers.IO) {
@@ -377,10 +373,8 @@ class SubsonicBackend(
         if (uri == "subsonic:offline") {
             return@withContext offlineStore.getAllCatalogTracks()
         }
-        if (uri == "subsonic:all_songs") {
-            val songs = client.getRandomSongs(500).getOrDefault(emptyList())
-            return@withContext songs.map { it.toCatalogTrack(client, offlineStore) }
-        }
+        // The old virtual playlist, still reachable from a pin or a widget made before the Songs chip.
+        if (uri == "subsonic:all_songs") return@withContext allSongs()
         if (uri.startsWith(SubsonicMixes.URI_PREFIX)) {
             val mixes = SubsonicMixes.build(client.getGenres().getOrDefault(emptyList()))
             val mix = SubsonicMixes.find(mixes, uri.removePrefix(SubsonicMixes.URI_PREFIX))
@@ -508,3 +502,6 @@ class SubsonicBackend(
         )
     }
 }
+
+/** The most Navidrome serves per search3 call. */
+private const val SONG_PAGE = 500
