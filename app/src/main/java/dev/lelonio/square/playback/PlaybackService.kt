@@ -783,8 +783,9 @@ class PlaybackService : MediaLibraryService() {
      * everything the catalogue does needs it too. Coming up with the local
      * player behind the session left the engine unstarted, so the library sat
      * on its spinner for ever while a local file played perfectly. A queue of
-     * local files therefore does not survive a restart; it is put back the
-     * moment one is played again.
+     * phone files under Spotify is put back by [restoreLocalQueueIfLast]; a
+     * Subsonic queue, which plays through this same local player, is put back
+     * by [restoreTimeline] when the service starts.
      */
     private fun kindFor(backendId: dev.lelonio.square.backend.BackendId) = when (backendId) {
         dev.lelonio.square.backend.BackendId.SPOTIFY -> PlayerKind.SPOTIFY
@@ -1891,6 +1892,8 @@ class PlaybackService : MediaLibraryService() {
                 artists = creditedArtists(metadata.extras),
                 durationMs = metadata.durationMs ?: 0L,
                 artworkUrl = metadata.artworkUri?.toString(),
+                album = metadata.albumTitle?.toString().orEmpty(),
+                albumUri = metadata.extras?.getString(dev.lelonio.square.ui.EXTRA_ALBUM_URI),
             )
         }
         val currentTrack = tracks.getOrNull(player.currentMediaItemIndex)
@@ -1900,6 +1903,7 @@ class PlaybackService : MediaLibraryService() {
             SavedPlayback(
                 tracks = tracks,
                 shuffleOrder = null,
+                shuffleMode = player.shuffleModeEnabled,
                 index = player.currentMediaItemIndex,
                 positionMs = player.currentPosition.coerceAtLeast(0),
                 repeatMode = player.repeatMode,
@@ -1924,17 +1928,23 @@ class PlaybackService : MediaLibraryService() {
         // The phone's own files belong to no backend, so they are matched
         // against the player that is actually behind the session rather than
         // against a catalogue.
-        if (playerKind == PlayerKind.LOCAL) {
-            if (saved.tracks.none { dev.lelonio.square.data.LocalLibrary.isLocal(it.uri) }) return
-        } else {
-            val backend = when (backendId) {
-                dev.lelonio.square.backend.BackendId.SPOTIFY -> container.spotifyBackend
-                dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC -> container.youtubeBackend
-                dev.lelonio.square.backend.BackendId.LOCAL -> container.localBackend
-                dev.lelonio.square.backend.BackendId.SUBSONIC -> container.subsonicBackend
-            }
-            if (saved.tracks.none { backend.owns(it.uri) }) return
+        val backend = when (backendId) {
+            dev.lelonio.square.backend.BackendId.SPOTIFY -> container.spotifyBackend
+            dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC -> container.youtubeBackend
+            dev.lelonio.square.backend.BackendId.LOCAL -> container.localBackend
+            dev.lelonio.square.backend.BackendId.SUBSONIC -> container.subsonicBackend
         }
+        // A backend that plays through the local player (Subsonic) has its own
+        // queue there too: matching that player against phone files alone is
+        // what threw every NAS queue away on a cold start. Its items carry
+        // `subsonic:track:` ids, and the player resolves a fresh stream URL from
+        // each when it opens it, so nothing saved goes stale with the token.
+        val ownQueue = playerKind != PlayerKind.LOCAL || kindFor(backendId) == PlayerKind.LOCAL
+        if (saved.tracks.none {
+                (playerKind == PlayerKind.LOCAL && dev.lelonio.square.data.LocalLibrary.isLocal(it.uri)) ||
+                    (ownQueue && backend.owns(it.uri))
+            }
+        ) return
 
         player.setMediaItems(
             saved.tracks.map { track ->
@@ -1991,6 +2001,8 @@ class PlaybackService : MediaLibraryService() {
             saved.positionMs,
         )
         player.repeatMode = saved.repeatMode
+        // ponytail: the mode comes back, not the exact order; the engine redraws it from the current song.
+        if (playerKind == PlayerKind.LOCAL && saved.shuffleMode) player.shuffleModeEnabled = true
         player.prepare()
         android.util.Log.i(TAG, "restored ${saved.tracks.size} tracks at ${saved.index}")
     }

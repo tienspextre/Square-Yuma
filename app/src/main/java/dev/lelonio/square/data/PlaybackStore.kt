@@ -27,6 +27,11 @@ data class SavedPlayback(
     /** What the player shows as the source: "Playlist · Estate 2025". */
     val contextLabel: String = "",
     val smartShuffle: Boolean = false,
+    /**
+     * Shuffle on, for a queue saved off the Media3 timeline, which has no
+     * [shuffleOrder] to imply it. The order itself is drawn again on restore.
+     */
+    val shuffleMode: Boolean = false,
 )
 
 /**
@@ -56,9 +61,12 @@ class PlaybackStore(context: Context) {
         val trimmed = if (state.shuffleOrder != null || state.tracks.size <= MAX_TRACKS) {
             state
         } else {
+            // A window around the song playing, not the first MAX_TRACKS: past
+            // that, the index was clamped and a restart resumed the wrong song.
+            val start = (state.index - MAX_TRACKS / 2).coerceIn(0, state.tracks.size - MAX_TRACKS)
             state.copy(
-                tracks = state.tracks.take(MAX_TRACKS),
-                index = state.index.coerceIn(0, MAX_TRACKS - 1),
+                tracks = state.tracks.subList(start, start + MAX_TRACKS),
+                index = state.index - start,
             )
         }
         prefs.edit()
