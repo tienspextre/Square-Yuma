@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -1427,7 +1432,12 @@ fun SquareApp(
             dev.lelonio.square.ui.glass.LocalGlassEffectConfig provides glassConfig,
             dev.lelonio.square.ui.glass.LocalGlassFrozen provides pageMoving,
         ) {
-            Box(Modifier.fillMaxSize()) {
+            // Turned sideways, a notch or a side navigation bar sits at the left
+            // or right edge; keep everything clear of it. Zero in portrait.
+            Box(Modifier.fillMaxSize().windowInsetsPadding(
+                WindowInsets.displayCutout.union(WindowInsets.navigationBars)
+                    .only(WindowInsetsSides.Horizontal),
+            )) {
                 val navController = rememberNavController()
                 val openList: (CatalogPlaylist) -> Unit = { playlist ->
                     if (playlist.uri == dev.lelonio.square.data.Catalog.DJ_URI) startDj()
