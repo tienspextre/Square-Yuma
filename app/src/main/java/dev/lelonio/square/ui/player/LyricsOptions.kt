@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -259,6 +260,35 @@ fun LyricsOptionsPanel(
                                 .pressable({ onStyle(option) }, shape = RoundedCornerShape(50))
                                 .padding(vertical = 9.dp),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
+                }
+
+                Heading(stringResource(R.string.lyrics_translate_to), top = 14.dp)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val preferences = remember(context) {
+                    (context.applicationContext as dev.lelonio.square.SquareApplication).preferences
+                }
+                val translateTo by preferences.translateTo.collectAsState()
+                Row(
+                    Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    (listOf("" to stringResource(R.string.lyrics_translate_app)) +
+                        dev.lelonio.square.data.TranslationLanguages).forEach { (tag, name) ->
+                        val chosen = tag == translateTo
+                        Text(
+                            name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (chosen) FontWeight.SemiBold else null,
+                            color = if (chosen) Color.Black else GlassInk,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(if (chosen) GlassInk else GlassInk.copy(alpha = 0.12f))
+                                .pressable({ preferences.setTranslateTo(tag) }, shape = RoundedCornerShape(50))
+                                .padding(horizontal = 14.dp, vertical = 9.dp),
                         )
                     }
                 }

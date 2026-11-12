@@ -645,6 +645,8 @@
     <string name="lyrics_style_title">Kiểu</string>
     <string name="lyrics_style_animated">Động</string>
     <string name="lyrics_style_classic">Cổ điển</string>
+    <string name="lyrics_translate_to">Dịch sang</string>
+    <string name="lyrics_translate_app">Theo ngôn ngữ app</string>
     <string name="lyrics_word">Theo từng từ</string>
     <string name="lyrics_line">Theo từng dòng</string>
     <string name="lyrics_unsynced">Chưa đồng bộ</string>

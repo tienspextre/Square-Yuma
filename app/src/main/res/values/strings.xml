@@ -669,6 +669,8 @@
     <string name="lyrics_style_title">Style</string>
     <string name="lyrics_style_animated">Animated</string>
     <string name="lyrics_style_classic">Classic</string>
+    <string name="lyrics_translate_to">Translate to</string>
+    <string name="lyrics_translate_app">App language</string>
     <string name="lyrics_word">Word by word</string>
     <string name="lyrics_line">By line</string>
     <string name="lyrics_unsynced">Not synced</string>

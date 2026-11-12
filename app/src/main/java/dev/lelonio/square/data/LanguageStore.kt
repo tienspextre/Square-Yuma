@@ -155,3 +155,10 @@ val AppLanguages: List<Pair<String, String>> = listOf(
     "ja" to "日本語",
     "vi" to "Tiếng Việt",
 )
+
+/** What lyrics can be translated into: the app's languages, and a few more. */
+val TranslationLanguages: List<Pair<String, String>> = AppLanguages.drop(1) + listOf(
+    "zh-CN" to "中文",
+    "th" to "ไทย",
+    "id" to "Bahasa Indonesia",
+)

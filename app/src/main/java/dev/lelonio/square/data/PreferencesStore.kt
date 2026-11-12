@@ -140,6 +140,15 @@ class PreferencesStore(context: Context) {
         prefs.edit().putString(KEY_LYRICS_STYLE, value.name).apply()
     }
 
+    /** The language lyrics are translated into; empty follows the app's own. */
+    private val _translateTo = MutableStateFlow(prefs.getString(KEY_TRANSLATE_TO, null).orEmpty())
+    val translateTo: StateFlow<String> = _translateTo.asStateFlow()
+
+    fun setTranslateTo(value: String) {
+        _translateTo.value = value
+        prefs.edit().putString(KEY_TRANSLATE_TO, value).apply()
+    }
+
     /** The line being sung, small above the seek bar on the default Now Playing view. */
     private val _miniLyrics = MutableStateFlow(prefs.getBoolean(KEY_MINI_LYRICS, false))
     val miniLyrics: StateFlow<Boolean> = _miniLyrics.asStateFlow()
@@ -418,6 +427,7 @@ class PreferencesStore(context: Context) {
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_YOUTUBE_QUALITY = "youtube_quality"
         const val KEY_LYRICS_STYLE = "lyrics_style"
+        const val KEY_TRANSLATE_TO = "lyrics_translate_to"
         const val KEY_MINI_LYRICS = "mini_lyrics"
         const val KEY_SPICY_LYRICS = "spicy_lyrics_key"
         const val KEY_PREFERRED_LYRICS = "preferred_lyrics_source"

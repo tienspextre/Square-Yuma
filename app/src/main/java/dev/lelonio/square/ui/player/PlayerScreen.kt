@@ -1857,6 +1857,8 @@ fun PlayerScreen(
                                     onTogglePlay = onTogglePlay,
                                     onNext = onNext,
                                     onPrevious = onPrevious,
+                                    onToggleShuffle = onToggleShuffle,
+                                    onCycleRepeat = onCycleRepeat,
                                     onCover = { panel = PlayerPanel.LYRICS },
                                     modifier = Modifier
                                         .weight(1f)
@@ -2905,24 +2907,31 @@ private fun LyricsStage(
 
     // The language the app itself is read in, which is the one to translate
     // into — not the phone's, when the two have been made to differ on purpose.
-    val target = remember(context) {
-        (context.applicationContext as dev.lelonio.square.SquareApplication)
-            .language
-            .language()
+    // Unless another one has been picked in the lyrics options.
+    val picked by preferences.translateTo.collectAsStateWithLifecycle()
+    val target = remember(context, picked) {
+        picked.ifEmpty {
+            (context.applicationContext as dev.lelonio.square.SquareApplication)
+                .language
+                .language()
+        }
     }
 
     // What the translator answered for this song, once it has been asked.
     // Kept per song, so turning the toggle off and on again costs nothing.
-    var machine by remember(lyrics) {
+    var machine by remember(lyrics, target) {
         androidx.compose.runtime.mutableStateOf<List<String>?>(null)
     }
-    var translating by remember(lyrics) { androidx.compose.runtime.mutableStateOf(false) }
+    var translating by remember(lyrics, target) { androidx.compose.runtime.mutableStateOf(false) }
 
     // A document that ships its own translation is already answered; anything
     // else is put through the translator the first time it is asked for.
-    val hasOwn = lyrics?.lines.orEmpty().any { !it.translation.isNullOrBlank() }
+    // Its own is in the phone's language (see Ttml.chosen), so it only
+    // answers when that is the language asked for.
+    val hasOwn = target.substringBefore('-').equals(java.util.Locale.getDefault().language, ignoreCase = true) &&
+        lyrics?.lines.orEmpty().any { !it.translation.isNullOrBlank() }
 
-    androidx.compose.runtime.LaunchedEffect(lyrics, translated) {
+    androidx.compose.runtime.LaunchedEffect(lyrics, translated, target) {
         if (!translated || lyrics == null || hasOwn || machine != null) return@LaunchedEffect
         translating = true
         machine = runCatching {
@@ -3157,8 +3166,8 @@ private fun SungLine(
 
 /**
  * The song while its lyrics fill the rest of a sideways screen: the sleeve
- * with the transport over its foot, the progress under it, then the title and
- * the artist. A tap on the sleeve goes back to it.
+ * (swiped for the next or previous track, tapped for the lyrics), the title
+ * and artist, the progress, then the whole transport, shuffle and repeat too.
  */
 @Composable
 private fun SongCard(
@@ -3168,6 +3177,8 @@ private fun SongCard(
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
     onCover: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -3176,47 +3187,52 @@ private fun SongCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(
-            Modifier
+        // The sleeve shrinks first when the height runs short, so the
+        // transport under it is never pushed off the screen; swiped like
+        // the cover upright.
+        CoverGestures(
+            onNext = onNext,
+            onPrevious = onPrevious,
+            canGoNext = state.hasNext,
+            canGoPrevious = state.hasPrevious,
+            modifier = Modifier
                 .weight(1f, fill = false)
-                .aspectRatio(1f)
-                .softShadow(RoundedCornerShape(18.dp), elevation = 20.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .clickable(onClick = onCover),
+                .aspectRatio(1f),
         ) {
-            dev.lelonio.square.ui.components.Artwork(
-                url = state.artworkUrl,
-                title = state.title,
-                modifier = Modifier.fillMaxSize(),
-                corner = 18.dp,
-            )
-            // A shade at the foot, so the transport reads over any sleeve.
             Box(
                 Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.42f)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))),
-            )
-            Row(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxSize()
+                    .softShadow(RoundedCornerShape(18.dp), elevation = 20.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable(onClick = onCover),
             ) {
-                CardButton(PhosphorIcons.Fill.SkipBack, stringResource(R.string.previous), 40.dp, state.hasPrevious, onPrevious)
-                CardButton(
-                    if (state.wantsPlay) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play,
-                    stringResource(if (state.wantsPlay) R.string.pause else R.string.play),
-                    52.dp,
-                    true,
-                    onTogglePlay,
+                dev.lelonio.square.ui.components.Artwork(
+                    url = state.artworkUrl,
+                    title = state.title,
+                    modifier = Modifier.fillMaxSize(),
+                    corner = 18.dp,
                 )
-                CardButton(PhosphorIcons.Fill.SkipForward, stringResource(R.string.next), 40.dp, state.hasNext, onNext)
             }
         }
-        Column(Modifier.widthIn(max = 420.dp).padding(top = 12.dp)) {
+        Text(
+            state.title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = GlassInk,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        Text(
+            state.artist,
+            style = MaterialTheme.typography.bodyMedium,
+            color = GlassInkDim,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        Column(Modifier.widthIn(max = 420.dp).padding(top = 6.dp)) {
             val automixStatus by AutomixStateHolder.state.collectAsStateWithLifecycle()
             GlassProgressBar(
                 positionMs = positionMs,
@@ -3228,28 +3244,42 @@ private fun SongCard(
             )
             TimeRow(positionMs, state.durationMs, automixStatus = automixStatus)
         }
-        Text(
-            state.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = GlassInk,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 6.dp),
-        )
-        Text(
-            state.artist,
-            style = MaterialTheme.typography.bodyMedium,
-            color = GlassInkDim,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
+        Row(
+            Modifier.widthIn(max = 420.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ToggleIcon(
+                icon = PhosphorIcons.Regular.Shuffle,
+                description = stringResource(if (state.smartShuffle) R.string.smart_shuffle else R.string.shuffle_play),
+                active = state.shuffleEnabled,
+                smart = state.smartShuffle,
+                onClick = onToggleShuffle,
+            )
+            CardButton(PhosphorIcons.Fill.SkipBack, stringResource(R.string.previous), 44.dp, state.hasPrevious, onPrevious)
+            CardButton(
+                if (state.wantsPlay) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play,
+                stringResource(if (state.wantsPlay) R.string.pause else R.string.play),
+                56.dp,
+                true,
+                onTogglePlay,
+            )
+            CardButton(PhosphorIcons.Fill.SkipForward, stringResource(R.string.next), 44.dp, state.hasNext, onNext)
+            ToggleIcon(
+                icon = if (state.repeatMode == Player.REPEAT_MODE_ONE) {
+                    PhosphorIcons.Regular.RepeatOnce
+                } else {
+                    PhosphorIcons.Regular.Repeat
+                },
+                description = stringResource(R.string.repeat),
+                active = state.repeatMode != Player.REPEAT_MODE_OFF,
+                onClick = onCycleRepeat,
+            )
+        }
     }
 }
 
-/** A round control over the sleeve: a dark disc, a white glyph. */
+/** A round transport control on its side: a dark disc, a white glyph. */
 @Composable
 private fun CardButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
