@@ -273,26 +273,50 @@ class SubsonicClient(
      * so an API-only edit would come back on the next scan.
      */
     suspend fun bridgeRemove(songId: String, playlistId: String?, deleteFile: Boolean): Result<Unit> =
+        bridge("/api/navidrome/remove") {
+            put("song_id", songId)
+            put("playlist_id", playlistId ?: JSONObject.NULL)
+            put("delete_file", deleteFile)
+        }.map { }
+
+    /**
+     * Creates, renames or deletes a NAS playlist, or adds songs to one, by
+     * editing its .m3u8 through the bridge; see [bridgeRemove] for why.
+     * Returns the bridge's answer, which carries `playlist_id`.
+     */
+    suspend fun bridgePlaylist(
+        action: String,
+        playlistId: String? = null,
+        name: String? = null,
+        songIds: List<String> = emptyList(),
+    ): Result<JSONObject> = bridge("/api/navidrome/playlist") {
+        put("action", action)
+        put("playlist_id", playlistId ?: JSONObject.NULL)
+        put("name", name ?: JSONObject.NULL)
+        put("song_ids", org.json.JSONArray(songIds))
+    }
+
+    private suspend fun bridge(path: String, fill: JSONObject.() -> Unit): Result<JSONObject> =
         withContext(Dispatchers.IO) {
             // ponytail: the bridge is assumed on Navidrome's host at :8092; add a setting if it ever moves.
             val base = preferences.serverUrl.value.trim().toHttpUrlOrNull()
                 ?: return@withContext Result.failure(IOException("Invalid URL"))
             val url = base.newBuilder().scheme("http").port(BRIDGE_PORT)
-                .encodedPath("/api/navidrome/remove").query(null).build()
+                .encodedPath(path).query(null).build()
             val auth = preferences.buildAuthParams()
             val body = JSONObject()
                 .put("u", auth["u"]).put("t", auth["t"]).put("s", auth["s"])
-                .put("song_id", songId)
-                .put("playlist_id", playlistId ?: JSONObject.NULL)
-                .put("delete_file", deleteFile)
+                .apply(fill)
                 .toString()
                 .toRequestBody("application/json".toMediaType())
             runCatching {
                 httpClient.newCall(Request.Builder().url(url).post(body).build()).execute().use { r ->
+                    val text = r.body?.string().orEmpty()
                     if (!r.isSuccessful) {
-                        val detail = runCatching { JSONObject(r.body?.string().orEmpty()).optString("detail") }.getOrNull()
+                        val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
                         throw IOException(detail?.ifBlank { null } ?: "Bridge HTTP ${r.code}")
                     }
+                    runCatching { JSONObject(text) }.getOrDefault(JSONObject())
                 }
             }
         }

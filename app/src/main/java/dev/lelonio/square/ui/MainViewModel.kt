@@ -1345,7 +1345,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             container.api.addToPlaylist(id, AddTracksRequestDto(chunk))
                         }
                     }
-                    else -> uris.forEach { container.activeBackend.addToPlaylist(playlist.uri, it) }
+                    else -> container.activeBackend.addAllToPlaylist(playlist.uri, uris)
                 }
             }
                 .onSuccess {

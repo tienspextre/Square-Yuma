@@ -307,7 +307,8 @@ class SubsonicBackend(
                     name = pl.name,
                     artworkUrl = client.buildCoverArtUrl(pl.coverArt),
                     subtitle = "${pl.songCount} songs • NAS Playlist",
-                    mine = false,
+                    // Rename and delete are offered on the account's own lists.
+                    mine = pl.owner == null || pl.owner == client.preferences.username.value,
                 )
             },
         )
@@ -353,8 +354,40 @@ class SubsonicBackend(
         }
     }
 
-    // Only the removing half: the NAS playlists come from .m3u8 files, edited through the bridge.
-    override fun canWriteTo(playlistUri: String): Boolean = playlistUri.startsWith("subsonic:playlist:")
+    // The NAS playlists are .m3u8 files; every edit goes through the bridge, which writes the
+    // file and has Navidrome rescan it. Creating one needs an admin account (see the bridge).
+    override val canEditPlaylists: Boolean get() = client.preferences.isConfigured()
+
+    override fun canWriteTo(playlistUri: String): Boolean = playlistUri.startsWith(PLAYLIST_PREFIX)
+
+    override suspend fun createPlaylist(name: String, description: String, public: Boolean): CatalogPlaylist {
+        val answer = client.bridgePlaylist("create", name = name).getOrThrow()
+        val id = answer.optString("playlist_id").takeIf { it.isNotBlank() && it != "null" }
+            ?: throw java.io.IOException("Navidrome has not imported the new playlist yet")
+        return CatalogPlaylist(uri = PLAYLIST_PREFIX + id, name = name, subtitle = "0 songs", mine = true)
+    }
+
+    override suspend fun renamePlaylist(uri: String, name: String) {
+        client.bridgePlaylist("rename", playlistId = uri.removePrefix(PLAYLIST_PREFIX), name = name).getOrThrow()
+    }
+
+    override suspend fun deletePlaylist(uri: String) {
+        client.bridgePlaylist("delete", playlistId = uri.removePrefix(PLAYLIST_PREFIX)).getOrThrow()
+    }
+
+    override suspend fun writablePlaylists(): List<CatalogPlaylist> =
+        playlists().filter { it.uri.startsWith(PLAYLIST_PREFIX) }
+
+    override suspend fun addToPlaylist(playlistUri: String, trackUri: String) =
+        addAllToPlaylist(playlistUri, listOf(trackUri))
+
+    override suspend fun addAllToPlaylist(playlistUri: String, trackUris: List<String>) {
+        client.bridgePlaylist(
+            "add",
+            playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX),
+            songIds = trackUris.filter { it.startsWith("subsonic:track:") }.map { it.removePrefix("subsonic:track:") },
+        ).getOrThrow()
+    }
 
     override suspend fun removeFromPlaylist(playlistUri: String, trackUri: String) {
         client.bridgeRemove(
@@ -505,3 +538,5 @@ class SubsonicBackend(
 
 /** The most Navidrome serves per search3 call. */
 private const val SONG_PAGE = 500
+
+private const val PLAYLIST_PREFIX = "subsonic:playlist:"

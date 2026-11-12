@@ -243,6 +243,11 @@ interface MusicBackend {
     suspend fun addToPlaylist(playlistUri: String, trackUri: String): Unit =
         throw UnsupportedOperationException()
 
+    /** Several at once; one call where the source can, else one by one. */
+    suspend fun addAllToPlaylist(playlistUri: String, trackUris: List<String>) {
+        trackUris.forEach { addToPlaylist(playlistUri, it) }
+    }
+
     /** Takes a track back out of one of them. */
     suspend fun removeFromPlaylist(playlistUri: String, trackUri: String): Unit =
         throw UnsupportedOperationException()
