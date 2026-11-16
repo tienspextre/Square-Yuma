@@ -180,6 +180,7 @@ class YumaDualDeckPlayer private constructor(
         // The matched tempo returns to the listener's own over the last 35% of the mix, where the
         // old song is already below -6 dB, so it is home by the handoff. Knob: lower starts sooner.
         private const val TEMPO_RETURN_FROM = 0.65f
+        private const val SILENT_TAIL_S = 3.0
         private const val TEMPO_STEP = 0.004f
         // Longer than the incoming deck's own ready timeout, so a slow start still gets its bed.
         private const val LOOP_HOLD_MAX_MS = 8000L
@@ -719,7 +720,22 @@ class YumaDualDeckPlayer private constructor(
                 active.shuffleModeEnabled,
             )
         }
-        return albumQueue
+        // An album whose songs run out into silence was not made to flow
+        // gaplessly, so it is mixed like any other queue.
+        return albumQueue && !silentTail(cur.mediaId, active.duration)
+    }
+
+    /** Whether the analysis has the song's sound stop at least [SILENT_TAIL_S] before its end. */
+    private fun silentTail(trackId: String, durationMs: Long): Boolean {
+        val analysis = TrackAnalyzer.getCached(trackId) ?: return false
+        if (durationMs <= 0) return false
+        // A stream's top level stops at the file's end; its tail pass knows where the sound does.
+        val end = analysis.tailRawJson.takeIf { it.isNotBlank() }
+            ?.let { runCatching { org.json.JSONObject(it).optDouble("contentEndTime", 0.0) }.getOrNull() }
+            ?.takeIf { it > 0.0 }
+            ?.let { analysis.tailOffset + it }
+            ?: analysis.contentEndTime
+        return end > 0.0 && durationMs / 1000.0 - end >= SILENT_TAIL_S
     }
 
     // ponytail: keyed on queue size + shuffle only; a same-size queue swap re-reads on the next change.
