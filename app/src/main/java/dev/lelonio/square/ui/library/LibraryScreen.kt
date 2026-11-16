@@ -215,7 +215,9 @@ fun LibraryScreen(
             var order by remember {
                 mutableStateOf(Order.entries.firstOrNull { it.key == view.order } ?: Order.RECENT)
             }
-            var filter by remember { mutableStateOf(Filter.ALL) }
+            // Saveable, so coming back from an album or a playlist lands on the
+            // same chip; the grid and list states below already keep their scroll.
+            var filter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(Filter.ALL) }
             val songsTitle = stringResource(R.string.tracks)
             var sortOpen by remember { mutableStateOf(false) }
             var recapOpen by remember { mutableStateOf(false) }
