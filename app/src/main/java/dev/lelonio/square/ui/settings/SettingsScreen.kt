@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.heightIn
 import com.adamglin.phosphoricons.regular.UserCircle
 import com.adamglin.phosphoricons.regular.Waveform
+import com.adamglin.phosphoricons.regular.VinylRecord
 import com.adamglin.phosphoricons.regular.Drop
 import com.adamglin.phosphoricons.regular.Equalizer
 import com.adamglin.phosphoricons.regular.SlidersHorizontal
@@ -1533,6 +1534,7 @@ private fun CrossfadeSection(backdrop: Backdrop) {
     val automixEnabled by dev.lelonio.square.playback.AudioEffects.smartAutomix.collectAsStateWithLifecycle()
     val bassSwapEnabled by dev.lelonio.square.playback.AudioEffects.automixBassSwap.collectAsStateWithLifecycle()
     val loopMixEnabled by dev.lelonio.square.playback.AudioEffects.automixLoopMix.collectAsStateWithLifecycle()
+    val albumsEnabled by dev.lelonio.square.playback.AudioEffects.automixAlbums.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.crossfade)) {
         CrossfadeSteps.forEachIndexed { index, seconds ->
@@ -1590,6 +1592,14 @@ private fun CrossfadeSection(backdrop: Backdrop) {
                 checked = loopMixEnabled,
                 backdrop = backdrop,
                 onChange = dev.lelonio.square.playback.AudioEffects::setAutomixLoopMix,
+            )
+            RowDivider()
+            DownloadSwitch(
+                label = "Automix Albums",
+                icon = PhosphorIcons.Regular.VinylRecord,
+                checked = albumsEnabled,
+                backdrop = backdrop,
+                onChange = dev.lelonio.square.playback.AudioEffects::setAutomixAlbums,
             )
         }
         RowDivider()
