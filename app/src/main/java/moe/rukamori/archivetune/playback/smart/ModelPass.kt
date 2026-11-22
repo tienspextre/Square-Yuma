@@ -39,6 +39,9 @@ internal object ModelPass {
 
     @Volatile private var appContext: Context? = null
 
+    /** Battery guard: true skips the pass (Battery Saver, thermal >= MODERATE). TrackAnalyzer installs the real one. */
+    @Volatile var shouldSkip: () -> Boolean = { false }
+
     fun init(context: Context) {
         if (appContext == null) appContext = context.applicationContext
     }
@@ -85,6 +88,7 @@ internal object ModelPass {
      */
     suspend fun run(duration: Double, decode: (Double, Double) -> AudioDecoder.StereoRegion?): String {
         // ponytail: an unknown duration skips the pass rather than probing the container for one.
+        if (shouldSkip()) return ""
         if (appContext == null || duration <= 0.0 || !MelSpectrogram.available) return ""
         return mutex.withLock {
             runCatching {

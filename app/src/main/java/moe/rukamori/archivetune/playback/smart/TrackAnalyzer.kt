@@ -25,12 +25,18 @@ import timber.log.Timber
 
 object TrackAnalyzer : AnalysisStore {
     private const val KICK_OFF_COOLDOWN_MS = 10_000L
-    private const val CACHE_VERSION = 4
+    private const val CACHE_VERSION = 5
     private val analyzerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val memoryCache = ConcurrentHashMap<String, TrackAnalysisResult>()
     private val inFlight = ConcurrentHashMap<String, Deferred<TrackAnalysisResult?>>()
     private val lastKickTimestamps = ConcurrentHashMap<String, Long>()
-    private val analysisSemaphore = Semaphore(2)
+    private val analysisSemaphore = Semaphore(1)
+
+    /** Ids whose cache entry holds a DSP-only result (the model pass was skipped by the battery guard). */
+    private val modelSkipped = ConcurrentHashMap.newKeySet<String>()
+
+    /** The two most recently requested ids: the current track, then the next one. Older queued work is dropped. */
+    private val recent = ArrayDeque<String>()
     private val _analysisEvents = MutableSharedFlow<Pair<String, TrackAnalysisResult>>(
         extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -47,7 +53,28 @@ object TrackAnalyzer : AnalysisStore {
             cacheDir = dir
         }
         ModelPass.init(context)
+        ModelPass.shouldSkip = batteryGuard(context.applicationContext)
     }
+
+    /** Battery Saver, or (API 29+) thermal status MODERATE or worse. */
+    fun batteryGuard(context: Context): () -> Boolean {
+        val power = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        return {
+            power != null && (
+                power.isPowerSaveMode ||
+                    (android.os.Build.VERSION.SDK_INT >= 29 &&
+                        power.currentThermalStatus >= android.os.PowerManager.THERMAL_STATUS_MODERATE)
+                )
+        }
+    }
+
+    private fun noteRequest(trackId: String) = synchronized(recent) {
+        recent.remove(trackId)
+        recent.addLast(trackId)
+        while (recent.size > 2) recent.removeFirst()
+    }
+
+    private fun isWanted(trackId: String) = synchronized(recent) { trackId in recent }
 
     private fun cacheFileFor(trackId: String): File? {
         val dir = cacheDir ?: return null
@@ -86,6 +113,7 @@ object TrackAnalyzer : AnalysisStore {
                     val json = JSONObject(text)
                     // Older entries lack a streamed song's tail features (v2) or the model pass (v3); analyse those again.
                     if (json.optInt("v", 1) < CACHE_VERSION) return@runCatching null
+                    if (json.optBoolean("modelSkipped", false)) modelSkipped.add(trackId)
                     TrackAnalysisResult(
                         bpm = json.optDouble("bpm", 0.0),
                         mixInTime = json.optDouble("mixInTime", 0.0),
@@ -111,7 +139,8 @@ object TrackAnalyzer : AnalysisStore {
         return null
     }
 
-    fun putCached(trackId: String, result: TrackAnalysisResult, persist: Boolean = true) {
+    fun putCached(trackId: String, result: TrackAnalysisResult, persist: Boolean = true, skippedModel: Boolean = false) {
+        if (skippedModel) modelSkipped.add(trackId) else modelSkipped.remove(trackId)
         memoryCache[trackId] = result
         _analysisEvents.tryEmit(trackId to result)
         if (!persist) return
@@ -130,6 +159,7 @@ object TrackAnalyzer : AnalysisStore {
                     put("tailRawJson", result.tailRawJson)
                     put("tailOffset", result.tailOffset)
                     put("modelJson", result.modelJson)
+                    put("modelSkipped", skippedModel)
                     put("v", CACHE_VERSION)
                 }
                 file.writeText(json.toString(), Charsets.UTF_8)
@@ -139,6 +169,7 @@ object TrackAnalyzer : AnalysisStore {
 
     fun clearCache() {
         memoryCache.clear()
+        modelSkipped.clear()
         analyzerScope.async(Dispatchers.IO) {
             runCatching { cacheDir?.listFiles()?.forEach { it.delete() } }
         }
@@ -163,11 +194,8 @@ object TrackAnalyzer : AnalysisStore {
             source = "filePath",
             decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(file.absolutePath) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decode(file, startMs, endMs) },
-            decodeTailSamples = if (durationMs != null && durationMs > AudioDecoder.TAIL_WINDOW_MS) {
+            decodeTailSamples = if (durationMs != null && AudioDecoder.tailWindowMs(durationMs) != null) {
                 { AudioDecoder.decodeTail(file, durationMs) }
-            } else null,
-            decodeFullSamples = if (AudioDecoder.canDoFullPass(durationMs)) {
-                { AudioDecoder.decodeFull(file, durationMs!!) }
             } else null,
         )
     }
@@ -187,11 +215,8 @@ object TrackAnalyzer : AnalysisStore {
             source = "file",
             decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(file.absolutePath) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decode(file, startMs, endMs) },
-            decodeTailSamples = if (durationMs != null && durationMs > AudioDecoder.TAIL_WINDOW_MS) {
+            decodeTailSamples = if (durationMs != null && AudioDecoder.tailWindowMs(durationMs) != null) {
                 { AudioDecoder.decodeTail(file, durationMs) }
-            } else null,
-            decodeFullSamples = if (AudioDecoder.canDoFullPass(durationMs)) {
-                { AudioDecoder.decodeFull(file, durationMs!!) }
             } else null,
         )
     }
@@ -212,16 +237,13 @@ object TrackAnalyzer : AnalysisStore {
             source = "uri",
             decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(context, uri, null) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decode(context, uri, startMs, endMs) },
-            decodeTailSamples = if (durationMs != null && durationMs > AudioDecoder.TAIL_WINDOW_MS) {
+            decodeTailSamples = if (durationMs != null && AudioDecoder.tailWindowMs(durationMs) != null) {
                 { AudioDecoder.decodeTail(context, uri, durationMs) }
-            } else null,
-            decodeFullSamples = if (AudioDecoder.canDoFullPass(durationMs)) {
-                { AudioDecoder.decodeFull(context, uri, durationMs!!) }
             } else null,
         )
     }
 
-    /** Head + tail over HTTP; no full pass, which would download the whole file. */
+    /** Head + tail windows over HTTP Range requests. */
     suspend fun analyzeUrl(
         trackId: String,
         url: String,
@@ -234,9 +256,9 @@ object TrackAnalyzer : AnalysisStore {
             source = "url",
             decodeStereo = { from, to -> AudioDecoder.decodeRegionStereo({ it.setDataSource(url, emptyMap()) }, from, to) },
             decodeHeadSamples = { AudioDecoder.decodeUrl(url, 0L, AudioDecoder.DEFAULT_HEAD_DECODE_MS) },
-            decodeTailSamples = if (durationMs > AudioDecoder.TAIL_WINDOW_MS) {
-                { AudioDecoder.decodeUrl(url, durationMs - AudioDecoder.TAIL_WINDOW_MS, durationMs) }
-            } else null,
+            decodeTailSamples = AudioDecoder.tailWindowMs(durationMs)?.let { (from, to) ->
+                { AudioDecoder.decodeUrl(url, from, to) }
+            },
         )
     }
 
@@ -247,10 +269,11 @@ object TrackAnalyzer : AnalysisStore {
         decodeStereo: (Double, Double) -> AudioDecoder.StereoRegion?,
         decodeHeadSamples: () -> FloatArray?,
         decodeTailSamples: (() -> FloatArray?)? = null,
-        decodeFullSamples: (() -> FloatArray?)? = null,
     ): TrackAnalysisResult? {
         if (trackId.isBlank()) return null
-        getOrFetchCached(trackId)?.let { return it }
+        noteRequest(trackId)
+        // A DSP-only entry is final while the guard blocks; once it lifts, only the model pass is owed.
+        getOrFetchCached(trackId)?.let { if (trackId !in modelSkipped || ModelPass.shouldSkip()) return it }
 
         val existingJob = inFlight[trackId]
         if (existingJob != null) {
@@ -259,19 +282,30 @@ object TrackAnalyzer : AnalysisStore {
 
         val newJob = analyzerScope.async {
             analysisSemaphore.withPermit {
-                getOrFetchCached(trackId)?.let { return@withPermit it }
+                if (!isWanted(trackId)) return@withPermit null
+                val duration = durationSeconds ?: 0.0
+                val cached = getOrFetchCached(trackId)
+                if (cached != null && (trackId !in modelSkipped || ModelPass.shouldSkip())) return@withPermit cached
 
                 try {
-                    val duration = durationSeconds ?: 0.0
+                    if (cached != null) {
+                        // Upgrade: the DSP result stands, only the model pass runs.
+                        val model = ModelPass.run(duration, decodeStereo)
+                        if (model.isEmpty()) return@withPermit cached
+                        val upgraded = cached.copy(modelJson = model)
+                        putCached(trackId, upgraded)
+                        return@withPermit upgraded
+                    }
                     // DSP first, in its own frame so its decoded PCM is gone before the models run.
-                    val dsp = analyzeDsp(duration, decodeHeadSamples, decodeTailSamples, decodeFullSamples)
+                    val dsp = analyzeDsp(duration, decodeHeadSamples, decodeTailSamples)
                         ?: return@withPermit null
-                    val result = dsp.copy(modelJson = ModelPass.run(duration, decodeStereo))
+                    val skipped = ModelPass.shouldSkip()
+                    val result = if (skipped) dsp else dsp.copy(modelJson = ModelPass.run(duration, decodeStereo))
                     // A stream whose tail or model pass failed (a dropped connection, an unseekable
                     // transcode) is kept for this run only, so the next play analyses it again.
-                    val complete = result.modelJson.isNotEmpty() &&
-                        (decodeFullSamples != null || decodeTailSamples == null || result.tailRawJson.isNotEmpty())
-                    putCached(trackId, result, persist = complete)
+                    val complete = (skipped || result.modelJson.isNotEmpty()) &&
+                        (decodeTailSamples == null || result.tailRawJson.isNotEmpty())
+                    putCached(trackId, result, persist = complete, skippedModel = skipped)
                     result
                 } catch (e: Exception) {
                     Timber.tag("TrackAnalyzer").e(e, "Analysis failed for trackId=$trackId source=$source")
@@ -292,30 +326,23 @@ object TrackAnalyzer : AnalysisStore {
         duration: Double,
         decodeHeadSamples: () -> FloatArray?,
         decodeTailSamples: (() -> FloatArray?)?,
-        decodeFullSamples: (() -> FloatArray?)?,
     ): TrackAnalysisResult? {
-        val fullSamples = decodeFullSamples?.invoke()
-        if (fullSamples != null && fullSamples.isNotEmpty()) {
-            val result = TrackFeatures.analyze(fullSamples, duration)
-            if (result != null) return result
-        }
-
         val headSamples = decodeHeadSamples() ?: return null
         val headResult = TrackFeatures.analyze(headSamples, duration) ?: return null
 
         val tailSamples = decodeTailSamples?.invoke()
         val finalResult = if (tailSamples != null && tailSamples.isNotEmpty() && duration > 0.0) {
+            val tailSeconds = tailSamples.size / (runCatching { TrackFeatures.sampleRate() }.getOrNull()?.takeIf { it > 0.0 } ?: AudioDecoder.TARGET_SAMPLE_RATE)
             val cliffOffset = TrackFeatures.energyCliff(tailSamples, duration)
             val computedMixOut = if (cliffOffset > 0.0) {
-                (duration - (AudioDecoder.TAIL_WINDOW_MS / 1000.0) + cliffOffset).coerceIn(0.0, duration)
+                (duration - tailSeconds + cliffOffset).coerceIn(0.0, duration)
             } else {
                 headResult.mixOutTime.takeIf { it > 0.0 } ?: (duration - 6.0).coerceAtLeast(0.0)
             }
             // Loudness from the head alone misreads a quiet intro as a quiet song; power-
-            // average it with the tail window, weighted by window length (30s / 45s).
+            // average it with the tail window, weighted by window length (both 65 s now).
             // The tail on its own clock (its real length), so the pair planner can read
             // the ending's beats, phrases and singing; times shift by tailOffset.
-            val tailSeconds = tailSamples.size / (runCatching { TrackFeatures.sampleRate() }.getOrNull()?.takeIf { it > 0.0 } ?: AudioDecoder.TARGET_SAMPLE_RATE)
             val tailResult = TrackFeatures.analyze(tailSamples, tailSeconds)
             val tailLufs = tailResult?.loudnessLufs
             val lufs = if (tailLufs != null && tailLufs < 0.0 && headResult.loudnessLufs < 0.0) {

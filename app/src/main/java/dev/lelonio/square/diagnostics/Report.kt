@@ -115,6 +115,12 @@ object Report {
             append(runs(context))
             appendLine()
 
+            appendLine("== Newest automix reports")
+            val automix = moe.rukamori.archivetune.playback.smart.ReportStore.at(context.filesDir).files().take(AUTOMIX_REPORTS)
+            if (automix.isEmpty()) appendLine("None.")
+            automix.forEach { appendLine("--- ${it.name}"); appendLine(it.readText()) }
+            appendLine()
+
             appendLine("== What is left in the system log")
             append(log())
         }
@@ -276,6 +282,7 @@ object Report {
     private const val CRASH_DIR = "crashes"
     private const val REPORT_DIR = "reports"
     private const val CRASHES_KEPT = 3
+    private const val AUTOMIX_REPORTS = 5
     private const val EXITS_KEPT = 5
     private const val ANR_LINES = 400
     private const val LOG_LINES = 6000

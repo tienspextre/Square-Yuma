@@ -18,11 +18,22 @@ object AudioDecoder {
     private const val TIMEOUT_US = 10_000L
     private const val MAX_CONSECUTIVE_TIMEOUTS = 50
     const val TARGET_SAMPLE_RATE: Double = 11025.0
-    const val DEFAULT_HEAD_DECODE_MS: Long = 30_000L
-    const val MAX_HEAD_DECODE_MS: Long = 45_000L
-    const val TAIL_WINDOW_MS: Long = 45_000L
-    const val DECODE_WATCHDOG_MS: Long = 45_000L
-    const val MAX_FULL_DECODE_MS: Long = 720_000L
+    /** Head window 0..65 s; tail window = the last 65 s (a 60 s window plus 5 s of preroll). Every source, local or streamed. */
+    const val DEFAULT_HEAD_DECODE_MS: Long = 65_000L
+    const val MAX_HEAD_DECODE_MS: Long = 65_000L
+    const val TAIL_WINDOW_MS: Long = 65_000L
+    const val DECODE_WATCHDOG_MS: Long = 90_000L
+
+    /** Head window in ms for a track of [durationMs] (null/unknown: the full 65 s). */
+    fun headWindowMs(durationMs: Long?): Pair<Long, Long> =
+        0L to (durationMs?.takeIf { it > 0 }?.coerceAtMost(DEFAULT_HEAD_DECODE_MS) ?: DEFAULT_HEAD_DECODE_MS)
+
+    /**
+     * Tail window in ms, or null when the head already covers the track. Tracks under 130 s get a
+     * tail that overlaps the head; TrackAnalyzer records the real start as tailOffset.
+     */
+    fun tailWindowMs(durationMs: Long): Pair<Long, Long>? =
+        if (durationMs <= TAIL_WINDOW_MS) null else (durationMs - TAIL_WINDOW_MS) to durationMs
 
     fun decode(
         filePath: String,
@@ -161,78 +172,6 @@ object AudioDecoder {
     ): FloatArray? {
         if (durationMs <= TAIL_WINDOW_MS) return null
         return decode(mediaDataSource, startMs = durationMs - TAIL_WINDOW_MS, endMs = durationMs)
-    }
-
-    fun canDoFullPass(durationMs: Long?): Boolean =
-        durationMs != null && durationMs > TAIL_WINDOW_MS && durationMs <= MAX_FULL_DECODE_MS
-
-    fun fullPassWatchdogMs(durationMs: Long): Long =
-        (durationMs / 2 + 30_000L).coerceIn(DECODE_WATCHDOG_MS, 300_000L)
-
-    fun decodeFull(
-        context: Context,
-        uri: Uri,
-        durationMs: Long,
-    ): FloatArray? {
-        if (!canDoFullPass(durationMs)) return null
-        val scheme = uri.scheme?.lowercase()
-        if (scheme == "http" || scheme == "https") return null
-        if (scheme == "file" || scheme == null) {
-            val path = uri.path
-            if (path != null) {
-                val file = File(path)
-                if (file.exists() && file.canRead()) {
-                    return decodeFull(file, durationMs)
-                }
-            }
-        }
-        val watchdog = fullPassWatchdogMs(durationMs)
-        val viaFramework = try {
-            decodeInternal(
-                setDataSource = { it.setDataSource(context, uri, null) },
-                startMs = 0L,
-                endMs = durationMs,
-                maxWindowMs = MAX_FULL_DECODE_MS,
-                watchdogMs = watchdog,
-                decimateToTargetRate = true,
-            )
-        } catch (e: Exception) {
-            Timber.tag("AudioDecoder").e(e, "decodeFull(context-uri) failed uri=$uri durationMs=$durationMs")
-            null
-        }
-        if (viaFramework != null && viaFramework.isNotEmpty()) return viaFramework
-        return try {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-                val fdLength = pfd.statSize.takeIf { it > 0 } ?: Long.MAX_VALUE
-                decodeInternal(
-                    setDataSource = { it.setDataSource(pfd.fileDescriptor, 0L, fdLength) },
-                    startMs = 0L,
-                    endMs = durationMs,
-                    maxWindowMs = MAX_FULL_DECODE_MS,
-                    watchdogMs = watchdog,
-                    decimateToTargetRate = true,
-                )
-            }
-        } catch (e: Exception) {
-            Timber.tag("AudioDecoder").e(e, "decodeFull(fd-fallback) failed uri=$uri durationMs=$durationMs")
-            null
-        }
-    }
-
-    fun decodeFull(
-        file: File,
-        durationMs: Long,
-    ): FloatArray? {
-        if (!canDoFullPass(durationMs)) return null
-        if (!file.exists() || !file.canRead()) return null
-        return decodeInternal(
-            setDataSource = { it.setDataSource(file.absolutePath) },
-            startMs = 0L,
-            endMs = durationMs,
-            maxWindowMs = MAX_FULL_DECODE_MS,
-            watchdogMs = fullPassWatchdogMs(durationMs),
-            decimateToTargetRate = true,
-        )
     }
 
     private fun decodeInternal(
