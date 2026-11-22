@@ -39,8 +39,22 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
     @Volatile
     var gain: Double = 1.0
 
+    /**
+     * Virtual stem bus (Pulse automix): low/mid/high band gains plus a Mid/Side duck of the mid
+     * band's centre, where the lead vocal sits. Null = off. Gains ramp across each block.
+     */
+    @Volatile
+    var stems: moe.rukamori.archivetune.audiodsp.pulse.StemMix? = null
+
+    /** Sets the stem gains and maps the mix's filter cutoffs (0 = off) onto this filter. */
+    fun applyStems(m: moe.rukamori.archivetune.audiodsp.pulse.StemMix?) {
+        stems = m
+        lowPassCutoffHz = m?.lowPassHz?.takeIf { it > 0f }?.toDouble() ?: BYPASS_CUTOFF_HZ
+        highPassHz = m?.highPassHz?.takeIf { it > 0f }?.toDouble() ?: BYPASS_HIGH_PASS_HZ
+    }
+
     val isBypassed: Boolean
-        get() = lowPassCutoffHz >= BYPASS_CUTOFF_HZ &&
+        get() = stems == null && lowPassCutoffHz >= BYPASS_CUTOFF_HZ &&
             highPassHz <= BYPASS_HIGH_PASS_HZ &&
             abs(bassGainDb) < 0.01 &&
             abs(gain - 1.0) < 1e-4
@@ -50,6 +64,7 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
         highPassHz = BYPASS_HIGH_PASS_HZ
         bassGainDb = 0.0
         gain = 1.0
+        stems = null
     }
 
     private var channelCount = 0
@@ -61,6 +76,17 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
     private val lowPassCoeff = DoubleArray(5)
     private val highPassCoeff = DoubleArray(5)
     private val shelfCoeff = DoubleArray(5)
+    // Stem bus: two cascaded Butterworth sections per edge (LR4) and the gains last applied.
+    private var bandState = Array(0) { DoubleArray(32) }
+    private val lowEdgeCoeff = DoubleArray(5)
+    private val highEdgeCoeff = DoubleArray(5)
+    private val lowEdgeHpCoeff = DoubleArray(5)
+    private val highEdgeLpCoeff = DoubleArray(5)
+    private val lastStem = FloatArray(4) { 1f }
+    private val frameIn = DoubleArray(8)
+    private val frameLow = DoubleArray(8)
+    private val frameMid = DoubleArray(8)
+    private val frameHigh = DoubleArray(8)
     private var bypassLogged = false
     private var cachedCutoffHz = -1.0
     private var cachedHighPassHz = -1.0
@@ -91,6 +117,13 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
         lowPassState = Array(channelCount) { DoubleArray(4) }
         highPassState = Array(channelCount) { DoubleArray(4) }
         shelfState = Array(channelCount) { DoubleArray(4) }
+        bandState = Array(channelCount) { DoubleArray(32) }
+        if (sampleRate > 0) {
+            computeLowPass(lowEdgeCoeff, STEM_LOW_HZ, BUTTERWORTH_Q)
+            computeHighPass(highEdgeCoeff, STEM_HIGH_HZ, BUTTERWORTH_Q)
+            computeHighPass(lowEdgeHpCoeff, STEM_LOW_HZ, BUTTERWORTH_Q)
+            computeLowPass(highEdgeLpCoeff, STEM_HIGH_HZ, BUTTERWORTH_Q)
+        }
         resetCoefficientTracking()
         bypassLogged = false
         return inputAudioFormat
@@ -131,9 +164,41 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
         if (filtering) refreshLowPass(cutoff)
         if (highPassing) refreshHighPass(highPass)
         if (shelving) refreshLowShelf(bassDb)
+        val stem = stems
+        val from = lastStem.copyOf()
+        val to = if (stem == null) floatArrayOf(1f, 1f, 1f, 1f) else floatArrayOf(stem.low, stem.mid, stem.high, stem.vocal)
+        val splitting = stem != null || from.any { abs(it - 1f) > 1e-4f }
+        val ch = channelCount.coerceAtMost(frameIn.size)
         for (frame in 0 until frames) {
             for (channel in 0 until channelCount) {
-                var sample = readSample(inputBuffer, encoding)
+                val v = readSample(inputBuffer, encoding)
+                if (channel < ch) frameIn[channel] = v
+            }
+            if (splitting) {
+                val p = (frame + 1).toDouble() / frames
+                val gLow = from[0] + (to[0] - from[0]) * p
+                val gMid = from[1] + (to[1] - from[1]) * p
+                val gHigh = from[2] + (to[2] - from[2]) * p
+                val gVocal = from[3] + (to[3] - from[3]) * p
+                var centre = 0.0
+                for (c in 0 until ch) {
+                    val st = bandState[c]
+                    val x = frameIn[c]
+                    // Linkwitz-Riley 3-band: the bands sum to an allpass, so unity gains stay flat.
+                    val low = runBiquadAt(lowEdgeCoeff, st, 4, runBiquadAt(lowEdgeCoeff, st, 0, x))
+                    val rest = runBiquadAt(lowEdgeHpCoeff, st, 12, runBiquadAt(lowEdgeHpCoeff, st, 8, x))
+                    frameLow[c] = low
+                    frameHigh[c] = runBiquadAt(highEdgeCoeff, st, 20, runBiquadAt(highEdgeCoeff, st, 16, rest))
+                    frameMid[c] = runBiquadAt(highEdgeLpCoeff, st, 28, runBiquadAt(highEdgeLpCoeff, st, 24, rest))
+                    centre += frameMid[c]
+                }
+                centre /= ch
+                // Mid/Side: only the centre of the mid band is ducked; Side (width, reverb) stays.
+                val duck = (1.0 - gVocal) * centre
+                for (c in 0 until ch) frameIn[c] = gLow * frameLow[c] + gMid * (frameMid[c] - duck) + gHigh * frameHigh[c]
+            }
+            for (channel in 0 until channelCount) {
+                var sample = if (channel < ch) frameIn[channel] else 0.0
                 if (filtering) {
                     sample = runBiquad(lowPassCoeff, lowPassState[channel], sample)
                 }
@@ -143,6 +208,7 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
                 writeSample(output, encoding, sample)
             }
         }
+        to.copyInto(lastStem)
         inputBuffer.position(inputBuffer.limit())
         output.flip()
     }
@@ -211,6 +277,19 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
         for (state in lowPassState) state.fill(0.0)
         for (state in highPassState) state.fill(0.0)
         for (state in shelfState) state.fill(0.0)
+        for (state in bandState) state.fill(0.0)
+        lastStem.fill(1f)
+    }
+
+    /** [runBiquad] on the four state slots starting at [o]. */
+    private fun runBiquadAt(coeff: DoubleArray, state: DoubleArray, o: Int, input: Double): Double {
+        val output = coeff[0] * input + coeff[1] * state[o] + coeff[2] * state[o + 1] -
+            coeff[3] * state[o + 2] - coeff[4] * state[o + 3]
+        state[o + 1] = state[o]
+        state[o] = input
+        state[o + 3] = state[o + 2]
+        state[o + 2] = output
+        return output
     }
 
     private fun runBiquad(coeff: DoubleArray, state: DoubleArray, input: Double): Double {
@@ -285,6 +364,8 @@ class DjFilterAudioProcessor : BaseAudioProcessor() {
         const val SWEEP_TARGET_HZ = 1200.0
         const val FULL_CUT_DB = -24.0
         const val BASS_CROSSOVER_HZ = 200.0
+        const val STEM_LOW_HZ = 250.0
+        const val STEM_HIGH_HZ = 5000.0
         // Mirror android.media.AudioFormat; these are compile-time constants absent from media3 C.
         private const val ENCODING_24BIT_PACKED = 21
         private const val ENCODING_32BIT = 22
