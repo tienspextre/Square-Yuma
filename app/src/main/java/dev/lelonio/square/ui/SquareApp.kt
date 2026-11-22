@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -2035,6 +2036,17 @@ fun SquareApp(
                                     viewModel.refresh()
                                     viewModel.loadYouTubeHome(force = true)
                                 },
+                            )
+                            // Edge to edge, the page scrolls under the clock; a shade keeps it readable.
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .then(Modifier.height(statusBar + 12.dp))
+                                    .background(
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                                        ),
+                                    ),
                             )
                         }
 

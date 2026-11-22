@@ -2471,7 +2471,8 @@ internal fun TimeRow(
     // so it slid sideways whenever the elapsed time gained or lost a digit.
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
-            formatDuration(positionMs.value),
+            // The start of a song is a time, not an unknown one.
+            if (positionMs.value <= 0) "0:00" else formatDuration(positionMs.value),
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
             modifier = Modifier.align(Alignment.CenterStart),
