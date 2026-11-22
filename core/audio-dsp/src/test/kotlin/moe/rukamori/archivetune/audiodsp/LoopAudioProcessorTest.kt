@@ -84,4 +84,21 @@ class LoopAudioProcessorTest {
         p.queueInput(input)
         assertEquals(1500.toShort(), drain(p)[0])
     }
+
+    @Test
+    fun aLoopLeftArmedLetsGoOnItsOwn() {
+        val p = LoopAudioProcessor()
+        p.configure(AudioProcessor.AudioFormat(rate, 1, C.ENCODING_PCM_16BIT))
+        p.flush(AudioProcessor.StreamMetadata(0))
+        p.arm = LoopAudioProcessor.Arm(1_000_000, 1_500_000)
+        val input = block(0, 3000)
+        var heard = 0
+        // Never disarmed: past the cap the song is read again from the loop's end.
+        while (input.hasRemaining() && heard < 1500 + (LoopAudioProcessor.MAX_LOOP_SECONDS * rate).toInt() + 10_000) {
+            p.queueInput(input)
+            heard += drain(p).size
+        }
+        assertTrue(!p.looping)
+        assertEquals(0, input.remaining())
+    }
 }

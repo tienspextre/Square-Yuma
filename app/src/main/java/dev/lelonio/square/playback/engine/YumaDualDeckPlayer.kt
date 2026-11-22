@@ -341,6 +341,10 @@ class YumaDualDeckPlayer private constructor(
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (player === activeDeck.player && !isCrossfading) {
+                    // A loop armed for the song that just ended is in that song's frames;
+                    // left armed, it caught the next song at the same position and held it.
+                    activeDeck.loop.arm = null
+                    standbyDeck.loop.arm = null
                     lastTriggeredIndex = C.INDEX_UNSET
                     lastTriggeredMediaId = null
                     releaseStandby()
@@ -539,12 +543,13 @@ class YumaDualDeckPlayer private constructor(
         schedulerJob = scope.launch {
             while (isActive) {
                 delay(100)
-                if (isCrossfading) continue
                 // A loop is only ever the bed of a mix about to start; one that waits longer
                 // (automix switched off, the next song gone) lets the song go on instead.
+                // Before the crossfade check: a mix stuck waiting must not hold it either.
                 val now0 = android.os.SystemClock.elapsedRealtime()
-                if (!activeDeck.loop.looping) loopSince = null
+                if (!activeDeck.loop.looping || AutomixStateHolder.state.value.isCrossfading) loopSince = null
                 else if (now0 - (loopSince ?: now0.also { loopSince = it }) > LOOP_HOLD_MAX_MS) activeDeck.loop.arm = null
+                if (isCrossfading) continue
                 val active = activeDeck.player
                 if (!active.playWhenReady || !active.isPlaying) continue
 
@@ -775,7 +780,7 @@ class YumaDualDeckPlayer private constructor(
         outgoing.player.pauseAtEndOfMediaItems = true
 
         crossfadeJob?.cancel()
-        crossfadeJob = scope.launch {
+        val job = scope.launch {
             // Mirrors YumaPlayer's CrossfadeRampEngine: the incoming deck must be READY with real
             // audio buffered before anything fades, or the outgoing dives while nothing replaces it.
             val requiredBufferMs = requiredStartBufferMs(plan.durationMs)
@@ -859,6 +864,12 @@ class YumaDualDeckPlayer private constructor(
             if (!isActive) return@launch
 
             completeHandoff(incoming, outgoing, plan)
+        }
+        crossfadeJob = job
+        // Ended any other way than handoff or cancelCrossfade (an exception in the ramp), the
+        // flag would stay up and the scheduler would skip every tick from then on.
+        job.invokeOnCompletion {
+            scope.launch { if (crossfadeJob === job && isCrossfading) cancelCrossfade() }
         }
     }
 
@@ -1077,8 +1088,44 @@ class YumaDualDeckPlayer private constructor(
         val at = index.coerceIn(0, mediaItemCount)
         forwardingPlayer.addMediaItems(at, mediaItems)
         activeDeck.player.shuffleInAhead(at, mediaItems.size)
-        // The standby holds a copy of the old queue; let the scheduler cue it again from this one.
-        if (!isCrossfading) releaseStandby()
+        afterQueueEdit { it.addMediaItems(at, mediaItems) }
+    }
+
+    override fun removeMediaItem(index: Int) = removeMediaItems(index, index + 1)
+
+    override fun removeMediaItems(fromIndex: Int, toIndex: Int) {
+        forwardingPlayer.removeMediaItems(fromIndex, toIndex)
+        afterQueueEdit { it.removeMediaItems(fromIndex, toIndex) }
+    }
+
+    override fun moveMediaItem(currentIndex: Int, newIndex: Int) = moveMediaItems(currentIndex, currentIndex + 1, newIndex)
+
+    override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int) {
+        forwardingPlayer.moveMediaItems(fromIndex, toIndex, newIndex)
+        afterQueueEdit { it.moveMediaItems(fromIndex, toIndex, newIndex) }
+    }
+
+    override fun replaceMediaItem(index: Int, mediaItem: MediaItem) = replaceMediaItems(index, index + 1, listOf(mediaItem))
+
+    override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>) {
+        forwardingPlayer.replaceMediaItems(fromIndex, toIndex, mediaItems)
+        afterQueueEdit { it.replaceMediaItems(fromIndex, toIndex, mediaItems) }
+    }
+
+    override fun clearMediaItems() {
+        beforeSeek()
+        forwardingPlayer.clearMediaItems()
+        releaseStandby()
+        albumQueueKey = null
+    }
+
+    /**
+     * The standby holds a copy of the queue. Mid-mix it is the song coming in, so it gets the
+     * same edit; otherwise it is dropped and the scheduler cues it again from the new queue.
+     */
+    private fun afterQueueEdit(sameOnStandby: (Player) -> Unit) {
+        albumQueueKey = null
+        if (isCrossfading) runCatching { sameOnStandby(standbyDeck.player) } else releaseStandby()
     }
 
     override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {

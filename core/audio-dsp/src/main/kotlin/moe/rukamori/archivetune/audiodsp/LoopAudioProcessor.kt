@@ -41,6 +41,8 @@ class LoopAudioProcessor : BaseAudioProcessor() {
     /** Track frame of the next input frame. */
     private var position = 0L
     private var loop: PcmLoop? = null
+    /** Frames played from the loop since it took over; see [MAX_LOOP_SECONDS]. */
+    private var loopedFrames = 0L
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT || inputAudioFormat.channelCount < 1) {
@@ -60,6 +62,7 @@ class LoopAudioProcessor : BaseAudioProcessor() {
     override fun onReset() {
         seen = null
         loop = null
+        loopedFrames = 0L
         looping = false
         position = 0L
     }
@@ -72,14 +75,22 @@ class LoopAudioProcessor : BaseAudioProcessor() {
             // ponytail: the player's clock is then ahead by the time looped; the deck is being
             // retired or seeked whenever that happens, so nothing reads it.
             looping = false
+            loopedFrames = 0L
             loop = wanted?.let {
                 PcmLoop.of(channels, it.startUs * rate / 1_000_000L, it.endUs * rate / 1_000_000L, rate)
                     ?.takeIf { l -> l.canStartAt(position) }
             }
         }
+        // A bed is only ever held for a mix about to start. Whatever the controller
+        // does, never longer than this: the song carries on from the loop's end.
+        if (loop?.looping == true && loopedFrames >= MAX_LOOP_SECONDS * rate) {
+            loop = null
+            looping = false
+        }
         val l = loop
         if (l != null && l.looping) {
             looping = true
+            loopedFrames += LOOP_BLOCK
             val frames = LOOP_BLOCK
             val out = replaceOutputBuffer(frames * channels * 2).order(ByteOrder.nativeOrder())
             val block = ShortArray(frames * channels)
@@ -106,6 +117,8 @@ class LoopAudioProcessor : BaseAudioProcessor() {
 
     companion object {
         private const val LOOP_BLOCK = 1024
+        // Longest real use: an 8 s hold before the mix plus a 20 s mix over the loop.
+        const val MAX_LOOP_SECONDS = 30L
     }
 }
 
