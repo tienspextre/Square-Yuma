@@ -55,6 +55,10 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
     @Volatile
     var schedule: moe.rukamori.archivetune.audiodsp.pulse.TempoMap? = null
 
+    /** Beat-phase hold: a small speed trim (±4 %) on top of the map. */
+    @Volatile
+    var trim = 1f
+
     /** Track frame the next input packet starts at. */
     @Volatile
     var sourceFrame = 0L
@@ -116,7 +120,7 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
         val map = schedule
         val rate = if (map == null) 1f
         else map.rateAt(sourceFrame * 1000.0 / inputAudioFormat.sampleRate).toFloat()
-        val speed = this.speed * rate
+        val speed = this.speed * rate * (if (map != null) trim else 1f)
         sourceFrame += inFrames
         if (map != null) playout.scheduled = true
 

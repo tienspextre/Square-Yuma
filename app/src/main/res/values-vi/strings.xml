@@ -772,7 +772,7 @@
     <string name="audio_offload">Chuyển âm thanh trực tiếp (Hi-Res 24/32-bit)</string>
     <string name="smart_automix">Smart Automix (khớp nhịp và BPM)</string>
     <string name="automix_bass_swap">Hoán đổi âm trầm kiểu DJ</string>
-    <string name="automix_loop_mix">Loop Mix (thử nghiệm)</string>
+    <string name="automix_legacy_engine">Engine automix cũ</string>
     <string name="automix_albums">Automix cho album</string>
     <string name="subsonic_settings_saved">Đã lưu cài đặt</string>
     <string name="subsonic_checking">Đang kiểm tra...</string>

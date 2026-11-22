@@ -777,7 +777,7 @@
     <string name="audio_offload">Direct Audio Offload (Hi-Res 24/32-bit)</string>
     <string name="smart_automix">Smart Automix (BPM &amp; Beat Matching)</string>
     <string name="automix_bass_swap">DJ Low-End Bass Swap</string>
-    <string name="automix_loop_mix">Loop Mix (Experimental)</string>
+    <string name="automix_legacy_engine">Legacy automix engine</string>
     <string name="automix_albums">Automix Albums</string>
     <string name="subsonic_settings_saved">Settings saved</string>
     <string name="subsonic_checking">Checking...</string>

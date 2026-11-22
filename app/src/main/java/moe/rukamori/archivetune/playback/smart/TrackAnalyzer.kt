@@ -101,6 +101,9 @@ object TrackAnalyzer : AnalysisStore {
 
     fun hasCached(trackId: String): Boolean = memoryCache.containsKey(trackId)
 
+    /** Cached without the model pass (battery guard), and the guard has lifted. */
+    fun needsModelUpgrade(trackId: String): Boolean = trackId in modelSkipped && !ModelPass.shouldSkip()
+
     suspend fun getOrFetchCached(trackId: String): TrackAnalysisResult? {
         if (trackId.isBlank()) return null
         memoryCache[trackId]?.let { return it }

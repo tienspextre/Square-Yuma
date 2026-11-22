@@ -216,6 +216,8 @@ object PairPlanner {
     const val LOOP_SEARCH_S = 60.0
     const val LOOP_LYRIC_GUARD_S = 0.3
     const val LOOP_MIN_LOUDNESS = 0.6
+    /** Desktop only (Android dropped Loop Mix): the longest bed PcmLoop holds. */
+    const val LOOP_MAX_S = 16.5
 
     data class Choice(val exit: Double, val entry: Double, val fade: Double, val score: Double)
 
@@ -310,7 +312,7 @@ object PairPlanner {
             if (k >= d.size) continue
             val start = d[j]
             val stop = d[k]
-            if (start < from || stop > end - 1.0 || stop - start > PcmLoop.MAX_SECONDS) continue
+            if (start < from || stop > end - 1.0 || stop - start > LOOP_MAX_S) continue
             if (abs((stop - start) / (bars * 4 * beat) - 1) > 0.03) continue // a gap in the grid
             val sung = mean(out, out.vocal, start - LOOP_LYRIC_GUARD_S, stop) ?: continue
             if (sung > 0.0) continue
