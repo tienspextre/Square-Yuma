@@ -440,7 +440,7 @@ class MediaBrowseTree(
 
         parentId == ID_PLAYLISTS -> {
             if (!engineReady()) emptyList() else lock.withLock {
-                Catalog.playlists().map { playlist ->
+                app.activeBackend.playlists().map { playlist ->
                     nodeLabels[playlist.uri] = playlist.name
                     browsable(
                         playlist.uri,
@@ -457,7 +457,7 @@ class MediaBrowseTree(
         parentId == ID_RECENT ->
             app.recentStore.tracks.value.map { playable(ID_RECENT, it) }
 
-        parentId.startsWith("spotify:") ->
+        parentId.startsWith("spotify:") || parentId.startsWith("subsonic:") || parentId.startsWith("local:") ->
             tracksOf(parentId).map { playable(parentId, it) }
 
         else -> emptyList()
@@ -477,7 +477,7 @@ class MediaBrowseTree(
 
         return lock.withLock {
             trackCache[parentId] ?: runCatching {
-                Catalog.tracks(Catalog.contextTrackUris(parentId).take(TRACK_LIMIT))
+                app.activeBackend.tracksOf(parentId).take(TRACK_LIMIT)
             }.getOrElse {
                 android.util.Log.w(TAG, "tracks of $parentId failed: $it")
                 emptyList()
@@ -524,8 +524,13 @@ class MediaBrowseTree(
         trackCache[node]?.let { return it }
 
         val tracks = runCatching {
-            app.api.search(query, type = "track", limit = SEARCH_LIMIT)
-                .tracks?.items.orEmpty().map { it.toCatalogTrack() }
+            val l = strings
+            app.activeBackend.search(
+                query,
+                dev.lelonio.square.backend.SearchLabels(
+                    l.getString(R.string.artist), l.getString(R.string.album), l.getString(R.string.playlist),
+                ),
+            ).tracks.take(SEARCH_LIMIT)
         }.getOrElse {
             android.util.Log.w(TAG, "search failed: $it")
             emptyList()
@@ -692,11 +697,14 @@ class MediaBrowseTree(
      */
     private suspend fun engineReady(): Boolean {
         repeat(CONNECT_TRIES) {
-            if (NativeBridge.isConnected) return true
+            if (ready()) return true
             delay(CONNECT_POLL_MS)
         }
-        return NativeBridge.isConnected
+        return ready()
     }
+
+    // Only Spotify needs the native session; Subsonic/Local answer over HTTP or from disk.
+    private fun ready() = app.activeBackend.id != dev.lelonio.square.backend.BackendId.SPOTIFY || NativeBridge.isConnected
 
     private companion object {
         const val TAG = "MediaBrowseTree"
