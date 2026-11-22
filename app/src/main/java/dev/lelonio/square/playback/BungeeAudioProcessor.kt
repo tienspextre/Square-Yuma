@@ -50,11 +50,11 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
     override fun onConfigure(
         inputAudioFormat: AudioProcessor.AudioFormat,
     ): AudioProcessor.AudioFormat {
-        if (!isAltering && inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
-            return AudioProcessor.AudioFormat.NOT_SET
-        }
+        // 16-bit only. With float output off Media3 hands every chain 16-bit, so anything else
+        // means a configuration this was never built for: pass it through untouched rather
+        // than fail playback over an effect.
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
-            throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+            return AudioProcessor.AudioFormat.NOT_SET
         }
         return inputAudioFormat
     }
@@ -221,11 +221,11 @@ class VocalAudioProcessor : BaseAudioProcessor() {
     override fun onConfigure(
         inputAudioFormat: AudioProcessor.AudioFormat,
     ): AudioProcessor.AudioFormat {
-        if (AudioEffects.karaoke.value == 0f && inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
-            return AudioProcessor.AudioFormat.NOT_SET
-        }
+        // 16-bit only. With float output off Media3 hands every chain 16-bit, so anything else
+        // means a configuration this was never built for: pass it through untouched rather
+        // than fail playback over an effect.
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
-            throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+            return AudioProcessor.AudioFormat.NOT_SET
         }
         return inputAudioFormat
     }
@@ -268,11 +268,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     override fun onConfigure(
         inputAudioFormat: AudioProcessor.AudioFormat,
     ): AudioProcessor.AudioFormat {
-        if (!filter.isActive && inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
-            return AudioProcessor.AudioFormat.NOT_SET
-        }
+        // 16-bit only. With float output off Media3 hands every chain 16-bit, so anything else
+        // means a configuration this was never built for: pass it through untouched rather
+        // than fail playback over an effect.
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
-            throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+            return AudioProcessor.AudioFormat.NOT_SET
         }
         return inputAudioFormat
     }
