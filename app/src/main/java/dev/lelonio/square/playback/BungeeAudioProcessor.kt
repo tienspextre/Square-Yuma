@@ -47,6 +47,22 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
 
     val isAltering: Boolean get() = speed != 1f || pitch != 1f
 
+    /**
+     * Pulse automix tempo map, keyed on this deck's own track position (source ms). Each packet
+     * runs at its rate × the user's speed, so a mix never changes playbackParameters (every change
+     * flushes the sink). Null = off.
+     */
+    @Volatile
+    var schedule: moe.rukamori.archivetune.audiodsp.pulse.TempoMap? = null
+
+    /** Track frame the next input packet starts at. */
+    @Volatile
+    var sourceFrame = 0L
+        private set
+
+    /** Frames in vs frames out since the sink's last checkpoint, for the chain's media clock. */
+    val playout = PlayoutMap()
+
     override fun onConfigure(
         inputAudioFormat: AudioProcessor.AudioFormat,
     ): AudioProcessor.AudioFormat {
@@ -57,6 +73,12 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
             return AudioProcessor.AudioFormat.NOT_SET
         }
         return inputAudioFormat
+    }
+
+    override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
+        sourceFrame = streamMetadata.positionOffsetUs * inputAudioFormat.sampleRate.coerceAtLeast(1) / 1_000_000L
+        playout.reset()
+        onFlush()
     }
 
     override fun onFlush() {
@@ -81,15 +103,26 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
         stretched = false
         historyFrames = 0
         failureReported = false
+        sourceFrame = 0L
+        playout.reset()
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val size = inputBuffer.remaining()
         if (size == 0) return
 
+        val fb = frameBytes
+        val inFrames = size / fb
+        val map = schedule
+        val rate = if (map == null) 1f
+        else map.rateAt(sourceFrame * 1000.0 / inputAudioFormat.sampleRate).toFloat()
+        val speed = this.speed * rate
+        sourceFrame += inFrames
+        if (map != null) playout.scheduled = true
+
         // Nothing to do at rest, and doing nothing is worth the check: this
         // runs on the audio thread for every packet of every track.
-        if (!isAltering) {
+        if (speed == 1f && pitch == 1f) {
             val held = stretcher?.takeIf { stretched }?.latencyFrames() ?: 0
             if (stretcher != null) {
                 // Back to speed one: the stretcher still holds what went in and was not
@@ -104,6 +137,7 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
             if (heldBytes > 0) copyHistoryTail(heldBytes, out)
             out.put(inputBuffer).flip()
             historyFrames = 0
+            playout.add(inFrames.toLong(), (heldBytes + size).toLong() / fb, speed)
             return
         }
 
@@ -121,9 +155,11 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
             // a partial read; take what is left rather than dropping the packet.
             val remaining = inputBuffer.remaining()
             if (remaining > 0) replaceOutputBuffer(remaining).put(inputBuffer).flip()
+            playout.add(inFrames.toLong(), remaining.toLong() / fb, 1f)
             return
         }
 
+        playout.add(inFrames.toLong(), produced.remaining().toLong() / fb, speed)
         replaceOutputBuffer(produced.remaining()).put(produced).flip()
     }
 
@@ -181,6 +217,9 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
         }
     }
 
+    /** For the chain's media clock. */
+    val outputSampleRate: Int get() = if (isActive) inputAudioFormat.sampleRate else 0
+
     private var maxFrames = 0
     private var builtForRate = 0
     private var builtForChannels = 0
@@ -195,6 +234,54 @@ class BungeeAudioProcessor : BaseAudioProcessor() {
         /** Far more than Bungee's window holds back, at any rate this plays. */
         const val HISTORY_FRAMES = 16384
         const val MAX_CHANNELS = 8
+    }
+}
+
+/**
+ * Output frames → input (media) frames, piecewise linear, one point per rate change. Lets the
+ * chain report the media clock while a tempo map varies the rate inside a single checkpoint.
+ */
+class PlayoutMap {
+    private val outAt = ArrayList<Long>()
+    private val inAt = ArrayList<Long>()
+    private var outTotal = 0L
+    private var inTotal = 0L
+    private var lastRate = Float.NaN
+
+    /** Set once a tempo map ran since the last reset; until then the plain speed math holds. */
+    @Volatile
+    var scheduled = false
+
+    @Synchronized
+    fun reset() {
+        outAt.clear(); inAt.clear()
+        outTotal = 0L; inTotal = 0L
+        lastRate = Float.NaN
+        scheduled = false
+    }
+
+    @Synchronized
+    fun add(inFrames: Long, outFrames: Long, rate: Float) {
+        if (rate != lastRate) {
+            outAt += outTotal; inAt += inTotal
+            lastRate = rate
+        }
+        outTotal += outFrames
+        inTotal += inFrames
+    }
+
+    /** Media frames behind [outFrames] of playout, or null when no tempo map ran. */
+    @Synchronized
+    fun mediaFrames(outFrames: Long): Long? {
+        if (!scheduled || outAt.isEmpty()) return null
+        var i = outAt.size - 1
+        while (i > 0 && outAt[i] > outFrames) i--
+        val o0 = outAt[i]
+        val i0 = inAt[i]
+        val o1 = if (i + 1 < outAt.size) outAt[i + 1] else outTotal
+        val i1 = if (i + 1 < inAt.size) inAt[i + 1] else inTotal
+        val ratio = if (o1 > o0) (i1 - i0).toDouble() / (o1 - o0) else lastRate.toDouble().takeIf { !it.isNaN() } ?: 1.0
+        return i0 + ((outFrames - o0) * ratio).toLong()
     }
 }
 
@@ -311,6 +398,7 @@ class BungeeProcessorChain(
         playbackParameters: PlaybackParameters,
     ): PlaybackParameters {
         parameters = playbackParameters
+        bungee.playout.reset()
         bungee.setSpeedAndPitch(playbackParameters.speed, playbackParameters.pitch)
         return playbackParameters
     }
@@ -318,8 +406,13 @@ class BungeeProcessorChain(
     override fun applySkipSilenceEnabled(skipSilenceEnabled: Boolean): Boolean = false
 
     /** How much media a stretch of playing covers, which is the speed itself. */
-    override fun getMediaDuration(playoutDuration: Long): Long =
-        Util.getMediaDurationForPlayoutDuration(playoutDuration, parameters.speed)
+    override fun getMediaDuration(playoutDuration: Long): Long {
+        // Under a tempo map the rate varied inside this checkpoint: read it off the frame counts.
+        // ponytail: assumes the stretcher keeps the sample rate (it does; pitch is separate).
+        val rate = bungee.outputSampleRate
+        if (rate > 0) bungee.playout.mediaFrames(playoutDuration * rate / 1_000_000L)?.let { return it * 1_000_000L / rate }
+        return Util.getMediaDurationForPlayoutDuration(playoutDuration, parameters.speed)
+    }
 
     /** Nothing is dropped here; silence is skipped by nobody in this chain. */
     override fun getSkippedOutputFrameCount(): Long = 0
