@@ -1490,7 +1490,6 @@ private fun EffectQualitySection(backdrop: Backdrop) {
     }
     val chosen by store.quality.collectAsStateWithLifecycle()
     val audioOffload by dev.lelonio.square.playback.AudioEffects.audioOffload.collectAsStateWithLifecycle()
-    val eqEnabled by dev.lelonio.square.playback.AudioEffects.equalizerEnabled.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.effect_quality)) {
         EffectQuality.entries.forEachIndexed { index, quality ->
@@ -1507,14 +1506,6 @@ private fun EffectQualitySection(backdrop: Backdrop) {
             checked = audioOffload,
             backdrop = backdrop,
             onChange = dev.lelonio.square.playback.AudioEffects::setAudioOffload,
-        )
-        RowDivider()
-        DownloadSwitch(
-            label = "System Audio Effects & Equalizer",
-            icon = PhosphorIcons.Regular.Equalizer,
-            checked = eqEnabled,
-            backdrop = backdrop,
-            onChange = dev.lelonio.square.playback.AudioEffects::setEqualizerEnabled,
         )
     }
 }

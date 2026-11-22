@@ -295,9 +295,14 @@ class YumaDualDeckPlayer private constructor(
             AudioEffects.speed,
             AudioEffects.pitch,
             AudioEffects.reverb,
+            AudioEffects.karaoke,
+            dev.lelonio.square.playback.Equalizer.curves,
+            dev.lelonio.square.playback.AudioRoute.current,
         ).onEach {
+            // Karaoke and the app's EQ are AudioProcessors too: offloaded, they were silently skipped.
             val needsDsp = AudioEffects.smartAutomix.value || AudioEffects.crossfadeSeconds.value > 0 ||
-                AudioEffects.speed.value != 1f || AudioEffects.pitch.value != 1f || AudioEffects.reverb.value > 0f
+                AudioEffects.speed.value != 1f || AudioEffects.pitch.value != 1f || AudioEffects.reverb.value > 0f ||
+                AudioEffects.karaoke.value > 0f || dev.lelonio.square.playback.Equalizer.tuning != null
             val enabled = AudioEffects.audioOffload.value && !needsDsp
             applyOffload(playerA, enabled)
             applyOffload(playerB, enabled)
@@ -580,6 +585,11 @@ class YumaDualDeckPlayer private constructor(
                 // An album played through, or live / spoken material, is left to Media3's gapless
                 // advance: mixing it would be an edit the record didn't ask for.
                 if (automixEnabled && leaveAlone(currentMediaItem, nextMediaItem)) {
+                    if (preparedStandbyIndex != C.INDEX_UNSET) releaseStandby()
+                    continue
+                }
+                // Asked to stop when this song ends: nothing may start the next one early.
+                if (dev.lelonio.square.playback.SleepTimer.atTrackEnd.value) {
                     if (preparedStandbyIndex != C.INDEX_UNSET) releaseStandby()
                     continue
                 }
