@@ -12,9 +12,6 @@ import dev.lelonio.square.data.CatalogTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.playback.smart.TrackAnalyzer
@@ -33,11 +30,6 @@ class SubsonicDownloadManager(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val _downloadProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
-    val downloadProgress: StateFlow<Map<String, Float>> = _downloadProgress.asStateFlow()
-
-    private val _activeDownloads = MutableStateFlow(0)
-    val isDownloading: StateFlow<Boolean> = MutableStateFlow(false)
 
     /** Pre-MediaStore devices (API < 29) only: the old app-private location. */
     private val legacyDownloadDir: File
@@ -47,30 +39,6 @@ class SubsonicDownloadManager(
             if (!dir.exists()) dir.mkdirs()
             return dir
         }
-
-    fun downloadTrack(track: CatalogTrack) {
-        if (store.isDownloaded(track.uri)) return
-        val songId = track.uri.removePrefix("subsonic:track:")
-        scope.launch {
-            downloadTrackInternal(songId, track)
-        }
-    }
-
-    fun downloadTracks(tracks: List<CatalogTrack>) {
-        scope.launch {
-            for (track in tracks) {
-                if (!store.isDownloaded(track.uri)) {
-                    val songId = track.uri.removePrefix("subsonic:track:")
-                    downloadTrackInternal(songId, track)
-                }
-            }
-        }
-    }
-
-    private suspend fun downloadTrackInternal(songId: String, track: CatalogTrack) {
-        runCatching { downloadNow(track) }
-            .onFailure { android.util.Log.w("SubsonicDownload", "download failed for ${track.uri}: ${it.message}") }
-    }
 
     /** Deletes a downloaded copy (from Music/ or the picked folder) and its index entry. */
     fun forget(trackUri: String) {
@@ -97,12 +65,17 @@ class SubsonicDownloadManager(
 
         // Already in Music/Square, from an earlier install or an earlier try: index that file
         // rather than download it again beside itself as "Title (1)".
-        if (prefs.downloadTreeUri.value == null) {
-            onDevice("$artist/$album").firstOrNull { it.title == title }?.let { file ->
-                val record = recordOf(track, file)
-                store.saveRecord(record)
-                return@withContext record
-            }
+        // The same for a folder picked in Settings.
+        val tree = prefs.downloadTreeUri.value?.let(Uri::parse)
+        val existing = if (tree == null) {
+            onDevice("$artist/$album").firstOrNull { it.title == title }
+        } else {
+            runCatching { inTree(tree, artist, album).firstOrNull { it.title == title } }.getOrNull()
+        }
+        if (existing != null) {
+            val record = recordOf(track, existing)
+            store.saveRecord(record)
+            return@withContext record
         }
 
         // Downloaded to private scratch first, then published in one go: a half-written file
@@ -110,7 +83,6 @@ class SubsonicDownloadManager(
         val partFile = File(context.cacheDir, "subsonic_dl_$songId.part")
 
         try {
-            _downloadProgress.value = _downloadProgress.value + (track.uri to 0.01f)
 
             var mime = "audio/flac"
             val request = Request.Builder().url(downloadUrl).build()
@@ -133,7 +105,6 @@ class SubsonicDownloadManager(
                             totalRead += bytesRead
                             if (contentLength > 0) {
                                 val progress = (totalRead.toFloat() / contentLength).coerceIn(0.01f, 0.99f)
-                                _downloadProgress.value = _downloadProgress.value + (track.uri to progress)
                                 onProgress(progress)
                             }
                         }
@@ -173,7 +144,6 @@ class SubsonicDownloadManager(
             record
         } finally {
             partFile.delete()
-            _downloadProgress.value = _downloadProgress.value - track.uri
         }
     }
 
@@ -279,6 +249,44 @@ class SubsonicDownloadManager(
         fileSize = file.size,
         format = file.ext,
     )
+
+    /** The files in <picked folder>/<artist>/<album>, without creating either folder. */
+    private fun inTree(tree: Uri, artist: String, album: String): List<DeviceFile> {
+        var dir = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        for (name in listOf(artist, album)) {
+            dir = children(tree, dir).firstOrNull { it.name == name && it.isDir }?.uri ?: return emptyList()
+        }
+        return children(tree, dir).filter { !it.isDir }.map {
+            DeviceFile(it.uri.toString(), artist, album, it.name.substringBeforeLast('.'), it.name.substringAfterLast('.', ""), it.size)
+        }
+    }
+
+    private class Child(val uri: Uri, val name: String, val isDir: Boolean, val size: Long)
+
+    private fun children(tree: Uri, parent: Uri): List<Child> {
+        val listing = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(parent))
+        val out = mutableListOf<Child>()
+        context.contentResolver.query(
+            listing,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE,
+            ),
+            null, null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                out += Child(
+                    uri = DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0)),
+                    name = c.getString(1).orEmpty(),
+                    isDir = c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR,
+                    size = if (c.isNull(3)) 0L else c.getLong(3),
+                )
+            }
+        }
+        return out
+    }
 
     private fun findOrCreateDir(tree: Uri, parent: Uri, name: String): Uri {
         val resolver = context.contentResolver
