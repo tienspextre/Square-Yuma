@@ -1213,14 +1213,14 @@ private fun SubsonicSection(
                 prefs.setServerUrl(urlDraft)
                 prefs.setUsername(userDraft)
                 prefs.setPassword(passDraft)
-                statusMessage = "Settings saved"
+                statusMessage = context.getString(R.string.subsonic_settings_saved)
                 scope.launch { app.subsonicBackend.refreshAuth() }
             }
             RowDivider()
         }
 
         ActionRow(
-            if (isChecking) "Checking..." else stringResource(R.string.subsonic_test_connection),
+            if (isChecking) stringResource(R.string.subsonic_checking) else stringResource(R.string.subsonic_test_connection),
             destructive = false,
             icon = PhosphorIcons.Regular.ArrowClockwise,
         ) {
@@ -1228,17 +1228,17 @@ private fun SubsonicSection(
             prefs.setUsername(userDraft)
             prefs.setPassword(passDraft)
             isChecking = true
-            statusMessage = "Connecting to server..."
+            statusMessage = context.getString(R.string.subsonic_connecting)
             scope.launch {
                 val ping = app.subsonicClient.ping()
                 isChecking = false
                 if (ping.isSuccess) {
                     val info = ping.getOrThrow()
-                    statusMessage = "✓ Connected to ${info.type} v${info.serverVersion} (OpenSubsonic: ${info.openSubsonic})"
+                    statusMessage = context.getString(R.string.subsonic_connected, info.type, info.serverVersion, info.openSubsonic.toString())
                     app.subsonicBackend.refreshAuth()
                     onReload()
                 } else {
-                    statusMessage = "✗ Error: ${ping.exceptionOrNull()?.message}"
+                    statusMessage = context.getString(R.string.subsonic_error, ping.exceptionOrNull()?.message.orEmpty())
                 }
             }
         }
@@ -1246,7 +1246,7 @@ private fun SubsonicSection(
         RowDivider()
 
         ActionRow(
-            if (isScanning) "Triggering rescan..." else stringResource(R.string.subsonic_rescan_library),
+            if (isScanning) stringResource(R.string.subsonic_rescanning) else stringResource(R.string.subsonic_rescan_library),
             destructive = false,
             icon = PhosphorIcons.Regular.ArrowClockwise,
         ) {
@@ -1254,7 +1254,7 @@ private fun SubsonicSection(
             scope.launch {
                 val res = app.subsonicClient.startScan()
                 isScanning = false
-                statusMessage = if (res.isSuccess) "✓ Rescan triggered on server" else "✗ Failed to trigger scan"
+                statusMessage = if (res.isSuccess) context.getString(R.string.subsonic_rescan_ok) else context.getString(R.string.subsonic_rescan_failed)
             }
         }
 
@@ -1501,7 +1501,7 @@ private fun EffectQualitySection(backdrop: Backdrop) {
         }
         RowDivider()
         DownloadSwitch(
-            label = "Direct Audio Offload (Hi-Res 24/32-bit)",
+            label = stringResource(R.string.audio_offload),
             icon = PhosphorIcons.Regular.HardDrives,
             checked = audioOffload,
             backdrop = backdrop,
@@ -1561,7 +1561,7 @@ private fun CrossfadeSection(backdrop: Backdrop) {
         )
         RowDivider()
         DownloadSwitch(
-            label = "Smart Automix (BPM & Beat Matching)",
+            label = stringResource(R.string.smart_automix),
             icon = PhosphorIcons.Regular.Waveform,
             checked = automixEnabled,
             backdrop = backdrop,
@@ -1570,7 +1570,7 @@ private fun CrossfadeSection(backdrop: Backdrop) {
         if (automixEnabled) {
             RowDivider()
             DownloadSwitch(
-                label = "DJ Low-End Bass Swap",
+                label = stringResource(R.string.automix_bass_swap),
                 icon = PhosphorIcons.Regular.SlidersHorizontal,
                 checked = bassSwapEnabled,
                 backdrop = backdrop,
@@ -1578,7 +1578,7 @@ private fun CrossfadeSection(backdrop: Backdrop) {
             )
             RowDivider()
             DownloadSwitch(
-                label = "Loop Mix (Experimental)",
+                label = stringResource(R.string.automix_loop_mix),
                 icon = PhosphorIcons.Regular.Waveform,
                 checked = loopMixEnabled,
                 backdrop = backdrop,
@@ -1586,7 +1586,7 @@ private fun CrossfadeSection(backdrop: Backdrop) {
             )
             RowDivider()
             DownloadSwitch(
-                label = "Automix Albums",
+                label = stringResource(R.string.automix_albums),
                 icon = PhosphorIcons.Regular.VinylRecord,
                 checked = albumsEnabled,
                 backdrop = backdrop,

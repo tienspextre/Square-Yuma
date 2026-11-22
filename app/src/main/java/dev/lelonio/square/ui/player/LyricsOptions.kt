@@ -293,7 +293,7 @@ fun LyricsOptionsPanel(
                     }
                 }
 
-                Heading("Sync Offset", top = 14.dp)
+                Heading(stringResource(R.string.lyrics_sync_offset), top = 14.dp)
                 val syncOffset by AudioEffects.lyricsSyncOffsetMs.collectAsState()
                 Row(
                     Modifier
