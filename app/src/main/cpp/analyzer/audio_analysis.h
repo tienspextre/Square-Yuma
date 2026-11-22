@@ -65,6 +65,14 @@ struct TempoResult {
   double confidence = 0;
   std::vector<double> beats;
   std::vector<double> downbeats;
+  // Pulse: regular 55-135 BPM pulse (seconds, 0 = none), autocorrelation peak
+  // over lag 0 in [0, 1], 1/2/4 subdivision, fixed-period grid over the whole
+  // window, and percussive attacks. All times relative to the window start.
+  double pulse_interval = 0;
+  double pulse_confidence = 0;
+  int pulse_subdivision = 1;
+  std::vector<double> pulse_beats;
+  std::vector<double> drum_onsets;
 };
 
 struct MixCuePoint {
@@ -102,8 +110,6 @@ struct AnalysisResult {
   double dynamic_range_db = 0;
   std::vector<EnergyPoint> energy_curve;
   std::vector<EnergyPoint> low_energy_curve;
-  std::vector<EnergyPoint> mid_energy_curve;
-  std::vector<EnergyPoint> high_energy_curve;
   // A DSP heuristic (spectral band ratios + flatness, see AnalyzeKeyAndTimbre
   // in audio_analysis.cpp), not a trained classifier's output. Good enough to
   // gate vocal-clash avoidance in the transition planner; a future ML pass
@@ -111,6 +117,17 @@ struct AnalysisResult {
   std::vector<double> vocal_activity_mask;
   std::vector<MixCuePoint> mix_in_candidates;
   std::vector<MixCuePoint> mix_out_candidates;
+  // Pulse (see TempoResult) plus 50 ms-frame dB envelopes from t = 0:
+  // 10*log10(mean square + 1e-10) of the full signal, of <250 Hz + 3-5 kHz,
+  // and of 300-3400 Hz.
+  double pulse_interval = 0;
+  double pulse_confidence = 0;
+  int pulse_subdivision = 1;
+  std::vector<double> pulse_beats;
+  std::vector<double> drum_onsets;
+  std::vector<double> rms_db;
+  std::vector<double> rhythm_db;
+  std::vector<double> vocal_db;
   double vocal_probability = 0;
 };
 

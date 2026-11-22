@@ -666,6 +666,60 @@ void BuildStructure(const EnvelopeResult& envelope, AnalysisResult& result) {
   result.mix_out_candidates = std::move(mix_outs);
 }
 
+// RBJ biquad (Butterworth Q), direct form I in double precision.
+struct Biquad {
+  double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  Biquad(bool high_pass, double hz, double sample_rate) {
+    constexpr double kPiLocal = 3.14159265358979323846;
+    const double w = 2.0 * kPiLocal * std::min(hz, 0.45 * sample_rate) / sample_rate;
+    const double alpha = std::sin(w) / (2.0 * 0.7071067811865476);
+    const double c = std::cos(w);
+    const double a0 = 1.0 + alpha;
+    b0 = (high_pass ? 1.0 + c : 1.0 - c) / 2.0 / a0;
+    b1 = (high_pass ? -(1.0 + c) : 1.0 - c) / a0;
+    b2 = b0;
+    a1 = -2.0 * c / a0;
+    a2 = (1.0 - alpha) / a0;
+  }
+  double Process(double x) {
+    const double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1; x1 = x; y2 = y1; y1 = y;
+    return y;
+  }
+};
+
+// 50 ms-frame dB envelopes (rms / rhythm / vocal), rounded to 2 decimals.
+void ComputeDbEnvelopes(const std::vector<float>& samples, double sample_rate, AnalysisResult& result) {
+  constexpr double kHop = 0.05;
+  const size_t frames = static_cast<size_t>(samples.size() / (kHop * sample_rate));
+  if (frames == 0) return;
+  Biquad low_lp1(false, 250, sample_rate), low_lp2(false, 250, sample_rate);
+  Biquad hat_hp1(true, 3000, sample_rate), hat_hp2(true, 3000, sample_rate);
+  Biquad hat_lp1(false, 5000, sample_rate), hat_lp2(false, 5000, sample_rate);
+  Biquad voc_hp1(true, 300, sample_rate), voc_hp2(true, 300, sample_rate);
+  Biquad voc_lp1(false, 3400, sample_rate), voc_lp2(false, 3400, sample_rate);
+  const auto db = [](double energy, size_t n) {
+    return std::round(10.0 * std::log10(energy / std::max<size_t>(1, n) + 1e-10) * 100.0) / 100.0;
+  };
+  for (size_t frame = 0; frame < frames; ++frame) {
+    const size_t start = static_cast<size_t>(frame * kHop * sample_rate);
+    const size_t end = std::min(samples.size(), static_cast<size_t>((frame + 1) * kHop * sample_rate));
+    double rms = 0, rhythm = 0, vocal = 0;
+    for (size_t i = start; i < end; ++i) {
+      const double x = samples[i];
+      const double low = low_lp2.Process(low_lp1.Process(x));
+      const double hat = hat_lp2.Process(hat_lp1.Process(hat_hp2.Process(hat_hp1.Process(x))));
+      const double voc = voc_lp2.Process(voc_lp1.Process(voc_hp2.Process(voc_hp1.Process(x))));
+      rms += x * x;
+      rhythm += low * low + hat * hat;
+      vocal += voc * voc;
+    }
+    result.rms_db.push_back(db(rms, end - start));
+    result.rhythm_db.push_back(db(rhythm, end - start));
+    result.vocal_db.push_back(db(vocal, end - start));
+  }
+}
+
 }  // namespace
 
 // Full-span mix-out for the Kotlin energy pass: envelope plus tempo are
@@ -705,6 +759,12 @@ AnalysisResult AnalyzeAudio(
   result.beat_confidence = tempo.confidence;
   result.beats = tempo.beats;
   result.downbeats = tempo.downbeats;
+  result.pulse_interval = tempo.pulse_interval;
+  result.pulse_confidence = tempo.pulse_confidence;
+  result.pulse_subdivision = tempo.pulse_subdivision;
+  result.pulse_beats = tempo.pulse_beats;
+  result.drum_onsets = tempo.drum_onsets;
+  ComputeDbEnvelopes(samples, sample_rate, result);
 
   // This level estimate is RMS dBFS minus the conventional 0.691 offset. It is
   // intentionally not advertised as a gated, K-weighted loudness measurement;
@@ -733,8 +793,6 @@ AnalysisResult AnalyzeAudio(
     const double time = index * envelope.window_seconds;
     const double norm = Clamp(envelope.levels[index] / std::max(1e-6, envelope.reference), 0, 1.5);
     result.energy_curve.push_back({time, norm});
-    result.mid_energy_curve.push_back({time, norm * 1.0});
-    result.high_energy_curve.push_back({time, norm * 0.7});
   }
   std::vector<EnergyPoint> low_frames;
   std::vector<EnergyPoint> vocal_frames;

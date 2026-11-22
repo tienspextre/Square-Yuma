@@ -28,9 +28,9 @@
 // against than a hand-packed buffer.
 //
 // Only the subset the transition policy actually reads is emitted. Chroma,
-// the mid and high energy curves, loudness, peak and dynamic range are
-// computed by the analyzer but nothing downstream consumes them, and emitting
-// them would mean three more float arrays per track for no reader.
+// peak and similar are computed by the analyzer but nothing downstream
+// consumes them. The Pulse fields (docs/automix-pulse-rfc.md section 3) are
+// emitted for PulseFeatures.parse.
 
 #include <jni.h>
 
@@ -105,6 +105,14 @@ void AppendCuePoints(std::string& out, const std::vector<yuma::smart::MixCuePoin
   out += ']';
 }
 
+void AppendEnvelope(std::string& out, const char* name, const std::vector<double>& values) {
+  out += ",\"";
+  out += name;
+  out += "\":{\"t0\":0,\"hop\":0.05,\"v\":";
+  AppendDoubles(out, values);
+  out += '}';
+}
+
 void AppendField(std::string& out, const char* name, double value, bool first = false) {
   if (!first) out += ',';
   out += '"';
@@ -136,7 +144,7 @@ Java_moe_rukamori_archivetune_playback_smart_TrackFeatures_nativeAnalyze(
   std::string json;
   // A whole-track energy curve dominates the output; reserving up front keeps
   // this from repeatedly reallocating a string that reaches tens of kilobytes.
-  json.reserve(8192 + result.energy_curve.size() * 24);
+  json.reserve(8192 + result.energy_curve.size() * 24 + result.rms_db.size() * 24);
 
   json += '{';
   AppendField(json, "duration", result.duration, true);
@@ -155,6 +163,17 @@ Java_moe_rukamori_archivetune_playback_smart_TrackFeatures_nativeAnalyze(
   AppendField(json, "vocalProbability", result.vocal_probability);
   AppendField(json, "loudnessLufs", result.loudness_lufs);
   AppendField(json, "dynamicRangeDb", result.dynamic_range_db);
+
+  AppendField(json, "pulseInterval", result.pulse_interval);
+  AppendField(json, "pulseConfidence", result.pulse_confidence);
+  AppendField(json, "pulseSubdivision", result.pulse_subdivision);
+  json += ",\"beats\":";
+  AppendDoubles(json, result.pulse_beats);
+  json += ",\"drumOnsets\":";
+  AppendDoubles(json, result.drum_onsets);
+  AppendEnvelope(json, "rmsDb", result.rms_db);
+  AppendEnvelope(json, "rhythmDb", result.rhythm_db);
+  AppendEnvelope(json, "vocalDb", result.vocal_db);
 
   json += ",\"key\":";
   AppendString(json, result.key);

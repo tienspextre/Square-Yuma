@@ -102,6 +102,8 @@ struct OnsetEnvelopes {
   // deciding *which* beat is beat one is a different question from deciding
   // where the beats are, and the two want different evidence.
   std::vector<double> low;
+  // Percussive flux: <250 Hz (kick) plus 3-5 kHz (snare/hat attack).
+  std::vector<double> perc;
 };
 
 // Normalizes an onset envelope in place: subtract a local mean to suppress
@@ -154,6 +156,11 @@ OnsetEnvelopes OnsetEnvelope(
   );
   result.full.assign(frame_count, 0);
   result.low.assign(frame_count, 0);
+  result.perc.assign(frame_count, 0);
+  const double bin_hz = sample_rate / frame_size;
+  const size_t perc_low_bins = std::max<size_t>(2, static_cast<size_t>(250.0 / bin_hz));
+  const size_t perc_hi_start = static_cast<size_t>(3000.0 / bin_hz);
+  const size_t perc_hi_end = std::min<size_t>(frame_size / 2, static_cast<size_t>(5000.0 / bin_hz));
   std::vector<double> previous(frame_size / 2, 0);
   std::vector<std::complex<double>> spectrum(frame_size);
   // The Hann shape depends on the fixed FFT size, not on the frame. Reuse it
@@ -172,20 +179,24 @@ OnsetEnvelopes OnsetEnvelope(
 
     double flux = 0;
     double low_flux = 0;
+    double perc_flux = 0;
     for (size_t bin = 1; bin < frame_size / 2; ++bin) {
       const double magnitude = std::log1p(std::abs(spectrum[bin]));
       const double rise = std::max(0.0, magnitude - previous[bin]);
       flux += rise;
       if (bin < low_band_bins) low_flux += rise;
+      if (bin < perc_low_bins || (bin >= perc_hi_start && bin < perc_hi_end)) perc_flux += rise;
       previous[bin] = magnitude;
     }
     result.full[frame] = flux;
     result.low[frame] = low_flux;
+    result.perc[frame] = perc_flux;
   }
 
   const double frames_per_second = sample_rate / hop_size;
   NormalizeEnvelope(result.full, frames_per_second);
   NormalizeEnvelope(result.low, frames_per_second);
+  NormalizeEnvelope(result.perc, frames_per_second);
   return result;
 }
 
@@ -225,6 +236,136 @@ double MetricalPrior(double bpm) {
   if (!(bpm > 0)) return 0;
   const double octaves = std::log2(bpm / 120.0) / 0.7;
   return std::exp(-0.5 * octaves * octaves);
+}
+
+// "Pulse" fields (docs/automix-pulse-rfc.md section 2): a regular 55-135 BPM
+// pulse from the autocorrelation of the low-band + percussive onset flux, a
+// fixed-period beat grid over the whole window, and the drum attacks.
+// `prior_bpm` is the tracker's tempo (0 if none).
+void AnalyzePulse(
+  const OnsetEnvelopes& envelopes,
+  double sample_rate,
+  double duration,
+  double prior_bpm,
+  TempoResult& result
+) {
+  const size_t frames = envelopes.perc.size();
+  const double fps = sample_rate / 128.0;
+  const double centre = 512.0 / (2.0 * sample_rate);
+  const size_t limit = std::min(frames, static_cast<size_t>(fps * kMaxTempoSearchSeconds));
+  if (limit < 64) return;
+
+  std::vector<double> flux(limit);
+  double mean = 0;
+  for (size_t i = 0; i < limit; ++i) mean += (flux[i] = envelopes.low[i] + envelopes.perc[i]);
+  mean /= limit;
+  double energy = 0;
+  for (double& v : flux) { v -= mean; energy += v * v; }
+  const double ac0 = energy / limit;
+  if (ac0 < 1e-9) return;
+
+  const int min_lag = std::max(2, static_cast<int>(std::floor(fps * 60.0 / 135.0)));
+  const int max_lag = std::min<int>(static_cast<int>(limit) / 2, static_cast<int>(std::ceil(fps * 60.0 / 55.0)));
+  if (max_lag <= min_lag + 2) return;
+  // ac[l] is the mean lagged product, so long and short lags compare fairly.
+  std::vector<double> ac(max_lag + 2, 0);
+  double ac_max = 0;
+  for (int lag = min_lag - 1; lag <= max_lag + 1; ++lag) {
+    if (lag < 1 || lag >= static_cast<int>(limit)) continue;
+    double sum = 0;
+    for (size_t i = lag; i < limit; ++i) sum += flux[i] * flux[i - lag];
+    ac[lag] = sum / (limit - lag);
+    if (lag >= min_lag && lag <= max_lag) ac_max = std::max(ac_max, ac[lag]);
+  }
+  if (ac_max <= 0) return;
+
+  // Prior folded by octaves into the pulse range.
+  double prior_lag = 0;
+  if (prior_bpm > 0) {
+    double bpm = prior_bpm;
+    while (bpm > 135.0) bpm /= 2;
+    while (bpm < 55.0) bpm *= 2;
+    prior_lag = fps * 60.0 / bpm;
+  }
+  double best_lag = 0, best_value = -1;       // strongest near the prior
+  double global_lag = 0, global_value = -1;   // global maximum
+  for (int lag = min_lag; lag <= max_lag; ++lag) {
+    if (!(ac[lag] >= ac[lag - 1] && ac[lag] > ac[lag + 1])) continue;
+    const double denominator = ac[lag - 1] - 2.0 * ac[lag] + ac[lag + 1];
+    double refined = lag;
+    double value = ac[lag];
+    if (std::abs(denominator) > 1e-12) {
+      const double offset = Clamp(0.5 * (ac[lag - 1] - ac[lag + 1]) / denominator, -0.5, 0.5);
+      refined += offset;
+      value = ac[lag] - 0.25 * (ac[lag - 1] - ac[lag + 1]) * offset;
+    }
+    if (value > global_value) { global_value = value; global_lag = refined; }
+    if (value >= 0.82 * ac_max && prior_lag > 0 &&
+        std::abs(refined - prior_lag) <= 0.08 * prior_lag && value > best_value) {
+      best_value = value;
+      best_lag = refined;
+    }
+  }
+  const double lag = best_lag > 0 ? best_lag : global_lag;
+  const double peak = best_lag > 0 ? best_value : global_value;
+  if (lag <= 0) return;
+  const double period = lag / fps;
+  result.pulse_interval = period;
+  result.pulse_confidence = Clamp(peak / ac0, 0.0, 1.0);
+
+  // Phase: comb over the combined flux (the whole window is read, so the
+  // refined lag keeps the comb in step). 0.25-frame steps, linear interpolation.
+  const double step = 0.25;
+  double best_phase = 0, best_score = -1;
+  for (double phase = 0; phase < lag; phase += step) {
+    double score = 0;
+    for (double position = phase; position < limit - 1; position += lag) {
+      score += SampleEnvelope(flux, position);
+    }
+    if (score > best_score) { best_score = score; best_phase = phase; }
+  }
+  const double first = std::fmod(best_phase / fps + centre, period);
+  for (double t = first; t <= duration + 1e-9; t += period) result.pulse_beats.push_back(t);
+
+  // Drum onsets: local maxima of the percussive flux, strongest first with a
+  // 70 ms exclusion, then the weakest 35% (by peak strength) dropped.
+  const auto& perc = envelopes.perc;
+  std::vector<size_t> peaks;
+  for (size_t i = 1; i + 1 < perc.size(); ++i) {
+    if (perc[i] > 0.05 && perc[i] >= perc[i - 1] && perc[i] > perc[i + 1]) peaks.push_back(i);
+  }
+  std::sort(peaks.begin(), peaks.end(), [&](size_t a, size_t b) { return perc[a] > perc[b]; });
+  const double min_gap = 0.07 * fps;
+  std::vector<size_t> kept;
+  for (const size_t i : peaks) {
+    bool free = true;
+    for (const size_t k : kept) {
+      if (std::abs(static_cast<double>(i) - static_cast<double>(k)) < min_gap) { free = false; break; }
+    }
+    if (free) kept.push_back(i);
+  }
+  if (!kept.empty()) {
+    std::vector<double> strengths;
+    for (const size_t i : kept) strengths.push_back(perc[i]);
+    std::sort(strengths.begin(), strengths.end());
+    const double cutoff = strengths[static_cast<size_t>(0.35 * (strengths.size() - 1))];
+    std::vector<size_t> strong;
+    for (const size_t i : kept) if (perc[i] >= cutoff) strong.push_back(i);
+    std::sort(strong.begin(), strong.end());
+    for (const size_t i : strong) result.drum_onsets.push_back(i / fps + centre);
+  }
+
+  // Subdivision: mode of inter-onset intervals relative to the pulse.
+  int counts[5] = {0, 0, 0, 0, 0};
+  for (size_t i = 1; i < result.drum_onsets.size(); ++i) {
+    const double ratio = (result.drum_onsets[i] - result.drum_onsets[i - 1]) / period;
+    if (ratio >= 0.7 && ratio < 1.4) ++counts[1];
+    else if (ratio >= 0.35 && ratio < 0.7) ++counts[2];
+    else if (ratio >= 0.17 && ratio < 0.35) ++counts[4];
+  }
+  result.pulse_subdivision = 1;
+  if (counts[2] > counts[result.pulse_subdivision]) result.pulse_subdivision = 2;
+  if (counts[4] > counts[result.pulse_subdivision]) result.pulse_subdivision = 4;
 }
 
 }  // namespace
@@ -546,7 +687,17 @@ TempoResult AnalyzeTempo(
     0.0,
     1.0
   );
-  if (!std::isfinite(result.bpm) || result.bpm < 60 || result.bpm > 220) return TempoResult{};
+  const bool tempo_ok = std::isfinite(result.bpm) && result.bpm >= 60 && result.bpm <= 220;
+  AnalyzePulse(envelopes, sample_rate, duration, tempo_ok ? result.bpm : 0.0, result);
+  if (!tempo_ok) {
+    TempoResult failed;  // pulse fields survive a failed tempo reading
+    failed.pulse_interval = result.pulse_interval;
+    failed.pulse_confidence = result.pulse_confidence;
+    failed.pulse_subdivision = result.pulse_subdivision;
+    failed.pulse_beats = std::move(result.pulse_beats);
+    failed.drum_onsets = std::move(result.drum_onsets);
+    return failed;
+  }
   return result;
 }
 
