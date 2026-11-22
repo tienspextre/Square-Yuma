@@ -614,6 +614,11 @@ class PlaybackService : MediaLibraryService() {
         scope.launch {
             crossfade.seconds.drop(1).collect { reconfigureEngine("crossfade") }
         }
+        // The dual-deck engine reads AudioEffects, not this store: without this the
+        // setting never reached it and it always faded for its default 6 s.
+        scope.launch {
+            crossfade.seconds.collect(AudioEffects::setCrossfadeSeconds)
+        }
 
         // Playback handed to this phone from another client's device list.
         //
