@@ -233,14 +233,14 @@ class SubsonicBackend(
             )
         }
 
+        // Nothing came back: say why rather than claiming a connection.
         if (rows.isEmpty()) {
-            rows.add(
-                HomeRow(
-                    title = "Navidrome Connected",
-                    strapline = "SERVER READY",
-                    tracks = emptyList(),
-                ),
-            )
+            val (title, strapline) = when {
+                !client.preferences.isConfigured() -> "Set up your NAS in Settings" to "NOT CONFIGURED"
+                client.ping().isFailure -> "Can't reach the NAS" to "OFFLINE"
+                else -> "Your library is empty" to "NAVIDROME"
+            }
+            rows.add(HomeRow(title = title, strapline = strapline, tracks = emptyList()))
         }
 
         HomeFeed(rows = rows, chips = chips)

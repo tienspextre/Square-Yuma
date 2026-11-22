@@ -1757,7 +1757,8 @@ fun SquareApp(
                                 },
                                 onPickYouTubeChip = viewModel::selectYouTubeChip,
                                 onLoadMoreYouTube = viewModel::loadMoreYouTubeHome,
-                                youtubeSignedIn = if (backend == dev.lelonio.square.backend.BackendId.SUBSONIC) true else youtubeAccountName != null,
+                                // Only YouTube Music has a Google account to sign in to.
+                                youtubeSignedIn = backend != dev.lelonio.square.backend.BackendId.YOUTUBE_MUSIC || youtubeAccountName != null,
                                 onYouTubeSignIn = { showYouTubeLogin = true },
                                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                                 friends = friends,

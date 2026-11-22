@@ -64,6 +64,7 @@ import dev.lelonio.square.ui.glass.backdrop.Backdrop
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.HardDrives
+import com.adamglin.phosphoricons.regular.DeviceMobile
 import com.adamglin.phosphoricons.regular.SpotifyLogo
 import com.adamglin.phosphoricons.regular.YoutubeLogo
 import dev.lelonio.square.backend.BackendId
@@ -1653,15 +1654,15 @@ private fun YouTubeHeader(
     backendId: BackendId = BackendId.YOUTUBE_MUSIC,
     modifier: Modifier = Modifier,
 ) {
-    val service = if (backendId == BackendId.SUBSONIC) {
-        R.string.backend_subsonic
-    } else {
-        R.string.backend_youtube
+    val service = when (backendId) {
+        BackendId.SUBSONIC -> R.string.backend_subsonic
+        BackendId.LOCAL -> R.string.backend_local
+        else -> R.string.backend_youtube
     }
-    val serviceIcon = if (backendId == BackendId.SUBSONIC) {
-        PhosphorIcons.Regular.HardDrives
-    } else {
-        PhosphorIcons.Regular.YoutubeLogo
+    val serviceIcon = when (backendId) {
+        BackendId.SUBSONIC -> PhosphorIcons.Regular.HardDrives
+        BackendId.LOCAL -> PhosphorIcons.Regular.DeviceMobile
+        else -> PhosphorIcons.Regular.YoutubeLogo
     }
     Header(
         modifier = modifier,
