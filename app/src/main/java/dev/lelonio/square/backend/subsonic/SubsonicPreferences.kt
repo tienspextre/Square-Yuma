@@ -19,7 +19,7 @@ class SubsonicPreferences(context: Context) {
         const val KEY_TRANSCODE_CELLULAR = "subsonic_transcode_cellular"
         const val KEY_TRANSCODE_BITRATE = "subsonic_transcode_bitrate"
         const val KEY_DOWNLOAD_TREE = "subsonic_download_tree_uri"
-        const val DEFAULT_SERVER_URL = "http://100.110.65.47:4533"
+        const val DEFAULT_SERVER_URL = ""
         const val CLIENT_NAME = "SquarePlayer"
         const val API_VERSION = "1.16.1"
     }

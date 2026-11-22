@@ -267,6 +267,10 @@ object Report {
         // What Spotify names new accounts: 31 and twenty-six more, which is an
         // account whether or not the line around it says so.
         Regex("""\b31[a-z0-9]{26}\b""") to "<account>",
+        // Subsonic signs every request in its query: user, token, salt, or a plain password.
+        Regex("""([?&](?:u|t|s|p))=[^&\s"'#]+""") to "$1=<redacted>",
+        // The same four as JSON, as the lossless bridge is sent them.
+        Regex("""("(?:u|t|s|p)"\s*:\s*)"[^"]*"""") to "$1\"<redacted>\"",
     )
 
     private const val CRASH_DIR = "crashes"
