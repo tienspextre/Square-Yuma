@@ -253,7 +253,8 @@ private fun NowReadingLine(
             .padding(vertical = 6.dp)
             .then(if (sideways) Modifier.widthIn(max = 560.dp) else Modifier)
             .fillMaxWidth()
-            .pressable(onClick = onClick),
+            .pressable(onClick = onClick)
+            .automixNeonBorder(RoundedCornerShape(50)),
     ) {
         Row(
             Modifier.padding(start = 8.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
