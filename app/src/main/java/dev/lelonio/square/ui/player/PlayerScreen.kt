@@ -1690,7 +1690,8 @@ fun PlayerScreen(
                                 // this to choose its backdrop, changed colour
                                 // as the lyrics opened out.
                                 .onGloballyPositioned { if (chrome == 1f) lowerTop = it.boundsInWindow().top }
-                                .sharedPill(sharedScope, animatedScope),
+                                .sharedPill(sharedScope, animatedScope)
+                                .automixNeonBorder(RoundedCornerShape(50)),
                         ) {
                             Row(
                                 Modifier.padding(start = 22.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),

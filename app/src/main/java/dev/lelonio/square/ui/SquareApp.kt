@@ -132,6 +132,7 @@ import dev.lelonio.square.ui.glass.LiquidButton
 import dev.lelonio.square.ui.home.HomeScreen
 import dev.lelonio.square.ui.library.LibraryScreen
 import dev.lelonio.square.ui.library.PlaylistScreen
+import dev.lelonio.square.ui.player.automixNeonBorder
 import dev.lelonio.square.ui.player.GlassFilm
 import dev.lelonio.square.ui.player.AddToPlaylistSheet
 import androidx.compose.ui.text.AnnotatedString
@@ -2437,6 +2438,7 @@ fun SquareApp(
                                 modifier = accessoryModifier
                                     .fillMaxWidth()
                                     .then(pillGlass)
+                                    .automixNeonBorder(barShape)
                                     // Up to open the player, as it always was.
                                     // The pill's own drag detector locks to the
                                     // horizontal after the touch slop, so a
