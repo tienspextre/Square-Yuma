@@ -24,6 +24,11 @@ object MixAutomation {
     const val OPEN_LOW_PASS_HZ = 16000f
     const val LOCK_BARS = PulseFeatures.TRANSITION_PULSES / PulseFeatures.PULSES_PER_BAR.toDouble()
     private const val SWAP_BARS = 0.5
+    /**
+     * Deepest incoming vocal duck. The Mid/Side duck removes the whole centre of 250 Hz–5 kHz, where
+     * the kick's punch, the bass's harmonics and the snare live too, so a full duck sounds bass-less.
+     */
+    const val VOCAL_DUCK_FLOOR = 0.5f
 
     /** 0 before [a], 1 after [b], smoothstep between. */
     fun ramp(x: Double, a: Double, b: Double): Float {
@@ -63,13 +68,17 @@ object MixAutomation {
     fun incoming(plan: PulsePlan, bars: Double, sourceMs: Double): StemMix {
         val cue = cueBar(plan)
         val r = plan.inVocal
-        val vocal = when (r.mode) {
+        val planned = when (r.mode) {
             VocalMode.CUE_SYNC -> ramp(sourceMs, r.fadeStartMs, r.lineStartMs)
             VocalMode.TWO_STAGE ->
                 if (sourceMs < r.lineStartMs) r.lineGain.toFloat() * ramp(sourceMs, r.fadeStartMs, r.lineStartMs)
                 else lerp(r.lineGain.toFloat(), 1f, ramp(sourceMs, r.lineStartMs, r.lineStartMs + r.tailMs))
-            VocalMode.NONE -> ramp(bars, LOCK_BARS, LOCK_BARS + 1)
+            VocalMode.NONE -> 0f
         }
+        // Past the lock the incoming deck is the song: open within a bar instead of holding the
+        // duck until its next sung line (up to ~30 s later), which kept its body hollow.
+        val open = maxOf(planned, ramp(bars, LOCK_BARS, LOCK_BARS + 1))
+        val vocal = lerp(VOCAL_DUCK_FLOOR, 1f, open)
         val hp = when {
             bars < cue - 2 -> BED_HIGH_PASS_HZ
             bars < cue -> DRUMS_HIGH_PASS_HZ

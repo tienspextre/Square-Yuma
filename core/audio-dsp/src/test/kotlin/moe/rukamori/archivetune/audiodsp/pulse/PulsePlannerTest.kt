@@ -103,5 +103,13 @@ class PulsePlannerTest {
         assertTrue(plan.loudnessDb.all { it in PulsePlanner.LOUDNESS_MIN_DB..PulsePlanner.LOUDNESS_MAX_DB })
     }
 
+    @Test
+    fun incomingBodyIsNeverHollowedOut() {
+        val plan = PulsePlanner.plan(outgoing, side(240.0, 120.0, { false }, inCues = listOf(16.0)), "p")!!
+        for (bars in listOf(0.0, MixAutomation.cueBar(plan), MixAutomation.LOCK_BARS))
+            assertTrue(MixAutomation.incoming(plan, bars, 0.0).vocal >= MixAutomation.VOCAL_DUCK_FLOOR)
+        assertEquals(1f, MixAutomation.incoming(plan, MixAutomation.LOCK_BARS + 1, 0.0).vocal, 1e-6f)
+    }
+
     private fun nearestBeatMs(s: PulsePlanner.Side, t: Double) = s.pulse.beats[PulsePlanner.nearest(s.pulse.beats, t)] * 1000
 }
