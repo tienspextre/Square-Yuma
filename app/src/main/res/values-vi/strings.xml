@@ -530,6 +530,7 @@
     <string name="rotate_video">Xoay sang toàn màn hình</string>
     <string name="video_age_restricted">Video chính thức bị giới hạn độ tuổi và yêu cầu đăng nhập YouTube: đang phát video thay thế của bài hát.</string>
     <string name="video_unavailable">Không thể phát video chính thức: đang phát video thay thế của bài hát.</string>
+    <string name="playing_next">Sẽ phát tiếp theo: %s</string>
     <string name="added_to_queue">Đã thêm vào hàng đợi: %s</string>
     <string name="videos">Video</string>
     <string name="device_this_app" translatable="false">%1$s (Square)</string>

@@ -5,7 +5,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.ForwardingPlayer
 import dev.lelonio.square.playback.ShuffleOrders.shuffleFromCurrent
-import dev.lelonio.square.playback.ShuffleOrders.shuffleInAhead
+import dev.lelonio.square.playback.ShuffleOrders.afterInsert
+import dev.lelonio.square.playback.ShuffleOrders.moveInPlayOrder
+import dev.lelonio.square.playback.ShuffleOrders.queueInsertAt
 
 /** Keeps the public queue on the main player while its outgoing audio overlaps the next song. */
 @UnstableApi
@@ -24,64 +26,30 @@ class SkipFadePlayer(
         fades.releaseMixer()
     }
 
-    // "Play next" lands after the song playing and after whatever was queued
-    // before it, as on the Spotify side (PlayQueue.insertNext). ExoPlayer on its
-    // own appends, which put a queued song behind the rest of the playlist or
-    // the radio: queued, and never reached.
+    // Hand-queued songs land after the song playing (see ShuffleOrders.queueInsertAt); ExoPlayer
+    // on its own appends, which put a queued song behind the rest of the playlist or the radio.
 
     override fun addMediaItem(mediaItem: MediaItem) = addMediaItems(mutableListOf(mediaItem))
 
-    override fun addMediaItems(mediaItems: MutableList<MediaItem>) {
-        val queued = mediaItems.isNotEmpty() && mediaItems.all(::isQueued)
-        val at = if (queued) queueEnd() else mediaItemCount
-        super.addMediaItems(at, mediaItems)
-        if (queued) playNextInShuffle(at, mediaItems.size) else exo?.shuffleInAhead(at, mediaItems.size)
-    }
+    override fun addMediaItems(mediaItems: MutableList<MediaItem>) = addMediaItems(mediaItemCount, mediaItems)
 
     override fun addMediaItem(index: Int, mediaItem: MediaItem) = addMediaItems(index, mutableListOf(mediaItem))
 
     override fun addMediaItems(index: Int, mediaItems: MutableList<MediaItem>) {
-        // The controller asks for the end; the queue knows better where that is.
-        val queued = mediaItems.isNotEmpty() && mediaItems.all(::isQueued)
-        val at = if (queued) queueEnd() else index
+        val at = queueInsertAt(mediaItems, index)
         super.addMediaItems(at, mediaItems)
-        if (queued) playNextInShuffle(at, mediaItems.size) else exo?.shuffleInAhead(at, mediaItems.size)
+        exo?.afterInsert(at, mediaItems)
     }
 
-    /**
-     * Shuffled, the songs just queued are played next too.
-     *
-     * Placing them after the song playing in the list is not enough with
-     * shuffle on: ExoPlayer plays its own shuffled order, and gave the new
-     * songs a random place in it, so "play next" played a random song next.
-     * The order is rewritten with them right after the song playing and after
-     * anything queued before them, and everything else as it was.
-     */
-    private fun playNextInShuffle(at: Int, count: Int) {
-        val exo = wrappedPlayer as? androidx.media3.exoplayer.ExoPlayer ?: return
-        if (!shuffleModeEnabled || count <= 0) return
-        val timeline = currentTimeline
-        if (timeline.isEmpty) return
-        val added = (at until at + count).toSet()
-        val order = dev.lelonio.square.playback.ShuffleOrders.of(timeline)
-        order.removeAll(added)
-        var place = order.indexOf(currentMediaItemIndex) + 1
-        while (place in order.indices && isQueued(getMediaItemAt(order[place]))) place++
-        order.addAll(place.coerceIn(0, order.size), (at until at + count).toList())
-        exo.setShuffleOrder(
-            androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(order.toIntArray(), System.nanoTime()),
-        )
+    override fun moveMediaItem(currentIndex: Int, newIndex: Int) {
+        val e = exo ?: return super.moveMediaItem(currentIndex, newIndex)
+        e.moveInPlayOrder(currentIndex, newIndex) { super.moveMediaItem(currentIndex, newIndex) }
     }
 
-    private fun isQueued(item: MediaItem) =
-        item.mediaMetadata.extras?.getBoolean(dev.lelonio.square.ui.EXTRA_PLAY_NEXT) == true
-
-    /** Just past the run of queued songs that follows the one playing. */
-    private fun queueEnd(): Int {
-        if (mediaItemCount == 0) return 0
-        var at = currentMediaItemIndex + 1
-        while (at < mediaItemCount && isQueued(getMediaItemAt(at))) at++
-        return at
+    override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int) {
+        val e = exo
+        if (e == null || toIndex != fromIndex + 1) return super.moveMediaItems(fromIndex, toIndex, newIndex)
+        e.moveInPlayOrder(fromIndex, newIndex) { super.moveMediaItems(fromIndex, toIndex, newIndex) }
     }
 
     override fun seekToNext() = changing { super.seekToNext() }

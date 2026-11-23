@@ -26,4 +26,18 @@ class ShuffleOrdersTest {
             assertTrue(order.indexOf(6) > 2 && order.indexOf(7) > 2)
         }
     }
+
+    @Test
+    fun aDraggedSongTakesThePlaySlotOfTheOneItLandsOn() {
+        // Playlist 0..5, playing 2, shuffled as 2 5 0 4 1 3.
+        val order = listOf(2, 5, 0, 4, 1, 3)
+        // Dragged from 4th (song 4) to 2nd place (song 5's slot): moveMediaItem(4, 5).
+        val after = ShuffleOrders.movedOrder(order, 4, 5).map { ShuffleOrders.remap(it, 4, 5) }
+        // Song 4 is now at list index 5, song 5 at 4: play order 2 4' 5' 0 1 3 in old names.
+        org.junit.Assert.assertEquals(listOf(2, 5, 4, 0, 1, 3), after)
+        // Moving down: song 5 to song 1's slot.
+        val down = ShuffleOrders.movedOrder(order, 5, 1).map { ShuffleOrders.remap(it, 5, 1) }
+        // List after the move: 0 5 1 2 3 4 → old 1→2, 2→3, 3→4, 4→5, 5→1.
+        org.junit.Assert.assertEquals(listOf(3, 0, 5, 2, 1, 4), down)
+    }
 }

@@ -302,8 +302,19 @@ fun rememberQueue(player: Player?): State<List<QueueEntry>> {
             // track instead, with these above it for whoever scrolls up. A song
             // that had ended simply vanished from the list, which read as the
             // app throwing it away (#30).
-            val from = (current - QUEUE_HISTORY).coerceAtLeast(0)
-            queue.value = (from until player.mediaItemCount).map { index ->
+            //
+            // In the order the songs will play: shuffled, the list showed the playlist's own
+            // order, so what came next on screen was not what came next. [QueueEntry.index]
+            // stays the player's index, which is what every queue action takes.
+            val timeline = player.currentTimeline
+            val order = if (player.shuffleModeEnabled && !timeline.isEmpty) {
+                dev.lelonio.square.playback.ShuffleOrders.of(timeline).takeIf { it.size == player.mediaItemCount }
+            } else null
+            val playOrder = order ?: (0 until player.mediaItemCount).toList()
+            val currentAt = playOrder.indexOf(current).takeIf { it >= 0 } ?: current.coerceAtLeast(0)
+            val from = (currentAt - QUEUE_HISTORY).coerceAtLeast(0)
+            queue.value = (from until playOrder.size).map { at ->
+                val index = playOrder[at]
                 val metadata = player.getMediaItemAt(index).mediaMetadata
                 QueueEntry(
                     index = index,
@@ -311,7 +322,7 @@ fun rememberQueue(player: Player?): State<List<QueueEntry>> {
                     title = metadata.title?.toString().orEmpty(),
                     artist = metadata.artist?.toString().orEmpty(),
                     isCurrent = index == current,
-                    played = index < current,
+                    played = at < currentAt,
                     recommended = metadata.extras?.getBoolean(dev.lelonio.square.data.SmartShuffle.RECOMMENDED) == true,
                     queued = metadata.extras?.getBoolean(dev.lelonio.square.ui.EXTRA_PLAY_NEXT) == true,
                     contextLabel = metadata.extras?.getString(dev.lelonio.square.ui.EXTRA_CONTEXT_LABEL).orEmpty(),
@@ -324,6 +335,7 @@ fun rememberQueue(player: Player?): State<List<QueueEntry>> {
                 if (events.containsAny(
                         Player.EVENT_TIMELINE_CHANGED,
                         Player.EVENT_MEDIA_ITEM_TRANSITION,
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
                     )
                 ) {
                     rebuild()

@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
                     player = controller,
                     onPlay = ::play,
                     onEnqueue = ::enqueue,
+                    onPlayNext = ::playNext,
                     onEnqueueAll = ::enqueueAll,
                     openPlayer = openPlayer,
                     link = link,
@@ -416,13 +417,18 @@ class MainActivity : ComponentActivity() {
      * Starts playback when nothing is loaded: queueing onto an idle player and
      * having nothing happen reads as the gesture having failed.
      */
-    private fun enqueue(track: CatalogTrack) {
+    private fun enqueue(track: CatalogTrack) = enqueue(track, first = false)
+
+    /** Right after the song playing, ahead of anything queued before. */
+    private fun playNext(track: CatalogTrack) = enqueue(track, first = true)
+
+    private fun enqueue(track: CatalogTrack, first: Boolean) {
         val player = controller ?: return
         val wasEmpty = player.mediaItemCount == 0
         // The index is a formality: the item asks to play next and the queue in
         // the service picks the place, because only it knows where the run of
         // already-queued tracks ends.
-        player.addMediaItem(toMediaItem(track, playNext = true))
+        player.addMediaItem(toMediaItem(track, playNext = true, first = first))
         if (wasEmpty) {
             player.prepare()
             player.play()
@@ -431,7 +437,7 @@ class MainActivity : ComponentActivity() {
             // the listener cannot see from here.
             android.widget.Toast.makeText(
                 this,
-                getString(dev.lelonio.square.R.string.added_to_queue, track.name),
+                getString(if (first) dev.lelonio.square.R.string.playing_next else dev.lelonio.square.R.string.added_to_queue, track.name),
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
@@ -458,6 +464,7 @@ class MainActivity : ComponentActivity() {
         asContext: Boolean = false,
         contextLabel: String = "",
         playNext: Boolean = false,
+        first: Boolean = false,
     ): MediaItem =
         MediaItem.Builder()
             // The media id carries the track's URI; PlayQueue refuses anything else.
@@ -524,6 +531,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             if (playNext) putBoolean(EXTRA_PLAY_NEXT, true)
+                            if (first) putBoolean(EXTRA_PLAY_FIRST, true)
                         },
                     )
                     .build(),
@@ -552,6 +560,9 @@ const val EXTRA_CONTEXT_ORDERED = "dev.lelonio.square.CONTEXT_ORDERED"
  * the end of the queue.
  */
 const val EXTRA_PLAY_NEXT = "dev.lelonio.square.PLAY_NEXT"
+
+/** With [EXTRA_PLAY_NEXT]: "Play next", right after the song playing rather than after the queue. */
+const val EXTRA_PLAY_FIRST = "dev.lelonio.square.PLAY_FIRST"
 
 /** What to show the listener: "Playlist · Estate 2025", "Ricerca". */
 const val EXTRA_CONTEXT_LABEL = "dev.lelonio.square.CONTEXT_LABEL"

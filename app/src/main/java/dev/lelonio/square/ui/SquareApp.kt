@@ -149,6 +149,7 @@ import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.Waveform
 import com.adamglin.phosphoricons.regular.X
 import com.adamglin.phosphoricons.regular.Queue
+import com.adamglin.phosphoricons.regular.ArrowBendDownRight
 import com.adamglin.phosphoricons.regular.SpotifyLogo
 import com.adamglin.phosphoricons.regular.YoutubeLogo
 import com.adamglin.phosphoricons.regular.FolderSimple
@@ -421,6 +422,7 @@ fun SquareApp(
     onPlay: (List<CatalogTrack>, Int, String?, Boolean, String, Long) -> Unit,
     /** Appends one track to the end of the queue; see the swipe gesture on rows. */
     onEnqueue: (CatalogTrack) -> Unit,
+    onPlayNext: (CatalogTrack) -> Unit = onEnqueue,
     /** Appends multiple tracks to the end of the queue; used by Autoplay. */
     onEnqueueAll: (List<CatalogTrack>) -> Unit = {},
     /**
@@ -576,8 +578,28 @@ fun SquareApp(
                 // In their order, each just after the one moved before it.
                 // Every one comes after the playing track, so moving one
                 // leaves the places of those still to move as they were.
-                val after = p.currentMediaItemIndex + 1
-                indices.distinct().sorted().forEachIndexed { k, at -> p.moveMediaItem(at, after + k) }
+                if (!p.shuffleModeEnabled) {
+                    val after = p.currentMediaItemIndex + 1
+                    indices.distinct().sorted().forEachIndexed { k, at -> p.moveMediaItem(at, after + k) }
+                } else {
+                    // Shuffled, the queue shows the play order and the player moves a song to
+                    // the play slot of the one at the target index (ShuffleOrders.moveInPlayOrder).
+                    // Last first, each to the slot right after the song playing: they end up in
+                    // their order. The same order and indices are followed here, move by move.
+                    val so = dev.lelonio.square.playback.ShuffleOrders
+                    var order = so.of(p.currentTimeline).toList()
+                    var cur = p.currentMediaItemIndex
+                    val picked = indices.distinct().sortedBy { order.indexOf(it) }.toMutableList()
+                    for (k in picked.indices.reversed()) {
+                        val x = picked[k]
+                        val t = order.getOrNull(order.indexOf(cur) + 1) ?: break
+                        if (t == x) continue
+                        p.moveMediaItem(x, t)
+                        order = so.movedOrder(order, x, t).map { so.remap(it, x, t) }
+                        cur = so.remap(cur, x, t)
+                        for (j in picked.indices) picked[j] = so.remap(picked[j], x, t)
+                    }
+                }
             }
         },
         onUndo = queueUndo?.let { taken ->
@@ -3722,6 +3744,10 @@ fun SquareApp(
                         TrackSheetAction(stringResource(R.string.play), PhosphorIcons.Fill.Play) {
                             trackMenu = null
                             onPlay(listOf(menu.track), 0, null, false, "", 0L)
+                        }
+                        TrackSheetAction(stringResource(R.string.queue_play_next), PhosphorIcons.Regular.ArrowBendDownRight) {
+                            trackMenu = null
+                            onPlayNext(menu.track)
                         }
                         TrackSheetAction(stringResource(R.string.add_to_queue), PhosphorIcons.Regular.Queue) {
                             trackMenu = null

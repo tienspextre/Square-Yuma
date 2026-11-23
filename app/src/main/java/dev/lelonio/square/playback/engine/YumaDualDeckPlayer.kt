@@ -22,7 +22,9 @@ import dev.lelonio.square.playback.BungeeAudioProcessor
 import dev.lelonio.square.playback.BungeeProcessorChain
 import dev.lelonio.square.playback.ShuffleOrders.copyShuffleOrder
 import dev.lelonio.square.playback.ShuffleOrders.shuffleFromCurrent
-import dev.lelonio.square.playback.ShuffleOrders.shuffleInAhead
+import dev.lelonio.square.playback.ShuffleOrders.afterInsert
+import dev.lelonio.square.playback.ShuffleOrders.moveInPlayOrder
+import dev.lelonio.square.playback.ShuffleOrders.queueInsertAt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1384,9 +1386,10 @@ class YumaDualDeckPlayer private constructor(
     override fun addMediaItems(mediaItems: List<MediaItem>) = addMediaItems(mediaItemCount, mediaItems)
 
     override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) {
-        val at = index.coerceIn(0, mediaItemCount)
+        // Hand-queued songs after the song playing, not at the end of the playlist.
+        val at = activeDeck.player.queueInsertAt(mediaItems, index.coerceIn(0, mediaItemCount))
         forwardingPlayer.addMediaItems(at, mediaItems)
-        activeDeck.player.shuffleInAhead(at, mediaItems.size)
+        activeDeck.player.afterInsert(at, mediaItems)
         afterQueueEdit { it.addMediaItems(at, mediaItems) }
     }
 
@@ -1400,7 +1403,11 @@ class YumaDualDeckPlayer private constructor(
     override fun moveMediaItem(currentIndex: Int, newIndex: Int) = moveMediaItems(currentIndex, currentIndex + 1, newIndex)
 
     override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int) {
-        forwardingPlayer.moveMediaItems(fromIndex, toIndex, newIndex)
+        if (toIndex == fromIndex + 1) {
+            activeDeck.player.moveInPlayOrder(fromIndex, newIndex) { forwardingPlayer.moveMediaItems(fromIndex, toIndex, newIndex) }
+        } else {
+            forwardingPlayer.moveMediaItems(fromIndex, toIndex, newIndex)
+        }
         afterQueueEdit { it.moveMediaItems(fromIndex, toIndex, newIndex) }
     }
 
