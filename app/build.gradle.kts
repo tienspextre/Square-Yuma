@@ -219,7 +219,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
-    implementation(platform(libs.compose.bom))
+    implementation(enforcedPlatform(libs.compose.bom)) // enforced: the CMP libraries shared:ui brings ask for a newer Compose than AGP 8 accepts
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     implementation(libs.compose.icons.extended)
@@ -247,6 +247,8 @@ dependencies {
     implementation(libs.newpipe.extractor)
     implementation(project(":innertube"))
     implementation(project(":core:audio-dsp"))
+    implementation(project(":shared:core"))
+    implementation(project(":shared:ui"))
     implementation(libs.coil.compose)
     implementation(libs.androidx.palette)
     implementation(libs.androidx.navigation.compose)

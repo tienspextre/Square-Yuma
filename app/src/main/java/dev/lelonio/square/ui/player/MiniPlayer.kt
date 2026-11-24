@@ -307,10 +307,6 @@ internal val MiniPlayerInkDim: Color
  */
 internal val MiniPlayerAccent = Color(0xFF1ED760)
 
-/** Guarded against the duration being unknown while a track loads. */
-fun progressOf(positionMs: Long, durationMs: Long): Float =
-    if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-
 /** Spacer height so lists can scroll clear of the mini player. */
 /**
  * 52dp, measured off the reference: the pill above the tabs is shorter than the

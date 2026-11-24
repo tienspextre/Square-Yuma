@@ -2726,7 +2726,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val ready = _state.value as? UiState.Ready ?: return@launch
         // A content:// address is a picker's grant from an earlier run, long
         // since unreadable; see fetchUploadedCover.
-        val missing = ready.playlists.filter { it.artworkUrl == null || it.artworkUrl.startsWith("content://") }
+        val missing = ready.playlists.filter { it.artworkUrl?.startsWith("content://") != false }
         if (missing.isEmpty()) return@launch
 
         missing.forEach { playlist ->

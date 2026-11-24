@@ -418,9 +418,6 @@ object AudioDecoder {
         }
     }
 
-    /** Planar stereo at the container's own rate; [start] is where the decode really began, on the track clock. */
-    class StereoRegion(val left: FloatArray, val right: FloatArray, val sampleRate: Double, val start: Double)
-
     /**
      * Decodes [startSeconds]..[endSeconds] as planar stereo at the source's own rate, for the ONNX
      * models (open-unmix wants real stereo; a mono source is duplicated, >2 channels keep the first

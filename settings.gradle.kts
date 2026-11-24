@@ -37,5 +37,7 @@ rootProject.name = "Spot"
 include(":app")
 include(":innertube")
 include(":core:audio-dsp")
+include(":shared:core")
+include(":shared:ui")
 include(":desktop")
 

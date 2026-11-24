@@ -3423,7 +3423,7 @@ internal fun episodeLine(track: CatalogTrack, showName: Boolean): String {
     val day = track.releasedAt?.let { iso ->
         runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
     }?.let { millis ->
-        val thisYear = java.time.Year.now().value.toString() == track.releasedAt.take(4)
+        val thisYear = java.time.Year.now().value.toString() == track.releasedAt?.take(4)
         android.text.format.DateUtils.formatDateTime(
             context,
             millis,

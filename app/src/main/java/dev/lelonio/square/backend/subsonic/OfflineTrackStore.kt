@@ -32,7 +32,7 @@ data class OfflineTrackRecord(
     val format: String = "flac",
 )
 
-class OfflineTrackStore(context: Context) {
+class OfflineTrackStore(context: Context) : OfflineTracks {
 
     private val resolver = context.applicationContext.contentResolver
 
@@ -94,7 +94,7 @@ class OfflineTrackStore(context: Context) {
         return path.startsWith("content://") || File(path).exists()
     }
 
-    fun localPath(trackUri: String): String? =
+    override fun localPath(trackUri: String): String? =
         _records.value[trackUri]?.localFilePath?.takeIf { isDownloaded(trackUri) }
 
     /** A playable URI for the downloaded copy, or null when it is gone (then stream instead). */
@@ -106,7 +106,7 @@ class OfflineTrackStore(context: Context) {
         return uri.takeIf { opens }
     }
 
-    fun getAllCatalogTracks(): List<CatalogTrack> {
+    override fun allCatalogTracks(): List<CatalogTrack> {
         return _records.value.values.map { record ->
             CatalogTrack(
                 uri = record.trackUri,

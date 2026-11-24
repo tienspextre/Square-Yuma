@@ -1,6 +1,5 @@
 package dev.lelonio.square.desktop
 
-import android.content.Context
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +21,8 @@ import moe.rukamori.archivetune.audiodsp.incomingStageGain
 import moe.rukamori.archivetune.audiodsp.outgoingBassGainDb
 import moe.rukamori.archivetune.audiodsp.outgoingLowPassHz
 import moe.rukamori.archivetune.audiodsp.outgoingStageGain
-import moe.rukamori.archivetune.playback.smart.AudioDecoder
+import moe.rukamori.archivetune.playback.smart.ModelSource
+import moe.rukamori.archivetune.playback.smart.StereoRegion
 import moe.rukamori.archivetune.playback.smart.ModelPass
 import moe.rukamori.archivetune.playback.smart.TrackFeatures
 import org.json.JSONObject
@@ -35,14 +35,6 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
-
-/** Loads the phone's analysis library from the app's resources (beside ffmpeg); throws UnsatisfiedLinkError when absent. */
-fun loadYumaAnalysis() {
-    val name = System.mapLibraryName("yuma_analysis")
-    val file = System.getProperty("compose.application.resources.dir")?.let { File(it, name) }?.takeIf { it.isFile }
-        ?: throw UnsatisfiedLinkError("$name not in the app's resources")
-    System.load(file.absolutePath)
-}
 
 /**
  * The phone's Smart Automix analysis for the desktop: the same C++ features and
@@ -57,8 +49,6 @@ class Analyses(private val source: (SubsonicChildSong) -> String) {
     private val running = ConcurrentHashMap.newKeySet<String>()
     private val gate = Semaphore(1)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    init { ModelPass.init(Context()) }
 
     fun get(id: String): TrackAnalysisResult? = memory[id] ?: load(id)?.also { memory[id] = it }
 
@@ -83,7 +73,7 @@ class Analyses(private val source: (SubsonicChildSong) -> String) {
         val model = ModelPass.run(duration) { from, to ->
             val st = floats(url, from, to - from, 2, 44_100) ?: return@run null
             val n = st.size / 2
-            AudioDecoder.StereoRegion(FloatArray(n) { st[2 * it] }, FloatArray(n) { st[2 * it + 1] }, 44_100.0, from)
+            StereoRegion(FloatArray(n) { st[2 * it] }, FloatArray(n) { st[2 * it + 1] }, 44_100.0, from)
         }
         return dsp.copy(modelJson = model)
     }
@@ -268,8 +258,5 @@ internal fun nativeCheck() {
     val r = TrackFeatures.analyze(clicks, 30.0) ?: error("native analysis returned nothing")
     check(r.bpm > 0) { "no tempo from the click track" }
     check(moe.rukamori.archivetune.playback.smart.MelSpectrogram.available) { "mel front end missing" }
-    val model = File(Context().filesDir, "check.onnx")
-    Context::class.java.getResourceAsStream("/models/beat_this_final0_q8.onnx")!!.use { i -> model.outputStream().use { i.copyTo(it) } }
-    ai.onnxruntime.OrtEnvironment.getEnvironment().createSession(model.path).close()
-    model.delete()
+    ai.onnxruntime.OrtEnvironment.getEnvironment().createSession(ModelSource.path("beat_this_final0_q8.onnx")).close()
 }

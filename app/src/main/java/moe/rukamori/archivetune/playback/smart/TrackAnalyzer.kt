@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.audiodsp.AnalysisStore
+import moe.rukamori.archivetune.audiodsp.DrumGridQaResult
 import moe.rukamori.archivetune.audiodsp.TrackAnalysisResult
 import org.json.JSONObject
 import timber.log.Timber
@@ -52,7 +53,7 @@ object TrackAnalyzer : AnalysisStore {
             if (!dir.exists()) dir.mkdirs()
             cacheDir = dir
         }
-        ModelPass.init(context)
+        ModelSource.init(context)
         ModelPass.shouldSkip = batteryGuard(context.applicationContext)
     }
 
@@ -129,6 +130,10 @@ object TrackAnalyzer : AnalysisStore {
                         tailRawJson = json.optString("tailRawJson", ""),
                         tailOffset = json.optDouble("tailOffset", 0.0),
                         modelJson = json.optString("modelJson", ""),
+                        diagnosticsJson = json.optString("diagnosticsJson", "").ifEmpty { null },
+                        drumGridQa = json.optJSONObject("drumGridQa")?.let {
+                            DrumGridQaResult(it.optDouble("score", 0.0), it.optDouble("driftMs", 0.0), it.optBoolean("passed", false))
+                        },
                     )
                 } else null
             }.getOrNull()
@@ -162,6 +167,10 @@ object TrackAnalyzer : AnalysisStore {
                     put("tailRawJson", result.tailRawJson)
                     put("tailOffset", result.tailOffset)
                     put("modelJson", result.modelJson)
+                    result.diagnosticsJson?.let { put("diagnosticsJson", it) }
+                    result.drumGridQa?.let {
+                        put("drumGridQa", JSONObject().put("score", it.score).put("driftMs", it.driftMs).put("passed", it.passed))
+                    }
                     put("modelSkipped", skippedModel)
                     put("v", CACHE_VERSION)
                 }
@@ -269,7 +278,7 @@ object TrackAnalyzer : AnalysisStore {
         trackId: String,
         durationSeconds: Double?,
         source: String,
-        decodeStereo: (Double, Double) -> AudioDecoder.StereoRegion?,
+        decodeStereo: (Double, Double) -> StereoRegion?,
         decodeHeadSamples: () -> FloatArray?,
         decodeTailSamples: (() -> FloatArray?)? = null,
     ): TrackAnalysisResult? {

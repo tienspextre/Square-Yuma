@@ -68,12 +68,21 @@ class SquareApplication : Application(), ImageLoaderFactory {
         // write to it still works and simply asks again every time — which is
         // the difference between a page that opens on the right picture and one
         // that opens on Spotify's and changes it a second later.
+        dev.lelonio.square.ui.theme.AndroidThemeHooks.systemFont = preferences.systemFont
+        dev.lelonio.square.ui.player.LyricsSyncOffset.source = dev.lelonio.square.playback.AudioEffects.lyricsSyncOffsetMs
         dev.lelonio.square.data.AppleCatalog.attach(this)
         dev.lelonio.square.data.LocalFileBindings.attach(this)
         dev.lelonio.square.backend.lyrics.LyricsLibrary.attach(
-            this,
+            applicationContext.cacheDir,
             spicyKey = { preferences.spicyLyricsKey.value },
             preferred = { preferences.preferredLyricsSource.value },
+            spotifyLyrics = { dev.lelonio.square.data.Catalog.lyrics(it) },
+            amllRelatives = { dev.lelonio.square.nativecore.NativeBridge.trackRelatives(it) },
+            downloads = object : dev.lelonio.square.backend.lyrics.LyricsLibrary.Downloads {
+                override fun lyrics(trackUri: String) = dev.lelonio.square.download.DownloadExtras.lyrics(trackUri)
+                override fun rememberLyrics(trackUri: String, raw: String) =
+                    dev.lelonio.square.download.DownloadExtras.rememberLyrics(trackUri, raw)
+            },
         )
 
         // Two things feed the offline state, and one thing reads it out to the
