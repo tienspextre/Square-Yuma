@@ -97,16 +97,19 @@ Location: `native/windows/` (CMake ≥ 3.24, MSVC, C++20, `/O2 /GL`, static CRT)
 - **I/O**: Local = buffered file reads; Subsonic = HTTP Range via WinHTTP into a ring, seek = new Range request.
 - **Control**: JNI calls post commands into a lock-free queue consumed by the render thread.
 
-### 3.2 Decoders
-`dr_flac`, `dr_wav`, `dr_mp3` (single-header, public domain); Opus/Vorbis via `libopus`+`libopusfile`/`stb_vorbis`; AAC/M4A via Windows Media Foundation (`IMFSourceReader`, built into Windows — no extra dependency). Native sample format and rate preserved up to output.
+### 3.2 Decoders and device I/O — decision (2026-11-25)
+**miniaudio** (single header, public domain/MIT-0, vendored under `native/windows/third_party/` at a pinned release) is the device layer and the FLAC/WAV/MP3 decoder (it embeds dr_flac/dr_wav/dr_mp3). Rationale: it already implements WASAPI shared *and* exclusive, device-change/reroute notifications, and gives Linux a real output for dev builds — less code than raw WASAPI, same result on Windows.
+- Ogg Vorbis: `stb_vorbis` (vendored, public domain). Opus: `libopus` + `libopusfile` + `libogg` via CMake `FetchContent` pinned tags (BSD).
+- AAC/M4A: Windows Media Foundation `IMFSourceReader` (Windows only; Linux dev build reports unsupported).
+- Native sample format and rate preserved up to output.
 
 ### 3.3 Output modes
 | Mode | When | Format |
 |---|---|---|
-| WASAPI Shared (default) | Automix, crossfade, speed/pitch, reverb, karaoke, EQ, or bit-perfect off | float32 at the device mix rate; resample (r8brain-free/soxr-lite, or Bungee for rate change) |
-| WASAPI Exclusive (bit-perfect) | user enables *Bit-Perfect Exclusive* **and** Automix/DSP/EQ all off | file's own rate/bit-depth (16/24/32, ≤ 384 kHz), event-driven; falls back to Shared with a reported reason if the device refuses the format; device released on pause/stop |
+| WASAPI Shared (default) | Automix, crossfade, speed/pitch, reverb, karaoke, EQ, or bit-perfect off | float32 at the device mix rate (miniaudio `ma_share_mode_shared`), resample in the engine |
+| WASAPI Exclusive (bit-perfect) | user enables *Bit-Perfect Exclusive* **and** Automix/DSP/EQ all off | `ma_share_mode_exclusive`, device format = file's rate/bit-depth (16/24/32, ≤ 384 kHz), DSP chain fully bypassed; if the device refuses, fall back to Shared and report the reason in `status()`; device closed on pause/stop |
 
-Device change / unplug (`IMMNotificationClient::OnDefaultDeviceChanged`, `OnDeviceStateChanged`) → pause and emit `DEVICE_LOST` to Kotlin.
+Device lost / default changed (miniaudio notification `ma_device_notification_type_stopped`/`rerouted`) → pause and emit `DEVICE_LOST` to Kotlin.
 
 ### 3.4 DSP chain (per deck, then master)
 `deck: decode → Bungee speed/pitch (TempoMap aware) → DjFilter (LP/HP/bass shelf −24 dB, MID_SIDE vocal duck + energy fill) → deck gain (MixStyle curve)` → `sum → 10-band parametric EQ (auto headroom) → reverb → karaoke (mid cancel) → ebur128 gain → sleep-timer fade → limiter → out`.
