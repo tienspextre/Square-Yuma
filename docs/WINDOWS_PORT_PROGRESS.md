@@ -304,3 +304,8 @@ Next: Phase 2 (native `square_win_native.dll`, WASAPI, JNI). Desktop still uses 
 - `--soak-test` (10 cycles, Linux/OpenGL): audio OK (position advanced, underruns 0), Java heap after GC in Tray ≈ 21 MB.
 - **FAILED: native RSS.** Tray-post-GC RSS per cycle: 574, 578, 628, 621, 644, 656, 670, 677, 690, 706 MB → ~13 MB/cycle growth (native leak on window dispose/recreate) and absolute level far above the 60–90 MB target. Phase 5 stays open until a follow-up fixes the growth and lowers the baseline; see "Phase 5b".
   → **Resolved in Phase 5b (2026-11-25, see Log top):** `396.70, 413.95, 442.88, 480.34, 430.11, 365.83, 370.98, 364.24, 371.52, 372.86 MB`, `growthPerCycleMb=-7.88 verdict=PASS`.
+
+### 2026-11-25 — First Windows CI build (orchestrator)
+- Run 45555976904 green on windows-latest (MSVC 19.52, CMake 4, Windows SDK 10.0.26100): native DLL build, CTest 4/4, `:desktop:test`, MSI + portable zip, `--self-check` ok, 25 s launch smoke (~284 MB working set, headless runner).
+- Fixes needed to get there: `CMAKE_POLICY_VERSION_MINIMUM 3.5` for libogg under CMake 4; MSVC force-include shim for Bungee's `__attribute__((noinline))`.
+- Still unverified on real hardware: WASAPI Exclusive, SMTC, frameless Snap Layouts, tray, auto-update install. Packages are ~200 MB each (onnxruntime all-platform jar 42 MB, material-icons-extended 36 MB, phosphor 26 MB).
