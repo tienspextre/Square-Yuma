@@ -9,7 +9,7 @@ tick boxes, list touched files, paste the gate command and its result, and write
 |---|---|
 | 1 — KMP modules, shared core/backends, remove `sharedSources` + stubs | done (gate green 2026-11-24) |
 | 2 — Native engine (WASAPI, decoders, DSP, SMTC, JNI) | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
-| 3 — Local library + Subsonic parity, queue persistence | not started |
+| 3 — Local library + Subsonic parity, queue persistence | done (Linux gate green 2026-11-25) |
 | 4 — Frameless window, 3-pane glass UI, desktop package split | not started |
 | 5 — Fullscreen, mini-player, PC ergonomics, tray low-RAM | not started |
 | 6 — Installer, auto-update, diagnostics, CI | not started |
@@ -40,8 +40,44 @@ Gate `./gradlew :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :
 - [x] `--self-check` CLI exercises full DSP chain + all 4 `MixStyle`s + `AnalyzeAudio`
 - [x] Native CTest suite (`ring_buffer`, `dsp_chain`, `decoders`, `exclusive_format`) and Linux Gradle gate green
 
+## Phase 3 checklist
+- [x] Desktop Local backend implementing `MusicCatalog` (`BackendId.LOCAL`): multiple root folders, parallel recursive scan with persisted incremental JSON index (`~/.square-yuma/local_index.json`), recursive `WatchService` (create/delete/modify/overflow + debounce), albums/artists/songs/playlists/search
+- [x] Shared tag & picture parsers in `:shared:core` `commonMain` (`AudioMetadata`, `FlacMetadataParser` picture support, `Id3TagParser` ID3v2.2/2.3/2.4 + ID3v1, `OggMetadataParser` Vorbis/Opus + `METADATA_BLOCK_PICTURE`, `Mp4MetadataParser` MP4/M4A atoms) + folder artwork (`folder.jpg`/`cover.jpg`/`front.jpg` case-insensitive) + embedded/sidecar `.lrc` lyrics
+- [x] Per-track integrated EBU R128 loudness via native `libebur128` (`NativeEngine.measureTrackLufs`), low-priority background `LoudnessCache` persisted in `~/.square-yuma/analysis/`, applied as normalization gain on play for Local and Subsonic tracks
+- [x] Playlists: Local UTF-8 `.m3u8` (`LocalPlaylistStore`, relative paths, create/rename/delete/add/remove/reorder) + standard Subsonic REST playlist endpoints (`createPlaylist.view`, `updatePlaylist.view` with `songIdToAdd`/`songIndexToRemove`, `deletePlaylist.view`) in shared `SubsonicClient`/`SubsonicCatalog` (Android `SubsonicBackend` preserves `useBridge = true`)
+- [x] Reworked Subsonic offline cache (`Downloads.kt`): deduplicated by track id, original format (`download.view` with raw stream fallback), HTTP `Range` resumable `.part`, cache size limit with LRU eviction, Offline Mode, playback prefers cached file
+- [x] Queue persistence (`QueuePersistence.kt`): debounced save + exit/shutdown hook (`~/.square-yuma/queue.json`) for Local + Subsonic (including offline-only), restored paused at saved position
+- [x] Cross-source Automix: `Analyses` + `PairPlanner` + `DesktopPlayer` schedule mixes across Local→Local, Subsonic→Subsonic, Local→Subsonic, and Subsonic→Local
+- [x] Minimal desktop UI wiring: `Local Folders` sidebar & screen (add/remove/rescan + songs/albums/artists), playlist create/rename/delete/add/remove/reorder, `Offline mode` toggle & cache limit in `Downloads`/`Settings`
+- [x] Tests in `:shared:core:desktopTest` and `:desktop:test` + all gates green
+
 ## Log
 _(newest first)_
+
+### 2026-11-25 — Phase 3 landed
+Gates on Linux:
+- `./gradlew --console=plain :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :shared:core:desktopTest :desktop:test :desktop:compileKotlin --rerun-tasks`: **BUILD SUCCESSFUL in 1m23s** (`:app:testDebugUnitTest` 66, `:core:audio-dsp` 24 Android + 21 desktop, `:shared:core:desktopTest` 6, `:desktop:test` 8; 0 failures, 0 skipped).
+- `cmake --build native/windows/build && ctest --test-dir native/windows/build --output-on-failure`: **4/4 passed** (`ring_buffer`, `dsp_chain` incl. `ebur128` loudness check, `decoders`, `exclusive_format`).
+- `./gradlew -q :desktop:run --args=--self-check`: exit 0 (`self-check ok: native self-check ok (4 MixStyles + full DSP + AnalyzeAudio) (duration=1.0s lufs=-19.9)`).
+
+Created:
+- `shared/core/src/commonMain/kotlin/dev/lelonio/square/data/local/{AudioMetadata,Id3TagParser,OggMetadataParser,Mp4MetadataParser}.kt`
+- `shared/core/src/desktopTest/kotlin/dev/lelonio/square/{data/local/TagParsersTest,backend/subsonic/SubsonicPlaylistSyncTest}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{LocalCatalog,LocalPlaylistStore,LoudnessCache,QueuePersistence}.kt`
+- `desktop/src/test/kotlin/dev/lelonio/square/desktop/{LocalCatalogTest,LocalPlaylistStoreTest,DownloadStoreTest,QueuePersistenceTest,DesktopAutomixAndLoudnessTest}.kt`
+
+Changed:
+- `native/windows/src/{engine.h,engine.cpp,jni_bridge.cpp}`, `native/windows/tests/test_dsp_chain.cpp` (`measureTrackLufs` / `measureSamplesLufs` via `libebur128`)
+- `shared/core/src/commonMain/kotlin/dev/lelonio/square/data/local/FlacMetadataParser.kt` (picture detection & `parseArtwork` / `parsePictureBlock`)
+- `shared/core/src/commonMain/kotlin/dev/lelonio/square/backend/subsonic/{SubsonicModels,SubsonicClient,SubsonicCatalog}.kt` (standard Subsonic playlist REST CRUD)
+- `app/src/main/java/dev/lelonio/square/backend/subsonic/SubsonicBackend.kt` (`override val useBridge = true` to keep Android behavior unchanged)
+- `desktop/build.gradle.kts` (`junit:junit:4.13.2` + `kotlin("test")` for `:desktop:test`)
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/nativeaudio/NativeEngine.kt` (`measureTrackLufs`)
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{App,Artwork,Automix,DesktopPlayer,Downloads,LyricsSources,Main,NowPlaying,Screens,Strings}.kt`
+
+Deleted: none.
+
+Next: Phase 4 (frameless window, 3-pane glass UI, desktop package split) and Windows CI verification.
 
 ### 2026-11-25 — Phase 2 landed
 Gates on Linux:

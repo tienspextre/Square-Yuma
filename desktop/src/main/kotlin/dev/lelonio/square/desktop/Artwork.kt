@@ -23,12 +23,20 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import dev.lelonio.square.data.local.AudioMetadataParser
 import dev.lelonio.square.ui.theme.Ink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Image
+import java.io.File
+import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.security.MessageDigest
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -37,20 +45,55 @@ private val bitmaps = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, tru
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 300
 }
 private val colours = HashMap<String, Color>()
+private val artCacheDir: Path = Paths.get(System.getProperty("user.home"), ".square-yuma", "art_cache")
 
 /** Subsonic hands out a fresh salt per URL, so the cache keys on the cover id and size, not the URL. */
-private fun key(url: String) = url.substringAfter("id=").substringBefore('&') + "@" + url.substringAfter("size=").substringBefore('&')
+private fun key(url: String): String =
+    if (url.contains("getCoverArt.view")) {
+        url.substringAfter("id=").substringBefore('&') + "@" + url.substringAfter("size=").substringBefore('&')
+    } else {
+        url
+    }
+
+suspend fun loadArtworkBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
+    runCatching {
+        when {
+            url.startsWith(LocalCatalog.LOCAL_ART_PREFIX) -> {
+                val trackPath = url.removePrefix(LocalCatalog.LOCAL_ART_PREFIX)
+                val sha = MessageDigest.getInstance("SHA-1")
+                    .digest(trackPath.toByteArray(StandardCharsets.UTF_8))
+                    .joinToString("") { "%02x".format(it) }
+                val cached = artCacheDir.resolve("$sha.img")
+                if (Files.isRegularFile(cached)) {
+                    return@runCatching Files.readAllBytes(cached)
+                }
+                val embedded = AudioMetadataParser.extractArtwork(File(trackPath)) ?: return@runCatching null
+                runCatching {
+                    Files.createDirectories(artCacheDir)
+                    Files.write(cached, embedded.bytes)
+                }
+                embedded.bytes
+            }
+            url.startsWith("file:") -> {
+                val p = Paths.get(URI(url))
+                if (Files.isRegularFile(p)) Files.readAllBytes(p) else null
+            }
+            else -> {
+                Http.client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                    if (r.isSuccessful) r.body.bytes() else null
+                }
+            }
+        }
+    }.getOrNull()
+}
 
 suspend fun loadArtwork(url: String): ImageBitmap? {
     val k = key(url)
     synchronized(bitmaps) { bitmaps[k] }?.let { return it }
+    val bytes = loadArtworkBytes(url) ?: return null
     return withContext(Dispatchers.IO) {
-        runCatching {
-            Http.client.newCall(Request.Builder().url(url).build()).execute().use { r ->
-                Image.makeFromEncoded(r.body.bytes()).toComposeImageBitmap()
-            }
-        }.getOrNull()?.also { synchronized(bitmaps) { bitmaps[k] = it } }
-    }
+        runCatching { Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+    }?.also { synchronized(bitmaps) { bitmaps[k] = it } }
 }
 
 @Composable

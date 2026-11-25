@@ -18,6 +18,7 @@ import dev.lelonio.square.data.Lyrics
  * are not offered for a Navidrome library on the phone either.
  */
 enum class LyricSource(val label: String) {
+    EMBEDDED("Embedded / .lrc"),
     NAVIDROME("Navidrome"),
     APPLE_MUSIC("Apple Music"),
     BETTER_LYRICS("Better Lyrics"),
@@ -30,12 +31,17 @@ enum class LyricSource(val label: String) {
 suspend fun fetchLyrics(state: AppState, s: SubsonicChildSong, source: LyricSource): Lyrics? = runCatching {
     val title = s.title
     val artist = s.artist.orEmpty()
-    val ms = s.duration * 1000
+    val ms = state.local.durationMsOf(s)
     when (source) {
-        LyricSource.NAVIDROME -> state.client.getLyrics(s.id).getOrNull().orEmpty().takeIf { it.isNotEmpty() }?.let { lines ->
-            val synced = lines.any { it.start > 0 }
-            Lyrics(lines.map { LyricLine(it.start.takeIf { synced }, it.value) }, synced = synced, source = "Navidrome")
-        }
+        LyricSource.EMBEDDED -> if (s.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)) {
+            state.local.lyrics(s.id, title, artist, ms)?.takeIf { it.source == "Embedded" }
+        } else null
+        LyricSource.NAVIDROME -> if (!s.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)) {
+            state.client.getLyrics(s.id).getOrNull().orEmpty().takeIf { it.isNotEmpty() }?.let { lines ->
+                val synced = lines.any { it.start > 0 }
+                Lyrics(lines.map { LyricLine(it.start.takeIf { synced }, it.value) }, synced = synced, source = "Navidrome")
+            }
+        } else null
         LyricSource.APPLE_MUSIC -> Lossless.lyrics(title, artist, ms)
         LyricSource.BETTER_LYRICS -> BetterLyrics.lyrics(title, artist, ms)
         LyricSource.LRCLIB -> LrcLib.lyrics(title, artist, ms)

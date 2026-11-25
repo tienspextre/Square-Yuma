@@ -274,6 +274,13 @@ Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeDecodeToFloat(
     return arr;
 }
 
+JNIEXPORT jdouble JNICALL
+Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeMeasureTrackLufs(
+    JNIEnv* env, jclass, jstring uri, jstring headersJson) {
+    return static_cast<jdouble>(
+        getEngine()->measureTrackLufs(jstringToStd(env, uri), jstringToStd(env, headersJson)));
+}
+
 JNIEXPORT jstring JNICALL
 Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeSelfCheckRender(JNIEnv* env, jclass) {
     square::NativeAudioEngine temp;

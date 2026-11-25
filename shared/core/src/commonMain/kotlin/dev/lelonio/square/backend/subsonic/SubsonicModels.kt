@@ -72,6 +72,12 @@ data class SubsonicPlaylistEntry(
 data class SubsonicPlaylistDetail(
     val id: String,
     val name: String,
+    val comment: String? = null,
+    val owner: String? = null,
+    val public: Boolean = false,
+    val songCount: Int = 0,
+    val duration: Long = 0L,
+    val coverArt: String? = null,
     val entry: List<SubsonicChildSong> = emptyList(),
 )
 

@@ -67,6 +67,9 @@ object Strings {
         "You have the newest version" to "Bạn đang dùng bản mới nhất", "Downloading" to "Đang tải",
         "Report saved to " to "Đã lưu báo cáo vào ", " and copied" to " và sao chép", "Library rescan started" to "Đã bắt đầu quét thư viện",
         "Rescan failed" to "Quét lỗi", "Find in list" to "Tìm trong danh sách", "Find in album" to "Tìm trong album",
+        "Local Folders" to "Thư mục nhạc", "Add folder" to "Thêm thư mục", "Rescan" to "Quét lại",
+        "Offline mode" to "Chế độ ngoại tuyến", "Cache limit" to "Giới hạn bộ nhớ đệm", "Unlimited" to "Không giới hạn",
+        "New playlist" to "Danh sách phát mới", "Rename" to "Đổi tên", "Add to playlist" to "Thêm vào danh sách phát",
     )
 }
 

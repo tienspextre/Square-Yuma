@@ -14,6 +14,8 @@ class SubsonicBackend(
     val downloadManager: SubsonicDownloadManager,
 ) : SubsonicCatalog(client, offlineStore), MusicBackend {
 
+    override val useBridge: Boolean = true
+
     override fun createPlayer(host: PlaybackHost): Player =
         LocalPlayerFactory.create(host)
 

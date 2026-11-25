@@ -58,6 +58,8 @@ dependencies {
     implementation("org.slf4j:slf4j-nop:2.0.17")
     implementation("com.microsoft.onnxruntime:onnxruntime:1.28.0") // the automix beat and vocal models, as on the phone
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:${libs.versions.coroutines.get()}")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation(kotlin("test"))
 }
 
 compose.desktop.application {

@@ -151,6 +151,16 @@ int main() {
         assert(!l.isBypassed());
         l.process(buf.data(), 8192);
         assert(!bitExactEqual(orig, buf));
+
+        // Integrated ebur128 measurement matches expected range on a 1 s stereo 1 kHz sine
+        auto tone1s = makeStereoSine(kRate, kRate, 1000.0, 0.5f);
+        ebur128_state* est = ebur128_init(kCh, kRate, EBUR128_MODE_I | EBUR128_MODE_HISTOGRAM);
+        assert(est != nullptr);
+        ebur128_add_frames_float(est, tone1s.data(), kRate);
+        double measured = -70.0;
+        assert(ebur128_loudness_global(est, &measured) == EBUR128_SUCCESS);
+        ebur128_destroy(&est);
+        assert(std::isfinite(measured) && measured > -20.0 && measured < -3.0);
     }
 
     {

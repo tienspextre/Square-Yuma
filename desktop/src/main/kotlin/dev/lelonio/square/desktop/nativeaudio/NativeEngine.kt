@@ -233,6 +233,13 @@ object NativeEngine {
         return nativeDecodeToFloat(uri, headersJson, fromMs, durationMs, targetRate, targetChannels)
     }
 
+    /** Computes integrated EBU R128 LUFS via native libebur128; returns null if unavailable/silent. */
+    fun measureTrackLufs(uri: String, headersJson: String? = null): Double? {
+        ensureLoaded()
+        val lufs = nativeMeasureTrackLufs(uri, headersJson)
+        return lufs.takeIf { it.isFinite() && it > -70.0 && it < 12.0 }
+    }
+
     fun selfCheckRender(): String {
         ensureLoaded()
         return nativeSelfCheckRender()
@@ -262,5 +269,6 @@ object NativeEngine {
         targetRate: Int,
         targetChannels: Int,
     ): FloatArray?
+    @JvmStatic private external fun nativeMeasureTrackLufs(uri: String, headersJson: String?): Double
     @JvmStatic private external fun nativeSelfCheckRender(): String
 }

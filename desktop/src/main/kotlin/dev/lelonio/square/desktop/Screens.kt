@@ -93,15 +93,22 @@ import dev.lelonio.square.backend.subsonic.SubsonicArtistItem
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import dev.lelonio.square.backend.subsonic.SubsonicMixes
 import com.adamglin.phosphoricons.regular.Disc
+import com.adamglin.phosphoricons.regular.ArrowDown
+import com.adamglin.phosphoricons.regular.ArrowUp
+import com.adamglin.phosphoricons.regular.ArrowsClockwise
 import com.adamglin.phosphoricons.regular.ClockCounterClockwise
 import com.adamglin.phosphoricons.regular.DownloadSimple
+import com.adamglin.phosphoricons.regular.FolderPlus
 import com.adamglin.phosphoricons.regular.LinkSimple
 import com.adamglin.phosphoricons.regular.ListBullets
+import com.adamglin.phosphoricons.regular.PencilSimple
+import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.PushPin
 import com.adamglin.phosphoricons.regular.SortAscending
 import com.adamglin.phosphoricons.regular.SortDescending
 import com.adamglin.phosphoricons.regular.SquaresFour
 import com.adamglin.phosphoricons.regular.Waveform
+import com.adamglin.phosphoricons.regular.WifiSlash
 import com.adamglin.phosphoricons.regular.XCircle
 import com.adamglin.phosphoricons.fill.CheckCircle
 import com.adamglin.phosphoricons.regular.MinusCircle
@@ -182,7 +189,14 @@ private fun AlbumCard(state: AppState, a: SubsonicAlbumEntry) {
     val scope = rememberCoroutineScope()
     Card(
         a.name, listOfNotNull(a.artist, a.year?.toString()).joinToString(" · "), state.cover(a.coverArt),
-        onPlay = { scope.launch { state.client.getAlbum(a.id).onSuccess { state.player.playQueue(it) } } },
+        onPlay = {
+            if (state.offlineMode) {
+                val cached = state.downloads.cachedSongs().filter { (it.albumId ?: it.album.orEmpty()) == a.id }
+                if (cached.isNotEmpty()) state.player.playQueue(cached)
+            } else {
+                scope.launch { state.client.getAlbum(a.id).onSuccess { state.player.playQueue(it) } }
+            }
+        },
     ) { state.open(Screen.Album(a.id, a.name)) }
 }
 
@@ -200,6 +214,44 @@ private fun Shelf(title: String, content: @Composable () -> Unit) {
 
 @Composable
 fun HomeScreen(state: AppState) {
+    val localTracks by state.local.tracks.collectAsState()
+    if (state.offlineMode) {
+        val kept = state.downloads.cachedSongs()
+        val localSongs = remember(localTracks) { localTracks.map { it.toDesktopSong() } }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(top = 28.dp, bottom = BarClearance)) {
+                item {
+                    Row(Modifier.padding(horizontal = Gutter).padding(bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Title("Home", Modifier.weight(1f))
+                        Pill(PhosphorIcons.Regular.WifiSlash, "Offline mode", accent = true) { state.useOfflineMode(false) }
+                    }
+                }
+                if (kept.isNotEmpty()) item("downloaded") {
+                    Shelf("Downloaded") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                            itemsIndexed(kept.take(30), key = { _, s -> "d" + s.id }) { i, s ->
+                                Box(Modifier.width(160.dp)) { Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(kept, i) }) { state.player.playQueue(kept, i) } }
+                            }
+                            item { Box(Modifier.width(160.dp).aspectRatio(1f), contentAlignment = Alignment.Center) { TextButton({ state.open(Screen.Downloads) }) { Text(tr("See all")) } } }
+                        }
+                    }
+                }
+                if (localSongs.isNotEmpty()) item("local") {
+                    Shelf("Local Folders") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                            itemsIndexed(localSongs.take(30), key = { _, s -> "l" + s.id }) { i, s ->
+                                Box(Modifier.width(160.dp)) { Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(localSongs, i) }) { state.player.playQueue(localSongs, i) } }
+                            }
+                        }
+                    }
+                }
+                if (kept.isEmpty() && localSongs.isEmpty()) item("empty_offline") {
+                    Text(tr("Nothing downloaded yet. Right-click a song, or use Download on an album or playlist."), color = InkDim, modifier = Modifier.padding(horizontal = Gutter))
+                }
+            }
+        }
+        return
+    }
     val newest = load(state) { state.client.getAlbumList("newest", 24) }
     val recent = load(state) { state.client.getAlbumList("recent", 24) }
     val frequent = load(state) { state.client.getAlbumList("frequent", 24) }
@@ -208,12 +260,12 @@ fun HomeScreen(state: AppState) {
     val quick = load(state) { state.client.getRandomSongs(24) }
     val mixes = load(state) { state.client.getGenres().map { SubsonicMixes.build(it) } }
     val playlists = load(state) { state.client.getPlaylists() }
-    if (newest == null) { Loaded<Unit>(null) {}; return }
+    if (newest == null && localTracks.isEmpty()) { Loaded<Unit>(null) {}; return }
     run {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(top = 28.dp, bottom = BarClearance)) {
                 item { Title("Home", Modifier.padding(horizontal = Gutter).padding(bottom = 18.dp)) }
-                if (newest.isFailure) item("offline") {
+                if (newest?.isFailure == true) item("offline") {
                     Text(tr("Couldn't reach the server — showing what is on this computer."), color = InkDim, modifier = Modifier.padding(horizontal = Gutter, vertical = 8.dp))
                 }
                 val kept = state.downloads.kept.map { it.song }.reversed()
@@ -224,6 +276,17 @@ fun HomeScreen(state: AppState) {
                                 Box(Modifier.width(160.dp)) { Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(kept, i) }) { state.player.playQueue(kept, i) } }
                             }
                             item { Box(Modifier.width(160.dp).aspectRatio(1f), contentAlignment = Alignment.Center) { TextButton({ state.open(Screen.Downloads) }) { Text(tr("See all")) } } }
+                        }
+                    }
+                }
+                if (localTracks.isNotEmpty()) item("local_home") {
+                    val localSongs = remember(localTracks) { localTracks.take(30).map { it.toDesktopSong() } }
+                    Shelf("Local Folders") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                            itemsIndexed(localSongs, key = { _, s -> "lh" + s.id }) { i, s ->
+                                Box(Modifier.width(160.dp)) { Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(localSongs, i) }) { state.player.playQueue(localSongs, i) } }
+                            }
+                            item { Box(Modifier.width(160.dp).aspectRatio(1f), contentAlignment = Alignment.Center) { TextButton({ state.root(Screen.LocalFolders) }) { Text(tr("See all")) } } }
                         }
                     }
                 }
@@ -308,27 +371,186 @@ fun MixScreen(state: AppState, screen: Screen.Mix) {
 @Composable
 fun DownloadsScreen(state: AppState) {
     val songs = state.downloads.kept.map { it.song }.reversed()
-    if (songs.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(tr("Nothing downloaded yet. Right-click a song, or use Download on an album or playlist."), color = InkDim)
+    val limitText = if (state.cacheLimitGb <= 0) tr("Unlimited") else "${state.cacheLimitGb} GB"
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${songs.size} ${tr("songs")} · %.2f GB / $limitText".format(state.downloads.bytes() / 1e9),
+                color = InkDim, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+            )
+            Pill(PhosphorIcons.Regular.WifiSlash, if (state.offlineMode) "Offline mode: On" else "Offline mode", accent = state.offlineMode) {
+                state.useOfflineMode(!state.offlineMode)
+            }
         }
-    } else Tracks(state, songs, "Downloaded", "${songs.size} ${tr("songs")} · %.1f GB".format(state.downloads.bytes() / 1e9), songs.first().coverArt, showAlbum = true)
+        if (songs.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(tr("Nothing downloaded yet. Right-click a song, or use Download on an album or playlist."), color = InkDim)
+            }
+        } else {
+            Tracks(state, songs, "Downloaded", "${songs.size} ${tr("songs")} · %.2f GB".format(state.downloads.bytes() / 1e9), songs.first().coverArt, showAlbum = true)
+        }
+    }
+}
+
+@Composable
+fun LocalFoldersScreen(state: AppState) {
+    val folders by state.local.folders.collectAsState()
+    val tracks by state.local.tracks.collectAsState()
+    val scanning by state.local.scanning.collectAsState()
+    val scope = rememberCoroutineScope()
+    var tab by remember { mutableStateOf(0) } // 0 = Songs, 1 = Albums, 2 = Artists
+    var pathInput by remember { mutableStateOf<String?>(null) }
+
+    val songs = remember(tracks) { tracks.map { it.toDesktopSong() } }
+    val albums by produceState(emptyList<dev.lelonio.square.data.CatalogPlaylist>(), tracks) {
+        value = state.local.savedAlbums()
+    }
+    val artists by produceState(emptyList<dev.lelonio.square.data.SearchItem>(), tracks) {
+        value = state.local.followedArtists()
+    }
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(Gutter, 28.dp, Gutter, BarClearance)) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 14.dp)) {
+                    Title("Local Folders", Modifier.weight(1f))
+                    Pill(PhosphorIcons.Regular.FolderPlus, "Add folder", accent = true) {
+                        val chooser = javax.swing.JFileChooser().apply {
+                            fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
+                            dialogTitle = tr("Add folder")
+                        }
+                        if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                            scope.launch { state.local.addFolder(chooser.selectedFile.toPath()) }
+                        } else {
+                            pathInput = ""
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Pill(PhosphorIcons.Regular.ArrowsClockwise, if (scanning) "Scanning…" else "Rescan") {
+                        scope.launch { state.local.scan() }
+                    }
+                }
+            }
+            item {
+                Column(Modifier.padding(bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (folders.isEmpty()) {
+                        Text(tr("No local folders added yet."), color = InkDim, style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        folders.forEach { folder ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Ink.copy(alpha = 0.06f))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(folder.toString(), color = Ink, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                TextButton({ scope.launch { state.local.removeFolder(folder) } }) { Text(tr("Remove")) }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 14.dp)) {
+                    Text("${tracks.size} ${tr("songs")}", color = InkDim, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    if (songs.isNotEmpty()) {
+                        Pill(PhosphorIcons.Fill.Play, "Play", accent = true) { state.player.playQueue(songs) }
+                        Spacer(Modifier.width(10.dp))
+                        Pill(PhosphorIcons.Regular.Shuffle, "Shuffle") { state.player.playQueue(songs.shuffled()) }
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    Segmented(listOf("Songs", "Albums", "Artists"), tab) { tab = it }
+                }
+            }
+            when (tab) {
+                0 -> itemsIndexed(songs, key = { i, s -> "$i${s.id}" }) { i, s ->
+                    TrackRow(state, s, null, true) { state.player.playQueue(songs, i) }
+                }
+                1 -> items(albums, key = { it.uri }) { a ->
+                    ListEntry(state.cover(a.artworkUrl, 100), a.name, a.subtitle.orEmpty()) {
+                        state.open(Screen.LocalAlbum(a.uri, a.name))
+                    }
+                }
+                else -> items(artists, key = { it.uri }) { a ->
+                    ListEntry(state.cover(a.artworkUrl, 100), a.title, a.subtitle, round = true) {
+                        state.open(Screen.LocalArtist(a.uri, a.title))
+                    }
+                }
+            }
+        }
+    }
+
+    pathInput?.let { draft ->
+        var text by remember { mutableStateOf(draft) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pathInput = null },
+            title = { Text(tr("Add folder")) },
+            text = {
+                OutlinedTextField(
+                    text, { text = it }, Modifier.fillMaxWidth().onFocusChanged { state.typing = it.isFocused },
+                    label = { Text("Path") }, singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton({
+                    val p = runCatching { java.nio.file.Paths.get(text.trim()) }.getOrNull()
+                    pathInput = null
+                    if (p != null) scope.launch {
+                        if (!state.local.addFolder(p)) state.say("Folder not found")
+                    }
+                }) { Text(tr("Add folder")) }
+            },
+            dismissButton = { TextButton({ pathInput = null }) { Text(tr("Cancel")) } },
+        )
+    }
+}
+
+@Composable
+fun LocalAlbumScreen(state: AppState, screen: Screen.LocalAlbum) {
+    val tracks by state.local.tracks.collectAsState()
+    val list = remember(tracks, screen.uri) { state.local.desktopTracksOf(screen.uri) }
+    val first = list.firstOrNull()
+    Tracks(
+        state, list, screen.name,
+        subtitle = listOfNotNull(first?.artist, first?.year?.toString(), first?.genre).joinToString(" · "),
+        cover = first?.coverArt, showAlbum = false,
+    )
+}
+
+@Composable
+fun LocalArtistScreen(state: AppState, screen: Screen.LocalArtist) {
+    val tracks by state.local.tracks.collectAsState()
+    val list = remember(tracks, screen.uri) { state.local.desktopTracksOf(screen.uri) }
+    Tracks(
+        state, list, screen.name,
+        subtitle = "${list.size} ${tr("songs")}",
+        cover = list.firstOrNull()?.coverArt, showAlbum = true,
+    )
 }
 
 @Composable
 fun LibraryScreen(state: AppState) {
     var artists by remember { mutableStateOf(false) }
-    val albums = remember(state.generation) { mutableStateListOf<SubsonicAlbumEntry>() }
-    var more by remember(state.generation) { mutableStateOf(true) }
-    var failed by remember(state.generation) { mutableStateOf<String?>(null) }
-    val artistList = load(state, artists) { if (artists) state.client.getArtists() else Result.success(emptyList()) }
+    val albums = remember(state.generation, state.offlineMode) { mutableStateListOf<SubsonicAlbumEntry>() }
+    var more by remember(state.generation, state.offlineMode) { mutableStateOf(!state.offlineMode) }
+    var failed by remember(state.generation, state.offlineMode) { mutableStateOf<String?>(null) }
+    val artistList = load(state, artists, state.offlineMode) {
+        if (!artists) Result.success(emptyList())
+        else if (state.offlineMode) Result.success(state.downloads.cachedArtists())
+        else state.client.getArtists()
+    }
     // Albums arrive a page at a time, the next one asked for when the grid reaches the end.
     suspend fun page() {
+        if (state.offlineMode) {
+            albums.clear()
+            albums.addAll(state.downloads.cachedAlbums())
+            more = false
+            return
+        }
         state.client.getAlbumList("alphabeticalByName", 120, albums.size)
             .onSuccess { albums.addAll(it); more = it.size == 120 }
             .onFailure { failed = it.message; more = false }
     }
-    LaunchedEffect(state.generation) { if (albums.isEmpty()) page() }
+    LaunchedEffect(state.generation, state.offlineMode) { if (albums.isEmpty()) page() }
     Grid(header = {
         Row(verticalAlignment = Alignment.Bottom) {
             Title("Library", Modifier.weight(1f))
@@ -422,26 +644,107 @@ private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> U
 
 @Composable
 fun PlaylistsScreen(state: AppState) {
-    val result = load(state) { state.client.getPlaylists() }
-    Loaded(result) { all ->
-        val pinned = state.pins.map { it.id }.toSet()
-        val list = all.sortedByDescending { it.id in pinned }
-        Grid(header = { Row(verticalAlignment = Alignment.Bottom) { Title("Playlists", Modifier.weight(1f)); LayoutToggle(state) } }) {
-            items(list, key = { it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { p ->
-                val pin = p.id in pinned
-                val open = { state.open(Screen.Playlist(p.id, p.name)) }
-                if (state.listMode) ListEntry(state.cover(p.coverArt, 100), p.name, "${p.songCount} ${tr("songs")}" + if (pin) " · " + tr("Pinned") else "", trailing = {
-                    Glyph(PhosphorIcons.Regular.PushPin, if (pin) "Unpin" else "Pin", active = pin) { state.togglePin(p.id, p.name, p.coverArt) }
-                }, onClick = open)
-                else Card(p.name, "${p.songCount} ${tr("songs")}" + if (pin) " · " + tr("Pinned") else "", state.cover(p.coverArt), onClick = open)
-            }
+    val localPlaylists by state.local.playlistStore.playlists.collectAsState()
+    val remoteResult = load(state, state.offlineMode) {
+        if (state.offlineMode || !state.prefs.isConfigured()) Result.success(emptyList())
+        else state.client.getPlaylists()
+    }
+    val scope = rememberCoroutineScope()
+    var creating by remember { mutableStateOf(false) }
+
+    val remote = remoteResult?.getOrNull().orEmpty().map { p ->
+        dev.lelonio.square.backend.subsonic.SubsonicPlaylistEntry(
+            id = p.id, name = p.name, coverArt = p.coverArt, songCount = p.songCount,
+        )
+    }
+    val localAsEntries = localPlaylists.map { lp ->
+        val art = lp.entries.firstNotNullOfOrNull { state.local.findById(it.path)?.artworkUrl }
+        dev.lelonio.square.backend.subsonic.SubsonicPlaylistEntry(
+            id = LocalCatalog.LOCAL_PLAYLIST_PREFIX + lp.id,
+            name = lp.name,
+            coverArt = art,
+            songCount = lp.entries.size,
+        )
+    }
+    val all = localAsEntries + remote
+    val pinned = state.pins.map { it.id }.toSet()
+    val list = all.sortedByDescending { it.id in pinned }
+
+    Grid(header = {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Title("Playlists", Modifier.weight(1f))
+            Pill(PhosphorIcons.Regular.Plus, "New playlist", accent = true) { creating = true }
+            Spacer(Modifier.width(10.dp))
+            LayoutToggle(state)
         }
+    }) {
+        items(list, key = { it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { p ->
+            val pin = p.id in pinned
+            val isLocal = p.id.startsWith(LocalCatalog.LOCAL_PLAYLIST_PREFIX)
+            val sub = "${p.songCount} ${tr("songs")}" + (if (isLocal) " · .m3u8" else "") + (if (pin) " · " + tr("Pinned") else "")
+            val open = { state.open(Screen.Playlist(p.id, p.name)) }
+            if (state.listMode) ListEntry(state.cover(p.coverArt, 100), p.name, sub, trailing = {
+                Glyph(PhosphorIcons.Regular.PushPin, if (pin) "Unpin" else "Pin", active = pin) { state.togglePin(p.id, p.name, p.coverArt) }
+            }, onClick = open)
+            else Card(p.name, sub, state.cover(p.coverArt), onClick = open)
+        }
+    }
+
+    if (creating) {
+        var name by remember { mutableStateOf("") }
+        var asLocal by remember { mutableStateOf(true) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { creating = false },
+            title = { Text(tr("New playlist")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        name, { name = it }, Modifier.fillMaxWidth().onFocusChanged { state.typing = it.isFocused },
+                        label = { Text("Name") }, singleLine = true,
+                    )
+                    if (!state.offlineMode && state.prefs.isConfigured()) {
+                        Segmented(listOf("Local .m3u8", "Subsonic"), if (asLocal) 0 else 1) { asLocal = it == 0 }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton({
+                    val trimmed = name.trim()
+                    if (trimmed.isNotEmpty()) {
+                        creating = false
+                        scope.launch {
+                            runCatching {
+                                if (asLocal) state.local.createPlaylist(trimmed)
+                                else state.subsonicCatalog.createPlaylist(trimmed)
+                            }.onSuccess {
+                                state.generation++
+                                state.say("Created “$trimmed”")
+                            }.onFailure { state.say("Couldn't: ${it.message}") }
+                        }
+                    }
+                }) { Text("Create") }
+            },
+            dismissButton = { TextButton({ creating = false }) { Text(tr("Cancel")) } },
+        )
     }
 }
 
 @Composable
 fun ArtistScreen(state: AppState, screen: Screen.Artist) {
-    val result = load(state, screen) { state.client.getArtist(screen.id) }
+    val result = load(state, screen, state.offlineMode) {
+        if (state.offlineMode) {
+            val albums = state.downloads.cachedSongs()
+                .filter { (it.artistId ?: it.artist.orEmpty()) == screen.id }
+                .groupBy { it.albumId ?: it.album.orEmpty() }
+                .map { (id, tracks) ->
+                    val first = tracks.first()
+                    SubsonicAlbumEntry(id = id, name = first.album.orEmpty(), artist = first.artist, artistId = first.artistId, coverArt = first.coverArt, songCount = tracks.size, year = first.year)
+                }
+            Result.success(dev.lelonio.square.backend.subsonic.SubsonicArtistDetail(id = screen.id, name = screen.name, albumCount = albums.size, album = albums))
+        } else {
+            state.client.getArtist(screen.id)
+        }
+    }
     Loaded(result) { artist ->
         Grid(header = {
             Column {
@@ -456,7 +759,13 @@ fun ArtistScreen(state: AppState, screen: Screen.Artist) {
 
 @Composable
 fun AlbumScreen(state: AppState, screen: Screen.Album) {
-    val songs = load(state, screen) { state.client.getAlbum(screen.id) }
+    val songs = load(state, screen, state.offlineMode) {
+        if (state.offlineMode) {
+            Result.success(state.downloads.cachedSongs().filter { (it.albumId ?: it.album.orEmpty()) == screen.id })
+        } else {
+            state.client.getAlbum(screen.id)
+        }
+    }
     Loaded(songs) { list ->
         val first = list.firstOrNull()
         Tracks(
@@ -469,9 +778,17 @@ fun AlbumScreen(state: AppState, screen: Screen.Album) {
 
 @Composable
 fun PlaylistScreen(state: AppState, screen: Screen.Playlist) {
-    val songs = load(state, screen) { state.client.getPlaylist(screen.id) }
-    Loaded(songs) { list ->
-        Tracks(state, list, screen.name, subtitle = "${list.size} ${tr("songs")}", cover = list.firstOrNull()?.coverArt, showAlbum = true, playlistId = screen.id)
+    val isLocal = screen.id.startsWith(LocalCatalog.LOCAL_PLAYLIST_PREFIX)
+    val localPlaylists by state.local.playlistStore.playlists.collectAsState()
+    if (isLocal) {
+        val list = remember(localPlaylists, screen.id, state.generation) { state.local.desktopTracksOf(screen.id) }
+        val plName = localPlaylists.firstOrNull { LocalCatalog.LOCAL_PLAYLIST_PREFIX + it.id == screen.id }?.name ?: screen.name
+        Tracks(state, list, plName, subtitle = "${list.size} ${tr("songs")} · .m3u8", cover = list.firstOrNull()?.coverArt, showAlbum = true, playlistId = screen.id)
+    } else {
+        val songs = load(state, screen) { state.client.getPlaylist(screen.id) }
+        Loaded(songs) { list ->
+            Tracks(state, list, screen.name, subtitle = "${list.size} ${tr("songs")}", cover = list.firstOrNull()?.coverArt, showAlbum = true, playlistId = screen.id)
+        }
     }
 }
 
@@ -481,6 +798,10 @@ private fun Tracks(state: AppState, all: List<SubsonicChildSong>, title: String,
     var find by remember(all) { mutableStateOf("") }
     var sort by remember { mutableStateOf(0) }
     var descending by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    var confirmDeletePl by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val isLocalPlaylist = playlistId?.startsWith(LocalCatalog.LOCAL_PLAYLIST_PREFIX) == true
     val songs = remember(all, find, sort, descending) {
         val q = find.trim().lowercase()
         val hits = if (q.isEmpty()) all else all.filter { s -> listOfNotNull(s.title, s.artist, s.album).any { q in it.lowercase() } }
@@ -507,11 +828,13 @@ private fun Tracks(state: AppState, all: List<SubsonicChildSong>, title: String,
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Pill(PhosphorIcons.Fill.Play, "Play", accent = true) { state.player.playQueue(songs) }
                             Pill(PhosphorIcons.Regular.Shuffle, "Shuffle") { state.player.playQueue(songs.shuffled()) }
-                            val missing = all.count { !state.downloads.has(it.id) }
+                            val missing = all.count { !it.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX) && !state.downloads.has(it.id) }
                             if (missing > 0) Pill(PhosphorIcons.Regular.DownloadSimple, "Download") { state.download(all) }
                             if (playlistId != null) {
                                 val pinned = state.pins.any { it.id == playlistId }
                                 Pill(PhosphorIcons.Regular.PushPin, if (pinned) "Unpin" else "Pin") { state.togglePin(playlistId, title, cover) }
+                                Pill(PhosphorIcons.Regular.PencilSimple, "Rename") { renaming = true }
+                                Pill(PhosphorIcons.Regular.Trash, "Delete") { confirmDeletePl = true }
                             }
                         }
                     }
@@ -530,9 +853,67 @@ private fun Tracks(state: AppState, all: List<SubsonicChildSong>, title: String,
                 }
             }
             itemsIndexed(songs, key = { i, s -> "$i${s.id}" }) { i, s ->
-                TrackRow(state, s, if (showAlbum) null else (s.track ?: (i + 1)), showAlbum, playlistId) { state.player.playQueue(songs, i) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        TrackRow(state, s, if (showAlbum) null else (s.track ?: (i + 1)), showAlbum, playlistId) { state.player.playQueue(songs, i) }
+                    }
+                    if (isLocalPlaylist && sort == 0 && !descending && find.isBlank()) {
+                        if (i > 0) Glyph(PhosphorIcons.Regular.ArrowUp, "Move up") {
+                            state.local.reorderPlaylist(playlistId!!, i, i - 1)
+                            state.generation++
+                        }
+                        if (i < songs.lastIndex) Glyph(PhosphorIcons.Regular.ArrowDown, "Move down") {
+                            state.local.reorderPlaylist(playlistId!!, i, i + 1)
+                            state.generation++
+                        }
+                    }
+                }
             }
         }
+    }
+
+    if (renaming && playlistId != null) {
+        var newName by remember { mutableStateOf(title) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renaming = false },
+            title = { Text(tr("Rename")) },
+            text = { OutlinedTextField(newName, { newName = it }, Modifier.fillMaxWidth().onFocusChanged { state.typing = it.isFocused }, singleLine = true) },
+            confirmButton = {
+                TextButton({
+                    val trimmed = newName.trim()
+                    if (trimmed.isNotEmpty()) {
+                        renaming = false
+                        scope.launch {
+                            runCatching {
+                                if (isLocalPlaylist) state.local.renamePlaylist(playlistId, trimmed)
+                                else state.subsonicCatalog.renamePlaylist("subsonic:playlist:$playlistId", trimmed)
+                            }.onSuccess { state.generation++; state.say("Renamed") }
+                                .onFailure { state.say("Couldn't: ${it.message}") }
+                        }
+                    }
+                }) { Text(tr("Rename")) }
+            },
+            dismissButton = { TextButton({ renaming = false }) { Text(tr("Cancel")) } },
+        )
+    }
+    if (confirmDeletePl && playlistId != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDeletePl = false },
+            title = { Text("Delete “$title”?") },
+            confirmButton = {
+                TextButton({
+                    confirmDeletePl = false
+                    scope.launch {
+                        runCatching {
+                            if (isLocalPlaylist) state.local.deletePlaylist(playlistId)
+                            else state.subsonicCatalog.deletePlaylist("subsonic:playlist:$playlistId")
+                        }.onSuccess { state.generation++; state.back(); state.say("Deleted “$title”") }
+                            .onFailure { state.say("Couldn't: ${it.message}") }
+                    }
+                }) { Text(tr("Delete"), color = Color(0xFFFF6B6B)) }
+            },
+            dismissButton = { TextButton({ confirmDeletePl = false }) { Text(tr("Cancel")) } },
+        )
     }
 }
 
@@ -559,10 +940,24 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
     var menuAt by remember { mutableStateOf<IntOffset?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var inspecting by remember { mutableStateOf(false) }
+    var pickingPlaylist by remember { mutableStateOf(false) }
+    val isLocal = s.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)
     val scope = rememberCoroutineScope()
-    fun remove(fromPlaylist: String?, deleteFile: Boolean, done: String) = scope.launch {
-        state.client.bridgeRemove(s.id, fromPlaylist, deleteFile).fold(
-            { state.say(done); state.generation++ },
+    fun removeFromPlaylist(pid: String) = scope.launch {
+        runCatching {
+            if (pid.startsWith(LocalCatalog.LOCAL_PLAYLIST_PREFIX)) {
+                state.local.removeFromPlaylist(pid, s.id)
+            } else {
+                state.subsonicCatalog.removeFromPlaylist("subsonic:playlist:$pid", "subsonic:track:${s.id}")
+            }
+        }.fold(
+            { state.say(tr("Removed from playlist")); state.generation++ },
+            { state.say("Couldn't: ${it.message}") },
+        )
+    }
+    fun deleteFromNas() = scope.launch {
+        state.client.bridgeRemove(s.id, null, true).fold(
+            { state.say("Deleted “${s.title}”"); state.generation++ },
             { state.say("Couldn't: ${it.message}") },
         )
     }
@@ -573,25 +968,71 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
         GlassMenu(menuAt != null, menuAt ?: IntOffset.Zero, onDismiss = { menuAt = null }) {
             GlassMenuItem(tr("Play next"), PhosphorIcons.Regular.Queue) { state.player.playNext(s); menuAt = null }
             GlassMenuItem(tr("Add to queue"), PhosphorIcons.Regular.ListPlus) { state.player.addToQueue(s); menuAt = null }
-            s.albumId?.let { id -> GlassMenuItem(tr("Go to album"), PhosphorIcons.Regular.Disc) { menuAt = null; state.open(Screen.Album(id, s.album.orEmpty())) } }
-            s.artistId?.let { id -> GlassMenuItem(tr("Go to artist"), PhosphorIcons.Regular.User) { menuAt = null; state.open(Screen.Artist(id, s.artist.orEmpty())) } }
-            if (state.downloads.has(s.id)) GlassMenuItem(tr("Remove download"), PhosphorIcons.Regular.XCircle) { menuAt = null; state.downloads.remove(s.id) }
-            else GlassMenuItem(tr("Download"), PhosphorIcons.Regular.DownloadSimple) { menuAt = null; state.download(listOf(s)) }
-            GlassMenuItem(tr("Inspect"), PhosphorIcons.Regular.Waveform) { menuAt = null; inspecting = true }
-            GlassMenuItem(tr("Copy link"), PhosphorIcons.Regular.LinkSimple) {
-                menuAt = null
-                java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(state.linkFor(s)), null)
-                state.say(tr("Link copied"))
+            GlassMenuItem(tr("Add to playlist"), PhosphorIcons.Regular.Plus) { menuAt = null; pickingPlaylist = true }
+            s.albumId?.let { id ->
+                GlassMenuItem(tr("Go to album"), PhosphorIcons.Regular.Disc) {
+                    menuAt = null
+                    if (isLocal) state.open(Screen.LocalAlbum(id, s.album.orEmpty()))
+                    else state.open(Screen.Album(id, s.album.orEmpty()))
+                }
             }
-            playlistId?.let { pid -> GlassMenuItem(tr("Remove from playlist"), PhosphorIcons.Regular.MinusCircle) { menuAt = null; remove(pid, false, "Removed from playlist") } }
-            GlassMenuItem(tr("Delete from NAS"), PhosphorIcons.Regular.Trash) { menuAt = null; confirmDelete = true }
+            s.artistId?.let { id ->
+                GlassMenuItem(tr("Go to artist"), PhosphorIcons.Regular.User) {
+                    menuAt = null
+                    if (isLocal) state.open(Screen.LocalArtist(id, s.artist.orEmpty()))
+                    else state.open(Screen.Artist(id, s.artist.orEmpty()))
+                }
+            }
+            if (!isLocal) {
+                if (state.downloads.has(s.id)) GlassMenuItem(tr("Remove download"), PhosphorIcons.Regular.XCircle) { menuAt = null; state.downloads.remove(s.id) }
+                else GlassMenuItem(tr("Download"), PhosphorIcons.Regular.DownloadSimple) { menuAt = null; state.download(listOf(s)) }
+            }
+            GlassMenuItem(tr("Inspect"), PhosphorIcons.Regular.Waveform) { menuAt = null; inspecting = true }
+            if (!isLocal) {
+                GlassMenuItem(tr("Copy link"), PhosphorIcons.Regular.LinkSimple) {
+                    menuAt = null
+                    java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(state.linkFor(s)), null)
+                    state.say(tr("Link copied"))
+                }
+            }
+            playlistId?.let { pid -> GlassMenuItem(tr("Remove from playlist"), PhosphorIcons.Regular.MinusCircle) { menuAt = null; removeFromPlaylist(pid) } }
+            if (!isLocal) {
+                GlassMenuItem(tr("Delete from NAS"), PhosphorIcons.Regular.Trash) { menuAt = null; confirmDelete = true }
+            }
         }
         if (inspecting) InspectDialog(state, s) { inspecting = false }
+        if (pickingPlaylist) {
+            val targets by produceState<List<dev.lelonio.square.data.CatalogPlaylist>>(emptyList()) {
+                value = if (isLocal) state.local.writablePlaylists() else state.subsonicCatalog.writablePlaylists()
+            }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pickingPlaylist = false },
+                title = { Text(tr("Add to playlist")) },
+                text = {
+                    Column {
+                        if (targets.isEmpty()) Text("No playlists available", color = InkDim)
+                        targets.forEach { pl ->
+                            TextButton({
+                                pickingPlaylist = false
+                                scope.launch {
+                                    runCatching {
+                                        if (isLocal) state.local.addToPlaylist(pl.uri, s.id)
+                                        else state.subsonicCatalog.addToPlaylist(pl.uri, "subsonic:track:${s.id}")
+                                    }.onSuccess { state.generation++; state.say("Added to ${pl.name}") }
+                                        .onFailure { state.say("Couldn't: ${it.message}") }
+                                }
+                            }) { Text(pl.name) }
+                        }
+                    }
+                },
+                confirmButton = { TextButton({ pickingPlaylist = false }) { Text(tr("Close")) } },
+            )
+        }
         if (confirmDelete) androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete “${s.title}” from the NAS?") },
             text = { Text(tr("The file is deleted from the server and taken out of every playlist. This can't be undone.")) },
-            confirmButton = { TextButton({ confirmDelete = false; remove(null, true, "Deleted “${s.title}”") }) { Text(tr("Delete"), color = Color(0xFFFF6B6B)) } },
+            confirmButton = { TextButton({ confirmDelete = false; deleteFromNas() }) { Text(tr("Delete"), color = Color(0xFFFF6B6B)) } },
             dismissButton = { TextButton({ confirmDelete = false }) { Text(tr("Cancel")) } },
         )
     }
@@ -600,7 +1041,11 @@ fun TrackRow(state: AppState, s: SubsonicChildSong, number: Int?, showArt: Boole
 @Composable
 private fun InspectDialog(state: AppState, s: SubsonicChildSong, onDismiss: () -> Unit) {
     val result by produceState<Result<Inspection>?>(null, s.id) {
-        value = runCatching { inspect(s, state.downloads.fileFor(s.id)?.path ?: state.client.buildDownloadUrl(s.id)) }
+        value = runCatching {
+            val src = if (s.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)) state.sourceFor(s)
+            else state.downloads.fileFor(s.id)?.path ?: state.client.buildDownloadUrl(s.id)
+            inspect(s, src)
+        }
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -673,10 +1118,30 @@ private fun BackButton(state: AppState) {
 @Composable
 fun SearchScreen(state: AppState) {
     var query by remember { mutableStateOf("") }
-    val result by produceState<Result<dev.lelonio.square.backend.subsonic.SubsonicSearchResult3>?>(null, query, state.generation) {
+    val result by produceState<Result<dev.lelonio.square.backend.subsonic.SubsonicSearchResult3>?>(null, query, state.generation, state.offlineMode) {
         if (query.isBlank()) { value = null; return@produceState }
         delay(280) // typing pause
-        value = state.client.search(query)
+        val q = query.trim().lowercase()
+        val localHits = state.local.desktopSongs().filter {
+            it.title.lowercase().contains(q) || it.artist.orEmpty().lowercase().contains(q) || it.album.orEmpty().lowercase().contains(q)
+        }
+        if (state.offlineMode || !state.prefs.isConfigured()) {
+            val cachedSongs = state.downloads.cachedSongs().filter {
+                it.title.lowercase().contains(q) || it.artist.orEmpty().lowercase().contains(q) || it.album.orEmpty().lowercase().contains(q)
+            }
+            val cachedAlbums = state.downloads.cachedAlbums().filter { it.name.lowercase().contains(q) || it.artist.orEmpty().lowercase().contains(q) }
+            val cachedArtists = state.downloads.cachedArtists().filter { it.name.lowercase().contains(q) }
+            value = Result.success(
+                dev.lelonio.square.backend.subsonic.SubsonicSearchResult3(
+                    artist = cachedArtists,
+                    album = cachedAlbums,
+                    song = localHits + cachedSongs,
+                ),
+            )
+        } else {
+            val remote = state.client.search(query)
+            value = remote.map { r -> r.copy(song = r.song + localHits) }
+        }
         if (value?.getOrNull()?.let { it.song.isNotEmpty() || it.album.isNotEmpty() || it.artist.isNotEmpty() } == true) {
             delay(1500) // only what the listener settled on, not every prefix typed on the way
             state.remember(query)
@@ -773,6 +1238,13 @@ fun SettingsScreen(state: AppState) {
             item {
                 Column {
                     Text("${state.downloads.kept.size} ${tr("songs")} · %.2f GB · ${state.downloads.root.path}".format(state.downloads.bytes() / 1e9), color = InkDim, style = MaterialTheme.typography.bodyMedium)
+                    Toggle("Offline mode", state.offlineMode) { state.useOfflineMode(it) }
+                    Spacer(Modifier.height(10.dp))
+                    Text(tr("Cache limit"), color = InkDim, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
+                    val limits = listOf(0, 1, 2, 5, 10, 20)
+                    Segmented(limits.map { if (it == 0) "Unlimited" else "$it GB" }, limits.indexOf(state.cacheLimitGb).coerceAtLeast(0)) {
+                        state.setCacheLimit(limits[it])
+                    }
                     Row {
                         TextButton({ runCatching { state.downloads.root.mkdirs(); java.awt.Desktop.getDesktop().open(state.downloads.root) } }) { Text(tr("Open folder")) }
                         if (state.downloads.kept.isNotEmpty()) TextButton({ state.downloads.removeAll(); state.say(tr("Removed all downloads")) }) { Text(tr("Remove all downloads")) }

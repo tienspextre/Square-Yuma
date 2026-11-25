@@ -22,6 +22,7 @@ data class FlacTrackInfo(
     val composer: String? = null,
     val lyrics: String? = null,
     val replayGainTrackDb: Float? = null,
+    val hasPicture: Boolean = false,
 ) {
     val isHiRes: Boolean get() = bitDepth >= 24 || sampleRate >= 48000
 
@@ -46,6 +47,61 @@ object FlacMetadataParser {
     /** A stream of known (or -1, unknown) length, for sources that are not files. */
     fun parse(input: InputStream, length: Long): FlacTrackInfo? = runCatching { parseInternal(input.buffered(), length) }.getOrNull()
 
+    fun parseArtwork(file: File): EmbeddedArtwork? {
+        if (!file.exists() || !file.canRead()) return null
+        return runCatching {
+            file.inputStream().buffered().use { parseArtwork(it) }
+        }.getOrNull()
+    }
+
+    fun parseArtwork(input: InputStream): EmbeddedArtwork? = runCatching {
+        val buffered = input.buffered()
+        val magic = ByteArray(4)
+        if (buffered.read(magic) != 4 || !magic.contentEquals(FLAC_MAGIC)) return@runCatching null
+        var firstArt: EmbeddedArtwork? = null
+        var isLast = false
+        while (!isLast) {
+            val header = ByteArray(4)
+            if (buffered.read(header) != 4) break
+            isLast = (header[0].toInt() and 0x80) != 0
+            val blockType = header[0].toInt() and 0x7F
+            val blockLength = ((header[1].toInt() and 0xFF) shl 16) or
+                ((header[2].toInt() and 0xFF) shl 8) or
+                (header[3].toInt() and 0xFF)
+            if (blockLength < 0 || blockLength > 16 * 1024 * 1024) break
+            if (blockType == 6) {
+                val data = readExact(buffered, blockLength) ?: break
+                val parsed = parsePictureBlock(data)
+                if (parsed != null) {
+                    val picType = readBeInt(data, 0)
+                    if (picType == 3) return@runCatching parsed
+                    if (firstArt == null) firstArt = parsed
+                }
+            } else {
+                skipExact(buffered, blockLength.toLong())
+            }
+        }
+        firstArt
+    }.getOrNull()
+
+    internal fun parsePictureBlock(data: ByteArray): EmbeddedArtwork? {
+        if (data.size < 32) return null
+        var cursor = 4 // skip picture type
+        val mimeLen = readBeInt(data, cursor)
+        cursor += 4
+        if (mimeLen < 0 || cursor + mimeLen + 4 > data.size) return null
+        val mime = String(data, cursor, mimeLen, StandardCharsets.UTF_8).ifBlank { null }
+        cursor += mimeLen
+        val descLen = readBeInt(data, cursor)
+        cursor += 4
+        if (descLen < 0 || cursor + descLen + 20 > data.size) return null
+        cursor += descLen + 16 // skip width, height, depth, colors
+        val picLen = readBeInt(data, cursor)
+        cursor += 4
+        if (picLen <= 0 || cursor + picLen > data.size) return null
+        return EmbeddedArtwork(data.copyOfRange(cursor, cursor + picLen), mime)
+    }
+
     private fun parseInternal(input: InputStream, fileSizeBytes: Long): FlacTrackInfo? {
         val magic = ByteArray(4)
         if (input.read(magic) != 4 || !magic.contentEquals(FLAC_MAGIC)) {
@@ -56,6 +112,7 @@ object FlacMetadataParser {
         var bitDepth = 16
         var channels = 2
         var totalSamples = 0L
+        var hasPicture = false
         val tags = mutableMapOf<String, String>()
 
         var isLast = false
@@ -67,11 +124,12 @@ object FlacMetadataParser {
             val blockLength = ((header[1].toInt() and 0xFF) shl 16) or
                 ((header[2].toInt() and 0xFF) shl 8) or
                 (header[3].toInt() and 0xFF)
+            if (blockLength < 0 || blockLength > 16 * 1024 * 1024) break
 
             when (blockType) {
                 0 -> { // STREAMINFO (34 bytes)
-                    val data = ByteArray(blockLength)
-                    if (input.read(data) == blockLength && blockLength >= 18) {
+                    val data = readExact(input, blockLength)
+                    if (data != null && blockLength >= 18) {
                         // sampleRate: 20 bits at byte 10..12
                         val b10 = data[10].toInt() and 0xFF
                         val b11 = data[11].toInt() and 0xFF
@@ -91,23 +149,16 @@ object FlacMetadataParser {
                     }
                 }
                 4 -> { // VORBIS_COMMENT
-                    val data = ByteArray(blockLength)
-                    if (input.read(data) == blockLength) {
+                    val data = readExact(input, blockLength)
+                    if (data != null) {
                         parseVorbisComments(data, tags)
                     }
                 }
-                else -> {
-                    var remaining = blockLength.toLong()
-                    while (remaining > 0) {
-                        val skipped = input.skip(remaining)
-                        if (skipped <= 0) {
-                            if (input.read() == -1) break
-                            remaining--
-                        } else {
-                            remaining -= skipped
-                        }
-                    }
+                6 -> { // PICTURE
+                    hasPicture = true
+                    skipExact(input, blockLength.toLong())
                 }
+                else -> skipExact(input, blockLength.toLong())
             }
         }
 
@@ -137,7 +188,40 @@ object FlacMetadataParser {
             composer = tags["COMPOSER"],
             lyrics = tags["SYNCEDLYRICS"] ?: tags["LYRICS"] ?: tags["UNSYNCEDLYRICS"],
             replayGainTrackDb = replayGainDb,
+            hasPicture = hasPicture,
         )
+    }
+
+    private fun readExact(input: InputStream, len: Int): ByteArray? {
+        val data = ByteArray(len)
+        var off = 0
+        while (off < len) {
+            val r = input.read(data, off, len - off)
+            if (r < 0) return null
+            off += r
+        }
+        return data
+    }
+
+    private fun skipExact(input: InputStream, count: Long) {
+        var remaining = count
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped <= 0) {
+                if (input.read() == -1) break
+                remaining--
+            } else {
+                remaining -= skipped
+            }
+        }
+    }
+
+    private fun readBeInt(bytes: ByteArray, offset: Int): Int {
+        if (offset + 4 > bytes.size) return 0
+        return ((bytes[offset].toInt() and 0xFF) shl 24) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+            (bytes[offset + 3].toInt() and 0xFF)
     }
 
     private fun parseVorbisComments(bytes: ByteArray, tags: MutableMap<String, String>) {

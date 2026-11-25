@@ -190,7 +190,7 @@ fun NowPlaying(state: AppState, onDrag: (Float) -> Unit, onRelease: (Float) -> U
                                 )
                                 Spacer(Modifier.height(14.dp))
                                 GlassProgressBar(
-                                    positionMs = p.positionMs.collectAsState(), durationMs = (song?.duration ?: 0L) * 1000, onSeek = p::seek,
+                                    positionMs = p.positionMs.collectAsState(), durationMs = song?.let(state.local::durationMsOf) ?: 0L, onSeek = p::seek,
                                     accentColor = Ink, trackColor = Ink.copy(alpha = 0.28f), modifier = Modifier.fillMaxWidth(), backdrop = playerBackdrop,
                                 )
                                 Spacer(Modifier.height(14.dp))

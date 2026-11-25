@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import dev.lelonio.square.backend.subsonic.SubsonicCatalog
 import dev.lelonio.square.backend.subsonic.SubsonicClient
 import dev.lelonio.square.backend.subsonic.SubsonicPreferences
 import dev.lelonio.square.ui.glass.GlassEffectConfig
@@ -27,20 +28,26 @@ import dev.lelonio.square.ui.glass.GlassStyle
 import java.awt.Dimension
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.prefs.Preferences
 
 sealed interface Screen {
     data object Home : Screen
     data object Library : Screen
+    data object LocalFolders : Screen
     data object Playlists : Screen
     data object Search : Screen
     data object Settings : Screen
     data class Album(val id: String, val name: String) : Screen
     data class Artist(val id: String, val name: String) : Screen
+    data class LocalAlbum(val uri: String, val name: String) : Screen
+    data class LocalArtist(val uri: String, val name: String) : Screen
     data class Playlist(val id: String, val name: String) : Screen
     /** A mood or genre mix, keyed as SubsonicMixes keys it ("mood:Chill", "genre:Pop"). */
     data class Mix(val key: String, val name: String) : Screen
@@ -73,23 +80,62 @@ private val uiPrefs = Preferences.userRoot().node("square-yuma/ui")
 
 class AppState {
     private val ui = uiPrefs
+    val dataDir: Path = Paths.get(System.getProperty("user.home"), ".square-yuma")
     val prefs = SubsonicPreferences()
     val client = SubsonicClient(Http.client, prefs)
-    val downloads = DownloadStore()
+    val downloads = DownloadStore(
+        indexPath = dataDir.resolve("downloads.json"),
+        rootPath = Paths.get(System.getProperty("user.home"), "Music", "Square-Yuma"),
+    )
+    val subsonicCatalog = SubsonicCatalog(client, downloads)
+    val local = LocalCatalog(dataDir)
+    val queuePersistence = QueuePersistence(dataDir.resolve("queue.json"))
+
+    var offlineMode by mutableStateOf(ui.getBoolean("offlineMode", false))
+        private set
+    fun useOfflineMode(on: Boolean) {
+        offlineMode = on
+        downloads.offlineMode = on
+        ui.putBoolean("offlineMode", on)
+        generation++
+    }
+
+    var cacheLimitGb by mutableStateOf(ui.getInt("cacheLimitGb", 0))
+        private set
+    fun setCacheLimit(gb: Int) {
+        val clamped = gb.coerceAtLeast(0)
+        cacheLimitGb = clamped
+        ui.putInt("cacheLimitGb", clamped)
+        downloads.setCacheLimitBytes(clamped.toLong() * 1_073_741_824L)
+    }
+
+    fun sourceFor(song: SubsonicChildSong): String =
+        if (song.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)) {
+            local.findById(song.id)?.path ?: song.path.orEmpty()
+        } else {
+            downloads.fileFor(song.id)?.absolutePath ?: client.buildStreamUrl(song.id)
+        }
+
+    val loudness = LoudnessCache(dataDir.resolve("analysis"), sourceResolver = ::sourceFor)
+
     val player = DesktopPlayer(
-        streamUrl = { downloads.fileFor(it.id)?.path ?: client.buildStreamUrl(it.id) },
+        streamUrl = ::sourceFor,
         coverBytes = { s ->
             val u = cover(s.coverArt, 300) ?: return@DesktopPlayer null
-            Http.client.newCall(okhttp3.Request.Builder().url(u).build()).execute().use { r ->
-                if (r.isSuccessful) r.body.bytes() else null
-            }
+            loadArtworkBytes(u)
         },
+        durationMsOf = local::durationMsOf,
     ).apply {
         volume.value = ui.getFloat("volume", 0.8f)
         crossfadeSeconds = ui.getInt("crossfade", 6)
+        loudnessResolver = { song, onMeasured ->
+            loudness.gainDbFor(song) ?: null.also { loudness.request(song, onMeasured) }
+        }
     }
 
-    val stack = mutableStateListOf<Screen>(if (prefs.isConfigured()) Screen.Home else Screen.Settings)
+    val stack = mutableStateListOf<Screen>(
+        if (prefs.isConfigured() || local.folders.value.isNotEmpty() || downloads.kept.isNotEmpty()) Screen.Home else Screen.Settings,
+    )
     var nowPlaying by mutableStateOf(false)
     var typing by mutableStateOf(false)
     var themeMode by mutableStateOf(runCatching { ThemeMode.valueOf(ui.get("theme", "DARK")) }.getOrDefault(ThemeMode.DARK))
@@ -141,9 +187,12 @@ class AppState {
     }
 
     fun download(songs: List<SubsonicChildSong>) = scope.launch {
+        val eligible = songs.filter { !it.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX) && !downloads.has(it.id) }
         var failed = 0
-        songs.filterNot { downloads.has(it.id) }.forEach { s -> downloads.download(s, client.buildDownloadUrl(s.id)).onFailure { failed++ } }
-        say(if (failed == 0) "Downloaded ${songs.size} song${if (songs.size == 1) "" else "s"}" else "$failed download(s) failed")
+        eligible.forEach { s ->
+            downloads.download(s, client.buildDownloadUrl(s.id), client.buildStreamUrl(s.id)).onFailure { failed++ }
+        }
+        say(if (failed == 0) "Downloaded ${eligible.size} song${if (eligible.size == 1) "" else "s"}" else "$failed download(s) failed")
     }
 
     /** The song's page in Navidrome's own web player, the link a listener can send. */
@@ -186,7 +235,7 @@ class AppState {
     }
 
     /** Smart Automix, its bass swap and Loop Mix, as the phone's switches (all three on the phone's defaults). */
-    val analyses = Analyses { downloads.fileFor(it.id)?.path ?: client.buildStreamUrl(it.id) }
+    val analyses = Analyses(::sourceFor, local::durationMsOf)
     var smartAutomix by mutableStateOf(ui.getBoolean("smartAutomix", true))
         private set
     var bassSwap by mutableStateOf(ui.getBoolean("bassSwap", true))
@@ -252,13 +301,59 @@ class AppState {
         }
     }
 
+    private var queueSaveJob: Job? = null
+
+    private fun scheduleQueueSave(delayMs: Long) {
+        queueSaveJob?.cancel()
+        queueSaveJob = scope.launch(Dispatchers.IO) {
+            delay(delayMs)
+            saveQueueNow()
+        }
+    }
+
+    fun saveQueueNow() {
+        val snap = player.snapshotQueueState()
+        if (snap != null) queuePersistence.save(snap)
+    }
+
     init {
+        downloads.offlineMode = offlineMode
+        downloads.setCacheLimitBytes(cacheLimitGb.toLong() * 1_073_741_824L)
         Thread({ startMediaKeys(this) }, "media-keys").apply { isDaemon = true }.start()
         scope.launch { findUpdate()?.let { say(tr("Square-Yuma PC ") + it.version + tr(" is available — Settings → Updates")) } }
         dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
         Strings.current = language
         player.applyDsp(fx, eqGains)
         useAutomix()
+
+        // Restore persisted queue paused at saved position (both Local & Subsonic / offline-only).
+        queuePersistence.load()?.let { saved ->
+            player.restoreQueueState(saved) { item ->
+                when (item.backend) {
+                    dev.lelonio.square.backend.BackendId.LOCAL ->
+                        local.findById(item.trackId)?.toDesktopSong() ?: item.toDesktopSong()
+                    else -> {
+                        val cached = downloads.fileFor(item.trackId)?.absolutePath
+                        item.toDesktopSong(cached)
+                    }
+                }
+            }
+        }
+        player.onQueueStateChanged = { scheduleQueueSave(250L) }
+        player.onPositionChanged = { scheduleQueueSave(1500L) }
+
+        Runtime.getRuntime().addShutdownHook(Thread {
+            saveQueueNow()
+            listening.save()
+            local.close()
+            loudness.shutdown()
+        })
+
+        // Initial incremental scan of configured local folders.
+        if (local.folders.value.isNotEmpty()) {
+            scope.launch { local.scan() }
+        }
+
         // Analyse what plays and what comes next, so the plan is ready by the last 45 s.
         scope.launch {
             kotlinx.coroutines.flow.combine(player.current, player.queue) { s, q -> s to q }.collect { (s, q) ->
@@ -292,7 +387,12 @@ class AppState {
     fun root(screen: Screen) { navMove = NavMove.Root; stack.clear(); stack.add(screen); nowPlaying = false }
     fun back() { if (nowPlaying) nowPlaying = false else if (stack.size > 1) { navMove = NavMove.Pop; stack.removeLast() } }
 
-    fun cover(id: String?, size: Int = 300) = client.buildCoverArtUrl(id, size)
+    fun cover(id: String?, size: Int = 300): String? = when {
+        id.isNullOrBlank() -> null
+        id.startsWith(LocalCatalog.LOCAL_ART_PREFIX) || id.startsWith("file:") ||
+            id.startsWith("http://") || id.startsWith("https://") -> id
+        else -> client.buildCoverArtUrl(id, size)
+    }
 
     var renderer by mutableStateOf(runCatching { Renderer.valueOf(ui.get("renderer", "Auto")) }.getOrDefault(Renderer.Auto))
         private set
@@ -351,7 +451,13 @@ fun main(args: Array<String>) {
 private fun app() = application {
     val state = androidx.compose.runtime.remember { AppState() }
     Window(
-        onCloseRequest = { state.listening.save(); exitApplication() },
+        onCloseRequest = {
+            state.saveQueueNow()
+            state.listening.save()
+            state.local.close()
+            state.loudness.shutdown()
+            exitApplication()
+        },
         title = "Square-Yuma",
         icon = painterResource("square.png"),
         state = rememberWindowState(size = DpSize(1280.dp, 840.dp)),

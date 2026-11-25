@@ -83,6 +83,7 @@ import com.adamglin.phosphoricons.fill.Play
 import com.adamglin.phosphoricons.fill.SkipBack
 import com.adamglin.phosphoricons.fill.SkipForward
 import com.adamglin.phosphoricons.regular.ChartBar
+import com.adamglin.phosphoricons.regular.Folder
 import com.adamglin.phosphoricons.regular.Queue
 import com.adamglin.phosphoricons.regular.Quotes
 import com.adamglin.phosphoricons.regular.Repeat
@@ -212,6 +213,7 @@ private fun Sidebar(state: AppState, config: GlassEffectConfig, modifier: Modifi
         NavItem(Screen.Search, PhosphorIcons.Bold.MagnifyingGlass, "Search"),
         NavItem(Screen.Home, PhosphorIcons.Fill.House, "Home"),
         NavItem(Screen.Library, PhosphorIcons.Regular.VinylRecord, "Library"),
+        NavItem(Screen.LocalFolders, PhosphorIcons.Regular.Folder, "Local Folders"),
         NavItem(Screen.Playlists, PhosphorIcons.Fill.MusicNotes, "Playlists"),
         NavItem(Screen.Month, PhosphorIcons.Regular.ChartBar, "Your month"),
         NavItem(Screen.Settings, PhosphorIcons.Fill.Gear, "Settings"),
@@ -302,11 +304,14 @@ private fun Content(state: AppState, modifier: Modifier) {
         when (screen) {
             Screen.Home -> HomeScreen(state)
             Screen.Library -> LibraryScreen(state)
+            Screen.LocalFolders -> LocalFoldersScreen(state)
             Screen.Playlists -> PlaylistsScreen(state)
             Screen.Search -> SearchScreen(state)
             Screen.Settings -> SettingsScreen(state)
             is Screen.Album -> AlbumScreen(state, screen)
             is Screen.Artist -> ArtistScreen(state, screen)
+            is Screen.LocalAlbum -> LocalAlbumScreen(state, screen)
+            is Screen.LocalArtist -> LocalArtistScreen(state, screen)
             is Screen.Playlist -> PlaylistScreen(state, screen)
             is Screen.Mix -> MixScreen(state, screen)
             Screen.Month -> MonthScreen(state)
@@ -396,7 +401,7 @@ private fun TransportBar(state: AppState, config: GlassEffectConfig, modifier: M
 private fun BarProgress(state: AppState, modifier: Modifier) {
     val pos by state.player.positionMs.collectAsState()
     val song by state.player.current.collectAsState()
-    val dur = (song?.duration ?: 0L) * 1000
+    val dur = song?.let(state.local::durationMsOf) ?: 0L
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     val thick by animateDpAsState(if (hovered) 4.dp else 2.dp)

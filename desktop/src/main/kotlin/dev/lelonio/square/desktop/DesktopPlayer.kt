@@ -24,6 +24,8 @@ enum class RepeatMode { OFF, ALL, ONE }
 class DesktopPlayer(
     private val streamUrl: (SubsonicChildSong) -> String,
     private val coverBytes: (suspend (SubsonicChildSong) -> ByteArray?)? = null,
+    private val durationMsOf: (SubsonicChildSong) -> Long = { it.duration * 1000L },
+    initEngine: Boolean = true,
 ) {
     val queue = MutableStateFlow<List<SubsonicChildSong>>(emptyList())
     val index = MutableStateFlow(-1)
@@ -43,6 +45,9 @@ class DesktopPlayer(
     @Volatile var planner: ((SubsonicChildSong, SubsonicChildSong) -> AutomixPlan?)? = null
     @Volatile var outputMode: String = "shared"
     @Volatile var outputDeviceId: String? = null
+    @Volatile var loudnessResolver: ((SubsonicChildSong, (String, Float) -> Unit) -> Float?)? = null
+    @Volatile var onQueueStateChanged: (() -> Unit)? = null
+    @Volatile var onPositionChanged: ((Long) -> Unit)? = null
 
     private var unshuffled: List<SubsonicChildSong> = emptyList()
     private val lock = Object()
@@ -64,42 +69,92 @@ class DesktopPlayer(
     private var engineReady = false
 
     init {
-        engineReady = runCatching {
-            val ok = NativeEngine.init()
-            if (ok) {
-                NativeEngine.setCallback(object : NativeEngine.Callback {
-                    override fun onEnded(deck: Int) {
-                        handleNativeEnded(deck)
-                    }
-
-                    override fun onDeviceLost(reason: String) {
-                        synchronized(lock) { isPlaying.value = false }
-                    }
-
-                    override fun onSmtcButton(button: String) {
-                        when (button) {
-                            "play" -> if (!isPlaying.value) toggle()
-                            "pause", "stop" -> pause()
-                            "play_pause" -> toggle()
-                            "next" -> next()
-                            "previous" -> previous()
+        if (initEngine) {
+            engineReady = runCatching {
+                val ok = NativeEngine.init()
+                if (ok) {
+                    NativeEngine.setCallback(object : NativeEngine.Callback {
+                        override fun onEnded(deck: Int) {
+                            handleNativeEnded(deck)
                         }
-                    }
 
-                    override fun onError(deck: Int, message: String) {
-                        synchronized(lock) {
-                            if (deck == activeDeck) error.value = message
+                        override fun onDeviceLost(reason: String) {
+                            synchronized(lock) { isPlaying.value = false }
                         }
-                    }
-                })
-                pushDsp()
+
+                        override fun onSmtcButton(button: String) {
+                            when (button) {
+                                "play" -> if (!isPlaying.value) toggle()
+                                "pause", "stop" -> pause()
+                                "play_pause" -> toggle()
+                                "next" -> next()
+                                "previous" -> previous()
+                            }
+                        }
+
+                        override fun onError(deck: Int, message: String) {
+                            synchronized(lock) {
+                                if (deck == activeDeck) error.value = message
+                            }
+                        }
+                    })
+                    pushDsp()
+                }
+                ok
+            }.onFailure {
+                error.value = "Native audio engine unavailable: ${it.message}"
+            }.getOrDefault(false)
+
+            scope.launch { pollLoop() }
+        }
+    }
+
+    fun snapshotQueueState(): PersistedQueueState? = synchronized(lock) {
+        val q = queue.value
+        if (q.isEmpty()) return null
+        PersistedQueueState(
+            queue = q.map { PersistedQueueItem.fromDesktopSong(it, durationMsOf(it)) },
+            unshuffled = if (shuffle.value) unshuffled.map { PersistedQueueItem.fromDesktopSong(it, durationMsOf(it)) } else null,
+            index = index.value.coerceIn(0, q.lastIndex),
+            positionMs = positionMs.value.coerceAtLeast(0L),
+            shuffle = shuffle.value,
+            repeat = repeat.value,
+        )
+    }
+
+    fun restoreQueueState(
+        saved: PersistedQueueState,
+        resolveSong: (PersistedQueueItem) -> SubsonicChildSong = { it.toDesktopSong() },
+    ) {
+        val restoredQueue = saved.queue.map(resolveSong)
+        if (restoredQueue.isEmpty()) return
+        val restoredUnshuffled = saved.unshuffled?.map(resolveSong) ?: restoredQueue
+        val idx = saved.index.coerceIn(0, restoredQueue.lastIndex)
+        val song = restoredQueue[idx]
+        val pos = saved.positionMs.coerceAtLeast(0L)
+
+        synchronized(lock) {
+            dropStandby()
+            unshuffled = restoredUnshuffled
+            queue.value = restoredQueue
+            shuffle.value = saved.shuffle
+            repeat.value = saved.repeat
+            index.value = idx
+            current.value = song
+            positionMs.value = pos
+            isPlaying.value = false
+            error.value = null
+        }
+        refreshTrackLoudness(song)
+        if (engineReady) {
+            val url = streamUrl(song)
+            if (url.isNotBlank()) {
+                NativeEngine.deckLoad(activeDeck, url, null, pos)
+                NativeEngine.deckPause(activeDeck)
             }
-            ok
-        }.onFailure {
-            error.value = "Native audio engine unavailable: ${it.message}"
-        }.getOrDefault(false)
-
-        scope.launch { pollLoop() }
+            pushDsp()
+        }
+        publishSmtc(song, playing = false, posMs = pos)
     }
 
     fun playQueue(songs: List<SubsonicChildSong>, start: Int = 0) {
@@ -107,44 +162,60 @@ class DesktopPlayer(
         shuffle.value = false
         queue.value = songs
         play(start)
+        onQueueStateChanged?.invoke()
     }
 
-    fun playNext(song: SubsonicChildSong) = synchronized(lock) {
-        val at = (index.value + 1).coerceIn(0, queue.value.size)
-        queue.value = queue.value.toMutableList().apply { add(at, song) }
-        unshuffled = unshuffled + song
+    fun playNext(song: SubsonicChildSong) {
+        synchronized(lock) {
+            val at = (index.value + 1).coerceIn(0, queue.value.size)
+            queue.value = queue.value.toMutableList().apply { add(at, song) }
+            unshuffled = unshuffled + song
+        }
+        onQueueStateChanged?.invoke()
     }
 
-    fun addToQueue(song: SubsonicChildSong) = synchronized(lock) {
-        queue.value = queue.value + song
-        unshuffled = unshuffled + song
+    fun addToQueue(song: SubsonicChildSong) {
+        synchronized(lock) {
+            queue.value = queue.value + song
+            unshuffled = unshuffled + song
+        }
+        onQueueStateChanged?.invoke()
     }
 
-    fun removeAt(i: Int) = synchronized(lock) {
-        if (i == index.value || i !in queue.value.indices) return
-        val gone = queue.value[i]
-        queue.value = queue.value.toMutableList().apply { removeAt(i) }
-        unshuffled = unshuffled.toMutableList().apply { remove(gone) }
-        if (i < index.value) index.value -= 1
-        dropStandby()
+    fun removeAt(i: Int) {
+        synchronized(lock) {
+            if (i == index.value || i !in queue.value.indices) return
+            val gone = queue.value[i]
+            queue.value = queue.value.toMutableList().apply { removeAt(i) }
+            unshuffled = unshuffled.toMutableList().apply { remove(gone) }
+            if (i < index.value) index.value -= 1
+            dropStandby()
+        }
+        onQueueStateChanged?.invoke()
     }
 
     /** Everything but the song playing. */
-    fun clearQueue() = synchronized(lock) {
-        val now = current.value ?: return
-        queue.value = listOf(now)
-        unshuffled = listOf(now)
-        index.value = 0
-        dropStandby()
+    fun clearQueue() {
+        synchronized(lock) {
+            val now = current.value ?: return
+            queue.value = listOf(now)
+            unshuffled = listOf(now)
+            index.value = 0
+            dropStandby()
+        }
+        onQueueStateChanged?.invoke()
     }
 
-    fun move(from: Int, to: Int) = synchronized(lock) {
-        val q = queue.value
-        if (from !in q.indices || to !in q.indices || from == to) return
-        val now = current.value
-        queue.value = q.toMutableList().apply { add(to, removeAt(from)) }
-        index.value = queue.value.indexOfFirst { it === now }
-        dropStandby()
+    fun move(from: Int, to: Int) {
+        synchronized(lock) {
+            val q = queue.value
+            if (from !in q.indices || to !in q.indices || from == to) return
+            val now = current.value
+            queue.value = q.toMutableList().apply { add(to, removeAt(from)) }
+            index.value = queue.value.indexOfFirst { it === now }
+            dropStandby()
+        }
+        onQueueStateChanged?.invoke()
     }
 
     /** Updates DSP parameters in real time without restarting playback. */
@@ -153,6 +224,9 @@ class DesktopPlayer(
         currentEq = eq.copyOf()
         currentLoudnessDb = normalizeGainDb
         speed = fx.speed
+        if (fx.loudness) {
+            current.value?.let { refreshTrackLoudness(it) }
+        }
         pushDsp()
     }
 
@@ -225,8 +299,21 @@ class DesktopPlayer(
             NativeEngine.scheduleMix(skipPlan, incomingDeck = deckToUse)
         }
         NativeEngine.deckPlay(deckToUse)
+        refreshTrackLoudness(song)
         pushDsp()
         publishSmtc(song, playing = true, posMs = atMs)
+        onQueueStateChanged?.invoke()
+    }
+
+    private fun refreshTrackLoudness(song: SubsonicChildSong) {
+        val resolver = loudnessResolver ?: return
+        val cached = resolver(song) { trackId, gainDb ->
+            if (current.value?.id == trackId) {
+                currentLoudnessDb = gainDb
+                if (currentFx.loudness) pushDsp()
+            }
+        }
+        currentLoudnessDb = cached ?: 0f
     }
 
     fun toggle() = synchronized(lock) {
@@ -243,13 +330,16 @@ class DesktopPlayer(
     fun seek(ms: Long) {
         val target = ms.coerceIn(0L, durationMs())
         synchronized(lock) {
-            if (current.value == null || !engineReady) return
+            if (current.value == null) return
             dropStandby()
             positionMs.value = target
-            NativeEngine.deckSeek(activeDeck, target)
-            if (!isPlaying.value) NativeEngine.deckPause(activeDeck)
+            if (engineReady) {
+                NativeEngine.deckSeek(activeDeck, target)
+                if (!isPlaying.value) NativeEngine.deckPause(activeDeck)
+            }
         }
         current.value?.let { publishSmtc(it, isPlaying.value, target) }
+        onPositionChanged?.invoke(target)
     }
 
     fun next() = nextIndex(auto = false)?.let { play(it) } ?: Unit
@@ -258,29 +348,40 @@ class DesktopPlayer(
         if (positionMs.value > 3_000 || index.value <= 0) seek(0) else play(index.value - 1)
     }
 
-    fun toggleShuffle() = synchronized(lock) {
-        val now = current.value
-        val on = !shuffle.value
-        val list = if (on) {
-            unshuffled = queue.value
-            listOfNotNull(now) + queue.value.filter { it !== now }.shuffled()
-        } else unshuffled
-        queue.value = list
-        shuffle.value = on
-        index.value = list.indexOfFirst { it === now }
-        dropStandby()
+    fun toggleShuffle() {
+        synchronized(lock) {
+            val now = current.value
+            val on = !shuffle.value
+            val list = if (on) {
+                unshuffled = queue.value
+                listOfNotNull(now) + queue.value.filter { it !== now }.shuffled()
+            } else unshuffled
+            queue.value = list
+            shuffle.value = on
+            index.value = list.indexOfFirst { it === now }
+            dropStandby()
+        }
+        onQueueStateChanged?.invoke()
     }
 
     fun cycleRepeat() {
         repeat.value = RepeatMode.entries[(repeat.value.ordinal + 1) % RepeatMode.entries.size]
+        onQueueStateChanged?.invoke()
     }
 
-    fun durationMs(): Long = (current.value?.duration ?: 0L) * 1000L
+    fun durationMs(): Long = current.value?.let(durationMsOf) ?: 0L
 
     private fun setPlaying(on: Boolean) {
         isPlaying.value = on
         if (engineReady) {
-            if (on) NativeEngine.deckPlay(activeDeck) else NativeEngine.deckPause(activeDeck)
+            if (on) {
+                if (NativeEngine.position(activeDeck) == 0L && positionMs.value > 0L) {
+                    current.value?.let { NativeEngine.deckLoad(activeDeck, streamUrl(it), null, positionMs.value) }
+                }
+                NativeEngine.deckPlay(activeDeck)
+            } else {
+                NativeEngine.deckPause(activeDeck)
+            }
         }
         current.value?.let { publishSmtc(it, on, positionMs.value) }
     }
@@ -298,7 +399,7 @@ class DesktopPlayer(
                 reverb = currentFx.reverb,
                 karaoke = currentFx.karaoke,
                 loudness = currentFx.loudness,
-                normalizeGainDb = currentLoudnessDb,
+                normalizeGainDb = if (currentFx.loudness) currentLoudnessDb else 0f,
                 volume = linearGain,
                 bitPerfect = (outputMode == "exclusive"),
             ),
@@ -346,7 +447,10 @@ class DesktopPlayer(
                     current.value = nextSong
                     planForSong = null
                     cachedPlan = null
+                    refreshTrackLoudness(nextSong)
+                    pushDsp()
                     publishSmtc(nextSong, true, 0L)
+                    onQueueStateChanged?.invoke()
                     return
                 }
             }
@@ -360,6 +464,7 @@ class DesktopPlayer(
                 positionMs.value = 0L
             }
             current.value?.let { publishSmtc(it, false, 0L) }
+            onQueueStateChanged?.invoke()
         } else {
             play(n, atMs = 0L, fade = false)
         }
@@ -373,6 +478,7 @@ class DesktopPlayer(
             val posMs = NativeEngine.position(activeDeck).coerceAtLeast(0L)
             if (abs(posMs - positionMs.value) >= 40L) {
                 positionMs.value = posMs
+                onPositionChanged?.invoke(posMs)
             }
             maybePrepareAndScheduleMix(song, posMs)
         }
@@ -382,7 +488,7 @@ class DesktopPlayer(
         if (stopAfterCurrent.value || repeat.value == RepeatMode.ONE || mixScheduled) return
         val nextIdx = nextIndex(auto = true) ?: return
         val nextSong = queue.value.getOrNull(nextIdx) ?: return
-        val durMs = song.duration * 1000L
+        val durMs = durationMsOf(song)
         if (durMs <= 0L || durMs - posMs > 45_000L) return
 
         val plan0 = planner

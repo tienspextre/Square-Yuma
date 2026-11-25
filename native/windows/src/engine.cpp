@@ -683,6 +683,85 @@ std::vector<float> NativeAudioEngine::decodeToFloat(
     return out;
 }
 
+double NativeAudioEngine::measureSamplesLufs(
+    const float* interleaved, size_t frames, uint32_t sampleRate, uint16_t channels) {
+    if (!interleaved || frames == 0 || sampleRate == 0 || channels == 0) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    ebur128_state* st = ebur128_init(
+        static_cast<unsigned int>(channels),
+        static_cast<unsigned long>(sampleRate),
+        EBUR128_MODE_I | EBUR128_MODE_S | EBUR128_MODE_M | EBUR128_MODE_HISTOGRAM);
+    if (!st) return std::numeric_limits<double>::quiet_NaN();
+
+    ebur128_add_frames_float(st, interleaved, frames);
+    double lufs = -70.0;
+    const int rc = ebur128_loudness_global(st, &lufs);
+    if (rc != EBUR128_SUCCESS || !std::isfinite(lufs) || lufs <= -70.0) {
+        double alt = -70.0;
+        if (ebur128_loudness_shortterm(st, &alt) == EBUR128_SUCCESS && std::isfinite(alt) && alt > -70.0) {
+            lufs = alt;
+        } else if (ebur128_loudness_momentary(st, &alt) == EBUR128_SUCCESS && std::isfinite(alt) && alt > -70.0) {
+            lufs = alt;
+        } else {
+            ebur128_destroy(&st);
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+    }
+    ebur128_destroy(&st);
+    return lufs;
+}
+
+double NativeAudioEngine::measureTrackLufs(const std::string& uri, const std::string& headersJson) {
+    std::string err;
+    auto stream = createInputStream(uri, headersJson, err);
+    if (!stream) return std::numeric_limits<double>::quiet_NaN();
+    auto dec = createDecoder(std::move(stream), uri, err);
+    if (!dec) return std::numeric_limits<double>::quiet_NaN();
+
+    const TrackFormatInfo fmt = dec->format();
+    if (fmt.sampleRate == 0 || fmt.channels == 0) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    ebur128_state* st = ebur128_init(
+        static_cast<unsigned int>(fmt.channels),
+        static_cast<unsigned long>(fmt.sampleRate),
+        EBUR128_MODE_I | EBUR128_MODE_S | EBUR128_MODE_M | EBUR128_MODE_HISTOGRAM);
+    if (!st) return std::numeric_limits<double>::quiet_NaN();
+
+    constexpr size_t kChunkFrames = 4096;
+    std::vector<float> buf(kChunkFrames * fmt.channels);
+    size_t totalFrames = 0;
+    while (true) {
+        const size_t got = dec->readFloatFrames(buf.data(), kChunkFrames);
+        if (got == 0) break;
+        ebur128_add_frames_float(st, buf.data(), got);
+        totalFrames += got;
+    }
+
+    if (totalFrames == 0) {
+        ebur128_destroy(&st);
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    double lufs = -70.0;
+    const int rc = ebur128_loudness_global(st, &lufs);
+    if (rc != EBUR128_SUCCESS || !std::isfinite(lufs) || lufs <= -70.0) {
+        double alt = -70.0;
+        if (ebur128_loudness_shortterm(st, &alt) == EBUR128_SUCCESS && std::isfinite(alt) && alt > -70.0) {
+            lufs = alt;
+        } else if (ebur128_loudness_momentary(st, &alt) == EBUR128_SUCCESS && std::isfinite(alt) && alt > -70.0) {
+            lufs = alt;
+        } else {
+            ebur128_destroy(&st);
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+    }
+    ebur128_destroy(&st);
+    return lufs;
+}
+
 void NativeAudioEngine::decodeLoop(int deckIdx, int64_t startMs) {
     auto& d = decks_[deckIdx];
     std::string err;

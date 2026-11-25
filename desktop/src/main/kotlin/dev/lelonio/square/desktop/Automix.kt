@@ -28,6 +28,9 @@ import moe.rukamori.archivetune.playback.smart.StereoRegion
 import moe.rukamori.archivetune.playback.smart.TrackFeatures
 import org.json.JSONObject
 import java.io.File
+import java.nio.charset.StandardCharsets
+import java.nio.file.Paths
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.PI
 import kotlin.math.cos
@@ -40,24 +43,46 @@ import kotlin.math.sqrt
  * ONNX beat/vocal models, decoded in-process by `square_win_native`. Results are kept in
  * ~/.square-yuma/analysis.
  */
-class Analyses(private val source: (SubsonicChildSong) -> String) {
-    private val dir = File(System.getProperty("user.home"), ".square-yuma/analysis").apply { mkdirs() }
+class Analyses(
+    private val source: (SubsonicChildSong) -> String,
+    private val durationMsOf: (SubsonicChildSong) -> Long = { it.duration * 1000L },
+    private val dir: File = Paths.get(System.getProperty("user.home"), ".square-yuma", "analysis").toFile().apply { mkdirs() },
+) {
     private val memory = ConcurrentHashMap<String, TrackAnalysisResult>()
     private val running = ConcurrentHashMap.newKeySet<String>()
     private val gate = Semaphore(1)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    fun cacheKey(song: SubsonicChildSong): String =
+        if (song.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)) {
+            val raw = song.path ?: song.id
+            val sha = MessageDigest.getInstance("SHA-1").digest(raw.toByteArray(StandardCharsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            "local_$sha"
+        } else {
+            song.id
+        }
+
     fun get(id: String): TrackAnalysisResult? = memory[id] ?: load(id)?.also { memory[id] = it }
+
+    fun get(song: SubsonicChildSong): TrackAnalysisResult? = get(cacheKey(song))
+
+    fun put(song: SubsonicChildSong, result: TrackAnalysisResult) {
+        val k = cacheKey(song)
+        memory[k] = result
+        save(k, result)
+    }
 
     /** Starts analysing [song] unless it is known or under way. */
     fun request(song: SubsonicChildSong) {
-        if (song.duration < 30 || get(song.id) != null || !running.add(song.id)) return
+        val k = cacheKey(song)
+        if (durationMsOf(song) < 30_000L || get(k) != null || !running.add(k)) return
         scope.launch {
             try {
-                gate.withPermit { analyze(song)?.let { memory[song.id] = it; save(song.id, it) } }
+                gate.withPermit { analyze(song)?.let { memory[k] = it; save(k, it) } }
             } catch (t: Throwable) {
                 System.err.println("automix analysis failed for ${song.title}: $t")
-            } finally { running.remove(song.id) }
+            } finally { running.remove(k) }
         }
     }
 
@@ -106,9 +131,9 @@ class Analyses(private val source: (SubsonicChildSong) -> String) {
     fun plan(out: SubsonicChildSong, inc: SubsonicChildSong, queue: List<SubsonicChildSong>, shuffled: Boolean, fadeMs: Long, bassSwap: Boolean, loopMix: Boolean): AutomixPlan? {
         if (listOf(out, inc).any { TransitionRules.isSpokenOrLive(it.title, it.artist.orEmpty(), it.album.orEmpty()) }) return null
         if (TransitionRules.isAlbumPlaythrough(queue.map { it.album to it.artist }, shuffled)) return null
-        val a = get(out.id) ?: return null
-        val b = get(inc.id)
-        val durationMs = out.duration * 1000
+        val a = get(out) ?: return null
+        val b = get(inc)
+        val durationMs = durationMsOf(out)
         if (b != null) runCatching {
             val o = MixFeatures.parse(a.rawJson, a.tailRawJson, a.tailOffset, a.modelJson)
             val i = MixFeatures.parse(b.rawJson, modelJson = b.modelJson)

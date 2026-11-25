@@ -294,25 +294,66 @@ open class SubsonicCatalog(
         }
     }
 
-    // The NAS playlists are .m3u8 files; every edit goes through the bridge, which writes the
-    // file and has Navidrome rescan it. Creating one needs an admin account (see the bridge).
+    protected open val useBridge: Boolean = false
+
     override val canEditPlaylists: Boolean get() = client.preferences.isConfigured()
+
+    override val describesPlaylists: Boolean get() = !useBridge
 
     override fun canWriteTo(playlistUri: String): Boolean = playlistUri.startsWith(PLAYLIST_PREFIX)
 
     override suspend fun createPlaylist(name: String, description: String, public: Boolean): CatalogPlaylist {
-        val answer = client.bridgePlaylist("create", name = name).getOrThrow()
-        val id = answer.optString("playlist_id").takeIf { it.isNotBlank() && it != "null" }
-            ?: throw java.io.IOException("Navidrome has not imported the new playlist yet")
-        return CatalogPlaylist(uri = PLAYLIST_PREFIX + id, name = name, subtitle = "0 songs", mine = true)
+        if (useBridge) {
+            val answer = client.bridgePlaylist("create", name = name).getOrThrow()
+            val id = answer.optString("playlist_id").takeIf { it.isNotBlank() && it != "null" }
+                ?: throw java.io.IOException("Navidrome has not imported the new playlist yet")
+            return CatalogPlaylist(uri = PLAYLIST_PREFIX + id, name = name, subtitle = "0 songs", mine = true)
+        }
+        val created = client.createPlaylist(name).getOrThrow()
+        val id = created.id.takeIf { it.isNotBlank() }
+            ?: client.getPlaylists().getOrDefault(emptyList()).lastOrNull { it.name == name }?.id
+            ?: throw java.io.IOException("Server did not return playlist id")
+        if (description.isNotBlank() || public) {
+            client.updatePlaylist(
+                playlistId = id,
+                comment = description.ifBlank { null },
+                public = public,
+            ).getOrThrow()
+        }
+        return CatalogPlaylist(
+            uri = PLAYLIST_PREFIX + id,
+            name = created.name.ifBlank { name },
+            artworkUrl = client.buildCoverArtUrl(created.coverArt),
+            subtitle = "${created.songCount} songs",
+            mine = true,
+        )
+    }
+
+    override suspend fun updatePlaylist(uri: String, name: String, description: String, public: Boolean) {
+        val id = uri.removePrefix(PLAYLIST_PREFIX)
+        if (useBridge) {
+            renamePlaylist(uri, name)
+            return
+        }
+        client.updatePlaylist(playlistId = id, name = name, comment = description, public = public).getOrThrow()
     }
 
     override suspend fun renamePlaylist(uri: String, name: String) {
-        client.bridgePlaylist("rename", playlistId = uri.removePrefix(PLAYLIST_PREFIX), name = name).getOrThrow()
+        val id = uri.removePrefix(PLAYLIST_PREFIX)
+        if (useBridge) {
+            client.bridgePlaylist("rename", playlistId = id, name = name).getOrThrow()
+            return
+        }
+        client.updatePlaylist(playlistId = id, name = name).getOrThrow()
     }
 
     override suspend fun deletePlaylist(uri: String) {
-        client.bridgePlaylist("delete", playlistId = uri.removePrefix(PLAYLIST_PREFIX)).getOrThrow()
+        val id = uri.removePrefix(PLAYLIST_PREFIX)
+        if (useBridge) {
+            client.bridgePlaylist("delete", playlistId = id).getOrThrow()
+            return
+        }
+        client.deletePlaylist(id).getOrThrow()
     }
 
     override suspend fun writablePlaylists(): List<CatalogPlaylist> =
@@ -322,19 +363,28 @@ open class SubsonicCatalog(
         addAllToPlaylist(playlistUri, listOf(trackUri))
 
     override suspend fun addAllToPlaylist(playlistUri: String, trackUris: List<String>) {
-        client.bridgePlaylist(
-            "add",
-            playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX),
-            songIds = trackUris.filter { it.startsWith("subsonic:track:") }.map { it.removePrefix("subsonic:track:") },
-        ).getOrThrow()
+        val id = playlistUri.removePrefix(PLAYLIST_PREFIX)
+        val songIds = trackUris.filter { it.startsWith("subsonic:track:") }.map { it.removePrefix("subsonic:track:") }
+        if (songIds.isEmpty()) return
+        if (useBridge) {
+            client.bridgePlaylist("add", playlistId = id, songIds = songIds).getOrThrow()
+            return
+        }
+        client.updatePlaylist(playlistId = id, songIdsToAdd = songIds).getOrThrow()
     }
 
     override suspend fun removeFromPlaylist(playlistUri: String, trackUri: String) {
-        client.bridgeRemove(
-            trackUri.removePrefix("subsonic:track:"),
-            playlistUri.removePrefix("subsonic:playlist:"),
-            deleteFile = false,
-        ).getOrThrow()
+        val playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX)
+        val songId = trackUri.removePrefix("subsonic:track:")
+        if (useBridge) {
+            client.bridgeRemove(songId, playlistId, deleteFile = false).getOrThrow()
+            return
+        }
+        val entries = client.getPlaylist(playlistId).getOrThrow()
+        val index = entries.indexOfFirst { it.id == songId }
+        if (index >= 0) {
+            client.updatePlaylist(playlistId = playlistId, songIndexesToRemove = listOf(index)).getOrThrow()
+        }
     }
 
     /** Deletes the song's file from the NAS, which also takes it out of every playlist. */

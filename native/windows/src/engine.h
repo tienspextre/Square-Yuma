@@ -64,6 +64,8 @@ public:
     std::string probeTrackJson(const std::string& uri, const std::string& headersJson);
     std::vector<float> decodeToFloat(const std::string& uri, const std::string& headersJson,
                                      int64_t fromMs, int64_t durationMs, int targetRate, int targetChannels);
+    double measureTrackLufs(const std::string& uri, const std::string& headersJson);
+    static double measureSamplesLufs(const float* interleaved, size_t frames, uint32_t sampleRate, uint16_t channels);
 
     // Deterministic offline/null-sink full-chain & Automix verification
     SelfCheckReport runSelfCheck();

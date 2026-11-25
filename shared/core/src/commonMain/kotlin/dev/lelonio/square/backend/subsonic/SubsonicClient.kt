@@ -24,7 +24,10 @@ class SubsonicClient(
         isLenient = true
     }
 
-    private fun buildUrl(endpoint: String, extraParams: Map<String, String> = emptyMap()): HttpUrl? {
+    private fun buildUrl(endpoint: String, extraParams: Map<String, String> = emptyMap()): HttpUrl? =
+        buildUrl(endpoint, extraParams.entries.map { it.key to it.value })
+
+    private fun buildUrl(endpoint: String, extraParams: List<Pair<String, String>>): HttpUrl? {
         val rawBase = preferences.serverUrl.value.trim().removeSuffix("/")
         if (rawBase.isBlank()) return null
         val fullUrl = if (rawBase.endsWith("/rest")) "$rawBase/$endpoint" else "$rawBase/rest/$endpoint"
@@ -37,6 +40,17 @@ class SubsonicClient(
             builder.addQueryParameter(k, v)
         }
         return builder.build()
+    }
+
+    private fun checkSubsonicResponseOk(body: String): JSONObject {
+        val root = JSONObject(body).optJSONObject("subsonic-response")
+            ?: throw IOException("Missing subsonic-response")
+        val status = root.optString("status", "failed")
+        if (status != "ok") {
+            val err = root.optJSONObject("error")?.optString("message")?.ifBlank { null } ?: "Subsonic error"
+            throw IOException(err)
+        }
+        return root
     }
 
     suspend fun ping(): Result<SubsonicServerInfo> = withContext(Dispatchers.IO) {
@@ -90,6 +104,87 @@ class SubsonicClient(
                 val parsed = json.decodeFromString(SubsonicResponseWrapper.serializer(SubsonicPlaylistDetail.serializer()), body)
                 val songs = parsed.`subsonic-response`.playlist?.entry ?: emptyList()
                 Result.success(songs)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createPlaylist(
+        name: String,
+        songIds: List<String> = emptyList(),
+        playlistId: String? = null,
+    ): Result<SubsonicPlaylistDetail> = withContext(Dispatchers.IO) {
+        val params = buildList {
+            if (!playlistId.isNullOrBlank()) add("playlistId" to playlistId) else add("name" to name)
+            songIds.forEach { add("songId" to it) }
+        }
+        val url = buildUrl("createPlaylist.view", params)
+            ?: return@withContext Result.failure(IOException("Invalid URL"))
+        try {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(IOException("HTTP ${response.code}: ${response.message}"))
+                }
+                val body = response.body?.string().orEmpty()
+                checkSubsonicResponseOk(body)
+                val parsed = json.decodeFromString(
+                    SubsonicResponseWrapper.serializer(SubsonicPlaylistDetail.serializer()),
+                    body,
+                )
+                Result.success(
+                    parsed.`subsonic-response`.playlist
+                        ?: SubsonicPlaylistDetail(id = playlistId.orEmpty(), name = name),
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updatePlaylist(
+        playlistId: String,
+        name: String? = null,
+        comment: String? = null,
+        public: Boolean? = null,
+        songIdsToAdd: List<String> = emptyList(),
+        songIndexesToRemove: List<Int> = emptyList(),
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val params = buildList {
+            add("playlistId" to playlistId)
+            name?.let { add("name" to it) }
+            comment?.let { add("comment" to it) }
+            public?.let { add("public" to it.toString()) }
+            songIdsToAdd.forEach { add("songIdToAdd" to it) }
+            songIndexesToRemove.forEach { add("songIndexToRemove" to it.toString()) }
+        }
+        val url = buildUrl("updatePlaylist.view", params)
+            ?: return@withContext Result.failure(IOException("Invalid URL"))
+        try {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(IOException("HTTP ${response.code}: ${response.message}"))
+                }
+                val body = response.body?.string().orEmpty()
+                checkSubsonicResponseOk(body)
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deletePlaylist(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val url = buildUrl("deletePlaylist.view", mapOf("id" to id))
+            ?: return@withContext Result.failure(IOException("Invalid URL"))
+        try {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(IOException("HTTP ${response.code}: ${response.message}"))
+                }
+                val body = response.body?.string().orEmpty()
+                checkSubsonicResponseOk(body)
+                Result.success(Unit)
             }
         } catch (e: Exception) {
             Result.failure(e)
