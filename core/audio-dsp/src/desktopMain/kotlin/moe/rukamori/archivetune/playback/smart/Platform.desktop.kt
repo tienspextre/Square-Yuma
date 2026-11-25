@@ -2,12 +2,38 @@ package moe.rukamori.archivetune.playback.smart
 
 import java.io.File
 
-/** The JNI library sits beside ffmpeg in the app's resources, not on java.library.path. */
+private object NativeLoader {
+    @Volatile
+    var loaded = false
+
+    fun load() {
+        if (loaded) return
+        synchronized(this) {
+            if (loaded) return
+            val name = System.mapLibraryName("square_win_native")
+            val candidates = buildList {
+                System.getProperty("compose.application.resources.dir")?.let { add(File(it, name)) }
+                val os = System.getProperty("os.name").orEmpty()
+                val osDir = if (os.startsWith("Windows")) "windows" else "linux"
+                add(File("desktop/appResources/$osDir/$name"))
+                add(File("appResources/$osDir/$name"))
+                add(File("native/windows/build/$name"))
+                add(File("../native/windows/build/$name"))
+            }
+            val file = candidates.firstOrNull { it.isFile }
+            if (file != null) {
+                System.load(file.absolutePath)
+            } else {
+                System.loadLibrary("square_win_native")
+            }
+            loaded = true
+        }
+    }
+}
+
+/** Loads `square_win_native` (which embeds the analysis JNI symbols); throws UnsatisfiedLinkError if absent. */
 actual fun loadAnalysisLibrary() {
-    val name = System.mapLibraryName("yuma_analysis")
-    val file = System.getProperty("compose.application.resources.dir")?.let { File(it, name) }?.takeIf { it.isFile }
-        ?: throw UnsatisfiedLinkError("$name not in the app's resources")
-    System.load(file.absolutePath)
+    NativeLoader.load()
 }
 
 actual object ModelSource {

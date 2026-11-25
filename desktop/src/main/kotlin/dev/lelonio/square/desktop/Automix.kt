@@ -1,6 +1,7 @@
 package dev.lelonio.square.desktop
 
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
+import dev.lelonio.square.desktop.nativeaudio.NativeEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,14 +22,12 @@ import moe.rukamori.archivetune.audiodsp.incomingStageGain
 import moe.rukamori.archivetune.audiodsp.outgoingBassGainDb
 import moe.rukamori.archivetune.audiodsp.outgoingLowPassHz
 import moe.rukamori.archivetune.audiodsp.outgoingStageGain
+import moe.rukamori.archivetune.playback.smart.ModelPass
 import moe.rukamori.archivetune.playback.smart.ModelSource
 import moe.rukamori.archivetune.playback.smart.StereoRegion
-import moe.rukamori.archivetune.playback.smart.ModelPass
 import moe.rukamori.archivetune.playback.smart.TrackFeatures
 import org.json.JSONObject
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.PI
 import kotlin.math.cos
@@ -38,10 +37,8 @@ import kotlin.math.sqrt
 
 /**
  * The phone's Smart Automix analysis for the desktop: the same C++ features and
- * ONNX beat/vocal models, fed by ffmpeg. A whole song is decoded to 11025 Hz mono
- * (the phone streams only head and tail; here the full pass is cheap), then the
- * model pass reads its five stereo windows. Results are kept in
- * ~/.square-yuma/analysis, apart from the phone's (a different decoder).
+ * ONNX beat/vocal models, decoded in-process by `square_win_native`. Results are kept in
+ * ~/.square-yuma/analysis.
  */
 class Analyses(private val source: (SubsonicChildSong) -> String) {
     private val dir = File(System.getProperty("user.home"), ".square-yuma/analysis").apply { mkdirs() }
@@ -67,28 +64,18 @@ class Analyses(private val source: (SubsonicChildSong) -> String) {
     private suspend fun analyze(song: SubsonicChildSong): TrackAnalysisResult? {
         val url = source(song)
         val rate = TrackFeatures.sampleRate()
-        val mono = floats(url, null, null, 1, rate.toInt()) ?: return null
+        val mono = NativeEngine.decodeToFloat(url, null, 0L, 0L, rate.toInt(), 1) ?: return null
+        if (mono.size < rate.toInt()) return null
         val duration = mono.size / rate
         val dsp = TrackFeatures.analyze(mono, duration) ?: return null
         val model = ModelPass.run(duration) { from, to ->
-            val st = floats(url, from, to - from, 2, 44_100) ?: return@run null
+            val fromMs = (from * 1000.0).toLong().coerceAtLeast(0L)
+            val durMs = ((to - from) * 1000.0).toLong().coerceAtLeast(1000L)
+            val st = NativeEngine.decodeToFloat(url, null, fromMs, durMs, 44_100, 2) ?: return@run null
             val n = st.size / 2
             StereoRegion(FloatArray(n) { st[2 * it] }, FloatArray(n) { st[2 * it + 1] }, 44_100.0, from)
         }
         return dsp.copy(modelJson = model)
-    }
-
-    /** f32le PCM from ffmpeg: [channels] at [rate], optionally [seconds] from [from]. */
-    private fun floats(url: String, from: Double?, seconds: Double?, channels: Int, rate: Int): FloatArray? {
-        val args = mutableListOf(DesktopPlayer.ffmpegPath, "-nostdin", "-loglevel", "error")
-        from?.let { args += listOf("-ss", "%.3f".format(java.util.Locale.ROOT, it)) }
-        args += listOf("-i", url)
-        seconds?.let { args += listOf("-t", "%.3f".format(java.util.Locale.ROOT, it)) }
-        args += listOf("-ac", "$channels", "-ar", "$rate", "-f", "f32le", "-")
-        val bytes = ProcessBuilder(args).redirectError(ProcessBuilder.Redirect.DISCARD).start().inputStream.use { it.readBytes() }
-        if (bytes.size < rate * channels * 4) return null
-        val fb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
-        return FloatArray(fb.remaining()).also { fb.get(it) }
     }
 
     private fun file(id: String) = File(dir, id.filter { it.isLetterOrDigit() || it == '-' || it == '_' } + ".json")
@@ -154,9 +141,7 @@ fun automation(plan: AutomixPlan, progress: Float): Pair<Shape, Shape> {
 }
 
 /**
- * The phone's DjFilterAudioProcessor on interleaved stereo floats: RBJ
- * Butterworth low-pass and high-pass, a 200 Hz low shelf. Coefficients move per
- * block; the delay lines carry over so a sweep does not click.
+ * Reference Kotlin DJ filter kept for self-check parity verification against the C++ filter.
  */
 class DjFilter(private val rate: Double = 44_100.0) {
     private class Biquad {
@@ -209,11 +194,6 @@ class DjFilter(private val rate: Double = 44_100.0) {
     }
 }
 
-/**
- * The incoming deck's tempo over its own clock: matched for the mix, then eased
- * back to the listener's speed over 6.5 s in 26 smoothstep steps, as the phone
- * does. Pairs of (seconds from the deck's start, speed).
- */
 fun tempoSchedule(matched: Float, user: Float, mixMs: Long): List<Pair<Double, Float>> {
     val out = mutableListOf(0.0 to matched)
     var t = mixMs / 1000.0 * matched

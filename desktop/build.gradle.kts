@@ -10,22 +10,22 @@ plugins {
 /** Desktop releases are numbered on their own (tags yuma-pc-vX.Y.Z); the Android versionName is not touched. */
 val desktopVersion = "1.4.0"
 
-/** The phone's C++ analysis (app/src/main/cpp), built for this Linux machine; the Windows workflow builds the .dll. */
-val yumaAnalysisLinux by tasks.registering(Exec::class) {
-    val out = file("appResources/linux/libyuma_analysis.so")
-    val cpp = fileTree("../app/src/main/cpp") { include("analyzer/**", "jni/**") }
+/** The native C++20 engine + analysis library (native/windows), built for Linux; Windows CI builds the .dll. */
+val squareWinNativeLinux by tasks.registering(Exec::class) {
+    val srcDir = file("../native/windows")
+    val buildDir = file("../native/windows/build")
+    val out = file("appResources/linux/libsquare_win_native.so")
     onlyIf { System.getProperty("os.name").startsWith("Linux") }
-    inputs.files(cpp)
+    inputs.dir(file("../native/windows/src"))
+    inputs.file(file("../native/windows/CMakeLists.txt"))
+    inputs.dir(file("../app/src/main/cpp"))
     outputs.file(out)
-    val jdk = javaToolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(17)) }.map { it.metadata.installationPath.asFile.path }
-    doFirst { out.parentFile.mkdirs() }
     commandLine(
-        listOf("g++", "-O3", "-std=c++20", "-shared", "-fPIC", "-fvisibility=hidden", "-I", file("../app/src/main/cpp/analyzer").path) +
-            listOf("-I", "${jdk.get()}/include", "-I", "${jdk.get()}/include/linux") +
-            cpp.filter { it.name.endsWith(".cpp") }.map { it.path } + listOf("-o", out.path)
+        "sh", "-c",
+        """mkdir -p "${out.parentFile.path}" && cmake -S "${srcDir.path}" -B "${buildDir.path}" -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build "${buildDir.path}" --target square_win_native && cp -f "${buildDir.path}/libsquare_win_native.so" "${out.path}"""",
     )
 }
-tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(yumaAnalysisLinux) }
+tasks.matching { it.name == "prepareAppResources" || it.name == "run" }.configureEach { dependsOn(squareWinNativeLinux) }
 
 val sharedResources by tasks.registering(Sync::class) {
     from("../shared/ui/src/androidMain/res/font/inter.ttf") { into("font") }
@@ -56,7 +56,6 @@ dependencies {
     implementation("com.github.hypfvieh:dbus-java-core:5.2.2") // MPRIS on Linux
     implementation("com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.2.2")
     implementation("org.slf4j:slf4j-nop:2.0.17")
-    implementation("com.github.kwhat:jnativehook:2.2.2") // media keys on Windows
     implementation("com.microsoft.onnxruntime:onnxruntime:1.28.0") // the automix beat and vocal models, as on the phone
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:${libs.versions.coroutines.get()}")
 }
@@ -66,7 +65,7 @@ compose.desktop.application {
     jvmArgs += "-Dsquare.version=$desktopVersion"
     nativeDistributions {
         targetFormats(TargetFormat.Deb, TargetFormat.Msi)
-        // The Windows CI drops a static ffmpeg.exe into appResources/windows; Linux uses the system one.
+        // Native engine binaries live in appResources/{windows,linux}.
         appResourcesRootDir.set(project.layout.projectDirectory.dir("appResources"))
         packageName = "square-yuma"
         packageVersion = desktopVersion

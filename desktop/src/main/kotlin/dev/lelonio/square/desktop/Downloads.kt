@@ -3,12 +3,14 @@ package dev.lelonio.square.desktop
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
+import dev.lelonio.square.desktop.nativeaudio.NativeEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Request
+import org.json.JSONObject
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.cos
@@ -100,7 +102,7 @@ class DownloadStore {
 data class Inspection(val facts: List<Pair<String, String>>, val cutoffHz: Int?, val verdict: String)
 
 /**
- * The phone's Inspect: the stream's own description from ffmpeg, then the
+ * The phone's Inspect: the stream's own format from `square_win_native`, then the
  * highest frequency that still carries energy. MP3/AAC encoders cut everything
  * above ~16–20 kHz, so a "lossless" file whose spectrum stops there was made
  * from a lossy one.
@@ -112,24 +114,22 @@ suspend fun inspect(song: SubsonicChildSong, source: String): Inspection = withC
     song.bitRate?.let { facts += "Bit rate" to "$it kbps" }
     if (song.size > 0) facts += "Size" to "%.1f MB".format(song.size / 1_048_576.0)
     song.path?.let { facts += "Path" to it }
+    song.artist?.let { facts += "Artist" to it }
+    song.album?.let { facts += "Album" to it }
 
-    val probe = ProcessBuilder(DesktopPlayer.ffmpegPath, "-hide_banner", "-nostdin", "-t", "0.1", "-i", source, "-f", "null", "-")
-        .redirectErrorStream(true).start()
-    val text = probe.inputStream.bufferedReader().readText()
-    probe.waitFor()
-    Regex("""Audio: ([^\n]+)""").find(text)?.groupValues?.get(1)?.let { facts += "Stream" to it.trim() }
-    val rate = Regex("""(\d{4,6}) Hz""").find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 44_100
-    Regex("""(?m)^\s+(TITLE|ARTIST|ALBUM|DATE|GENRE|TRACK)\s*:\s*(.+)$""", RegexOption.IGNORE_CASE).findAll(text)
-        .distinctBy { it.groupValues[1].lowercase() }.take(8)
-        .forEach { facts += it.groupValues[1].lowercase().replaceFirstChar(Char::uppercase) to it.groupValues[2].trim() }
+    val probe = runCatching { JSONObject(NativeEngine.probeTrack(source)) }.getOrNull()
+    val rate = probe?.optInt("sampleRate", 44_100)?.takeIf { it > 0 } ?: 44_100
+    if (probe != null && !probe.has("error")) {
+        val codec = probe.optString("codec", "PCM")
+        val ch = probe.optInt("channels", 2)
+        val bits = probe.optInt("bitsPerSample", 16)
+        facts += "Stream" to "$codec, $rate Hz, ${ch}ch, ${bits}-bit"
+    }
 
     // 20 s of mono from the middle of the song at the file's own rate.
-    val start = (song.duration / 2 - 10).coerceAtLeast(0)
-    val pcm = ProcessBuilder(
-        DesktopPlayer.ffmpegPath, "-nostdin", "-loglevel", "error", "-ss", start.toString(), "-t", "20", "-i", source,
-        "-ac", "1", "-ar", rate.toString(), "-f", "s16le", "-",
-    ).redirectError(ProcessBuilder.Redirect.DISCARD).start().inputStream.readBytes()
-    val cutoff = spectralCutoff(pcm, rate)
+    val startMs = ((song.duration / 2 - 10).coerceAtLeast(0)) * 1000L
+    val samples = NativeEngine.decodeToFloat(source, null, startMs, 20_000L, rate, 1)
+    val cutoff = samples?.let { spectralCutoffFloat(it, rate) }
     val lossless = song.suffix?.lowercase() in setOf("flac", "wav", "alac", "aiff", "ape", "wv")
     val verdict = when {
         cutoff == null -> "Couldn't read the audio"
@@ -144,15 +144,22 @@ suspend fun inspect(song: SubsonicChildSong, source: String): Inspection = withC
 internal fun spectralCutoff(pcm: ByteArray, rate: Int, n: Int = 4096): Int? {
     val samples = pcm.size / 2
     if (samples < n * 4) return null
+    val floats = FloatArray(samples) { i ->
+        ((pcm[2 * i + 1].toInt() shl 8) or (pcm[2 * i].toInt() and 0xFF)).toFloat() / 32768f
+    }
+    return spectralCutoffFloat(floats, rate, n)
+}
+
+internal fun spectralCutoffFloat(samples: FloatArray, rate: Int, n: Int = 4096): Int? {
+    if (samples.size < n * 4) return null
     val power = DoubleArray(n / 2)
     val re = DoubleArray(n)
     val im = DoubleArray(n)
     var frames = 0
     var at = 0
-    while (at + n <= samples && frames < 200) {
+    while (at + n <= samples.size && frames < 200) {
         for (i in 0 until n) {
-            val s = ((pcm[2 * (at + i) + 1].toInt() shl 8) or (pcm[2 * (at + i)].toInt() and 0xFF)).toDouble()
-            re[i] = s * (0.5 - 0.5 * cos(2 * PI * i / (n - 1)))
+            re[i] = samples[at + i].toDouble() * 32768.0 * (0.5 - 0.5 * cos(2 * PI * i / (n - 1)))
             im[i] = 0.0
         }
         fft(re, im)

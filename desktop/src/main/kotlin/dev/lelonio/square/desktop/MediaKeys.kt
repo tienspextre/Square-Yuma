@@ -1,8 +1,5 @@
 package dev.lelonio.square.desktop
 
-import com.github.kwhat.jnativehook.GlobalScreen
-import com.github.kwhat.jnativehook.keyboard.NativeKeyEvent
-import com.github.kwhat.jnativehook.keyboard.NativeKeyListener
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.freedesktop.dbus.DBusPath
@@ -11,38 +8,17 @@ import org.freedesktop.dbus.connections.impl.DBusConnectionBuilder
 import org.freedesktop.dbus.interfaces.DBusInterface
 import org.freedesktop.dbus.interfaces.Properties
 import org.freedesktop.dbus.types.Variant
-import java.util.logging.Level
-import java.util.logging.Logger
 
 /**
  * The keyboard's and headset's media keys, and the system's media controls:
- * MPRIS on Linux (GNOME/KDE's media panel, playerctl, Bluetooth buttons), a
- * global key hook on Windows. Windows' own media overlay (SMTC) is a WinRT API
- * the JVM cannot reach, so the keys work there without the overlay.
+ * MPRIS on Linux (GNOME/KDE's media panel, playerctl, Bluetooth buttons).
+ * On Windows, SMTC button callbacks and metadata updates run inside `square_win_native`.
  */
 fun startMediaKeys(state: AppState) {
     val os = System.getProperty("os.name")
     runCatching {
-        when {
-            os.startsWith("Windows") -> windowsKeys(state)
-            os.startsWith("Linux") -> Mpris(state).start()
-        }
+        if (os.startsWith("Linux")) Mpris(state).start()
     }.onFailure { System.err.println("media keys unavailable: $it") }
-}
-
-private fun windowsKeys(state: AppState) {
-    Logger.getLogger(GlobalScreen::class.java.packageName).apply { level = Level.OFF; useParentHandlers = false }
-    GlobalScreen.registerNativeHook()
-    GlobalScreen.addNativeKeyListener(object : NativeKeyListener {
-        override fun nativeKeyPressed(e: NativeKeyEvent) {
-            when (e.keyCode) {
-                NativeKeyEvent.VC_MEDIA_PLAY -> state.player.toggle()
-                NativeKeyEvent.VC_MEDIA_NEXT -> state.player.next()
-                NativeKeyEvent.VC_MEDIA_PREVIOUS -> state.player.previous()
-                NativeKeyEvent.VC_MEDIA_STOP -> state.player.pause()
-            }
-        }
-    })
 }
 
 @DBusInterfaceName("org.mpris.MediaPlayer2")
@@ -119,7 +95,7 @@ private class Mpris(private val state: AppState) : MediaPlayer2, MprisPlayer, Pr
     override fun <A : Any?> Get(iface: String, name: String): A = props(iface)[name] as A
     override fun GetAll(iface: String): Map<String, Variant<*>> = props(iface)
     override fun <A : Any?> Set(iface: String, name: String, value: A) {
-        if (iface == PLAYER && name == "Volume") (value as? Number)?.let { p.volume.value = it.toFloat().coerceIn(0f, 1f) }
+        if (iface == PLAYER && name == "Volume") (value as? Number)?.let { p.setVolumeLevel(it.toFloat()) }
     }
 
     override fun Raise() {}

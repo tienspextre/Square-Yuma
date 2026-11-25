@@ -76,7 +76,15 @@ class AppState {
     val prefs = SubsonicPreferences()
     val client = SubsonicClient(Http.client, prefs)
     val downloads = DownloadStore()
-    val player = DesktopPlayer { downloads.fileFor(it.id)?.path ?: client.buildStreamUrl(it.id) }.apply {
+    val player = DesktopPlayer(
+        streamUrl = { downloads.fileFor(it.id)?.path ?: client.buildStreamUrl(it.id) },
+        coverBytes = { s ->
+            val u = cover(s.coverArt, 300) ?: return@DesktopPlayer null
+            Http.client.newCall(okhttp3.Request.Builder().url(u).build()).execute().use { r ->
+                if (r.isSuccessful) r.body.bytes() else null
+            }
+        },
+    ).apply {
         volume.value = ui.getFloat("volume", 0.8f)
         crossfadeSeconds = ui.getInt("crossfade", 6)
     }
@@ -150,29 +158,31 @@ class AppState {
     fun sleepIn(minutes: Int?) {
         sleepEndsAt = minutes?.let { System.currentTimeMillis() + it * 60_000L }
         player.stopAfterCurrent.value = false
+        player.setSleepTimer(minutes?.let { it * 60_000L } ?: -1L, 5_000L, false)
     }
-    fun sleepAtEndOfTrack() { sleepEndsAt = null; player.stopAfterCurrent.value = true }
+    fun sleepAtEndOfTrack() {
+        sleepEndsAt = null
+        player.stopAfterCurrent.value = true
+        player.setSleepTimer(-1L, 0L, true)
+    }
 
     var eqGains by mutableStateOf(ui.get("eq", "").split(',').mapNotNull { it.toFloatOrNull() }.takeIf { it.size == Eq.BANDS.size }?.toFloatArray() ?: FloatArray(Eq.BANDS.size))
         private set
-    fun setEq(gains: FloatArray, restart: Boolean = true) {
+    fun setEq(gains: FloatArray, @Suppress("UNUSED_PARAMETER") restart: Boolean = true) {
         eqGains = gains
         ui.put("eq", gains.joinToString(","))
-        player.audioFilter = audioChain(fx, gains)
-        if (restart) player.reapply()
+        player.applyDsp(fx, gains)
     }
 
     var fx by mutableStateOf(
         Fx(ui.getFloat("speed", 1f), ui.getFloat("pitch", 1f), ui.getFloat("reverb", 0f), ui.getFloat("karaoke", 0f), ui.getBoolean("loudness", false))
     )
         private set
-    fun setFx(new: Fx, restart: Boolean = true) {
+    fun setFx(new: Fx, @Suppress("UNUSED_PARAMETER") restart: Boolean = true) {
         fx = new
         ui.putFloat("speed", new.speed); ui.putFloat("pitch", new.pitch); ui.putFloat("reverb", new.reverb)
         ui.putFloat("karaoke", new.karaoke); ui.putBoolean("loudness", new.loudness)
-        player.speed = new.speed
-        player.audioFilter = audioChain(new, eqGains)
-        if (restart) player.reapply()
+        player.applyDsp(new, eqGains)
     }
 
     /** Smart Automix, its bass swap and Loop Mix, as the phone's switches (all three on the phone's defaults). */
@@ -247,9 +257,7 @@ class AppState {
         scope.launch { findUpdate()?.let { say(tr("Square-Yuma PC ") + it.version + tr(" is available — Settings → Updates")) } }
         dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
         Strings.current = language
-        player.audioFilter = audioChain(fx, eqGains)
-        player.speed = fx.speed
-        player.tempoFilter = { audioChain(fx, eqGains, it) }
+        player.applyDsp(fx, eqGains)
         useAutomix()
         // Analyse what plays and what comes next, so the plan is ready by the last 45 s.
         scope.launch {
@@ -292,7 +300,7 @@ class AppState {
     fun setGlass(p: GlassProfile) { glassProfile = p; ui.put("glass", p.name) }
     fun setTheme(mode: ThemeMode) { themeMode = mode; ui.put("theme", mode.name) }
     fun setCrossfade(seconds: Int) { player.crossfadeSeconds = seconds; ui.putInt("crossfade", seconds) }
-    fun setVolume(v: Float) { player.volume.value = v.coerceIn(0f, 1f); ui.putFloat("volume", player.volume.value) }
+    fun setVolume(v: Float) { player.setVolumeLevel(v); ui.putFloat("volume", player.volume.value) }
 
     /** Space, arrows and friends, unless a text field has the keyboard. */
     fun onKey(e: KeyEvent): Boolean {
@@ -318,9 +326,21 @@ fun main(args: Array<String>) {
     if ("--self-check" in args) {
         // Also written to a file: the Windows launcher has no console to print to.
         val report = File(System.getProperty("user.home"), ".square-yuma/self-check.txt").apply { parentFile.mkdirs() }
-        val result = runCatching { selfCheck(); versionCheck(); automixCheck(); nativeCheck() }
-        report.writeText(result.fold({ "self-check ok\n" }, { "self-check failed: $it\n" }))
-        print(report.readText())
+        val result = runCatching {
+            selfCheck()
+            versionCheck()
+            automixCheck()
+            nativeCheck()
+            val nativeReport = org.json.JSONObject(dev.lelonio.square.desktop.nativeaudio.NativeEngine.selfCheckRender())
+            check(nativeReport.optBoolean("ok")) { nativeReport.optString("summary", "native self-check failed") }
+            nativeReport
+        }
+        val text = result.fold(
+            { nr -> "self-check ok: ${nr.optString("summary")} (duration=${nr.optDouble("durationSec")}s lufs=${"%.1f".format(nr.optDouble("lufs"))})\n" },
+            { "self-check failed: $it\n" },
+        )
+        report.writeText(text)
+        print(text)
         kotlin.system.exitProcess(if (result.isSuccess) 0 else 1)
     }
     LogTail.install()
