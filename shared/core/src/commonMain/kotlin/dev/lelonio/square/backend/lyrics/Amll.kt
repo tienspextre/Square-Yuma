@@ -1,11 +1,12 @@
 package dev.lelonio.square.backend.lyrics
 
 import dev.lelonio.square.common.Log
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.Lyrics
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -30,9 +31,7 @@ object Amll {
     /** The Spotify session's relatives lookup (a JSON `alternatives` list for a track uri); :app installs it, the desktop has none. */
     @Volatile var relatives: (String) -> String? = { null }
 
-    private val http = OkHttpClient.Builder()
-        .callTimeout(5, TimeUnit.SECONDS)
-        .build()
+    private val http by lazy { SharedHttp.clientWithCallTimeout(5) }
 
     suspend fun lyrics(trackUri: String): Lyrics? = withContext(Dispatchers.IO) {
         val id = trackUri.takeIf { it.startsWith("spotify:track:") }?.substringAfterLast(':')
@@ -59,10 +58,10 @@ object Amll {
         null
     }
 
-    private fun document(id: String): Lyrics? {
-        val raw = runCatching {
+    private suspend fun document(id: String): Lyrics? {
+        val raw = runCancellableCatching {
             val request = Request.Builder().url("$BASE/$id.ttml").build()
-            http.newCall(request).execute().use { response ->
+            http.executeCancellable(request) { response ->
                 if (response.isSuccessful) response.body?.string() else null
             }
         }.getOrNull() ?: return null

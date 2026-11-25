@@ -117,19 +117,18 @@ class VocalTracker(
             session = null
             return runCatching {
                 val file = File(modelPath())
-                val options = OrtSession.SessionOptions().apply {
-                    setIntraOpNumThreads(threads)
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                OrtSession.SessionOptions().use { options ->
+                    options.setIntraOpNumThreads(threads)
+                    options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                     // Same reasoning as BeatTracker: the arena retains every block it allocates for
                     // the life of the session, which a backgrounded music player cannot justify.
-                    setCPUArenaAllocator(false)
-                    setMemoryPatternOptimization(false)
+                    options.setCPUArenaAllocator(false)
+                    options.setMemoryPatternOptimization(false)
+                    OrtEnvironment.getEnvironment().createSession(file.absolutePath, options)
+                }.also {
+                    session = it
+                    sessionThreads = threads
                 }
-                OrtEnvironment.getEnvironment().createSession(file.absolutePath, options)
-                    .also {
-                        session = it
-                        sessionThreads = threads
-                    }
             }.onFailure { Log.w(TAG, it, "Vocal model unavailable; no mask will be produced") }
                 .getOrNull()
         }

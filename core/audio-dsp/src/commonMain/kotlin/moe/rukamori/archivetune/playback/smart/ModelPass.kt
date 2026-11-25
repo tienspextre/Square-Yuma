@@ -42,9 +42,42 @@ object ModelPass {
     // One pass at a time: the vocal model alone holds ~32 MB of native tensors per inference, and
     // the analyzer runs two tracks at once.
     private val mutex = Mutex()
+    @Volatile private var beatsCreated = false
+    @Volatile private var vocalsCreated = false
+    @Volatile private var releaseAfterRun = false
 
-    private val beats by lazy { BeatTracker({ ModelSource.path(BeatTracker.MODEL_ASSET) }, { INFERENCE_THREADS }) }
-    private val vocals by lazy { VocalTracker({ ModelSource.path(VocalTracker.MODEL_ASSET) }, { INFERENCE_THREADS }) }
+    private val beats by lazy {
+        beatsCreated = true
+        BeatTracker({ ModelSource.path(BeatTracker.MODEL_ASSET) }, { INFERENCE_THREADS })
+    }
+    private val vocals by lazy {
+        vocalsCreated = true
+        VocalTracker({ ModelSource.path(VocalTracker.MODEL_ASSET) }, { INFERENCE_THREADS })
+    }
+
+    /**
+     * Closes idle ONNX sessions so native model weights and buffers can be reclaimed in tray mode.
+     * If an inference is currently running, marks the sessions to close as soon as it completes.
+     */
+    fun releaseIdleSessions(): Boolean {
+        if (!beatsCreated && !vocalsCreated) return false
+        if (!mutex.tryLock()) {
+            releaseAfterRun = true
+            return false
+        }
+        try {
+            releaseAfterRun = false
+            releaseSessionsLocked()
+            return true
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private fun releaseSessionsLocked() {
+        if (beatsCreated) beats.release()
+        if (vocalsCreated) vocals.release()
+    }
 
     /** Seconds one window covers: the vocal model's fixed input, so a window is one inference of each model. */
     fun windowSeconds(): Double =
@@ -69,20 +102,27 @@ object ModelPass {
         if (shouldSkip()) return ""
         if (!ModelSource.ready || duration <= 0.0 || !MelSpectrogram.available) return ""
         return mutex.withLock {
-            runCatching {
-                val started = System.currentTimeMillis()
-                val span = windowSeconds()
-                val headEnd = headEnd(duration, span)
-                val tailStart = tailStart(duration, span)
-                val windows = modelWindows(headEnd, tailStart, duration, span)
-                    .mapNotNull { (from, to) -> window(decode, from, to) }
-                val json = buildJson(windows, headEnd, tailStart, duration, VocalSpectrogram.frameRate)
-                Log.d(TAG, 
-                    "model pass ${System.currentTimeMillis() - started}ms windows=${windows.size} " +
-                        "grids=${windows.count { it.grid != null }} vocal=${windows.count { it.vocal != null }}",
-                )
-                json
-            }.onFailure { Log.w(TAG, it, "Model pass failed") }.getOrDefault("")
+            try {
+                runCatching {
+                    val started = System.currentTimeMillis()
+                    val span = windowSeconds()
+                    val headEnd = headEnd(duration, span)
+                    val tailStart = tailStart(duration, span)
+                    val windows = modelWindows(headEnd, tailStart, duration, span)
+                        .mapNotNull { (from, to) -> window(decode, from, to) }
+                    val json = buildJson(windows, headEnd, tailStart, duration, VocalSpectrogram.frameRate)
+                    Log.d(TAG, 
+                        "model pass ${System.currentTimeMillis() - started}ms windows=${windows.size} " +
+                            "grids=${windows.count { it.grid != null }} vocal=${windows.count { it.vocal != null }}",
+                    )
+                    json
+                }.onFailure { Log.w(TAG, it, "Model pass failed") }.getOrDefault("")
+            } finally {
+                if (releaseAfterRun) {
+                    releaseAfterRun = false
+                    releaseSessionsLocked()
+                }
+            }
         }
     }
 

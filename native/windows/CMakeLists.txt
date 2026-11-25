@@ -139,6 +139,7 @@ if(WIN32)
         user32
         dwmapi
         comctl32
+        psapi
         windowsapp
     )
 else()
@@ -194,9 +195,9 @@ if(JNI_FOUND)
     endif()
     set(JNI_WINDOW_SRC)
     if(WIN32)
-        list(APPEND JNI_WINDOW_SRC src/window_win.cpp)
+        list(APPEND JNI_WINDOW_SRC src/window_win.cpp src/mem_trim_win.cpp)
     else()
-        list(APPEND JNI_WINDOW_SRC src/window_frame_stub.cpp)
+        list(APPEND JNI_WINDOW_SRC src/window_frame_stub.cpp src/mem_trim_linux.cpp)
     endif()
     add_library(square_win_native SHARED
         src/jni_bridge.cpp

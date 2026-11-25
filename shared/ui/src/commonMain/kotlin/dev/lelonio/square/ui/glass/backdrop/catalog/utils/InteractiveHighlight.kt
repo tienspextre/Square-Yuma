@@ -13,6 +13,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -37,7 +38,7 @@ class InteractiveHighlight(
     // is still the panel's full width, so the default blows the glow up to
     // several rows across and visually buries whatever's under the finger.
     val radiusScale: Float = 1.5f,
-) {
+) : RememberObserver, AutoCloseable {
 
     private val pressProgressAnimationSpec =
         spring(0.5f, 300f, 0.001f)
@@ -133,4 +134,14 @@ half4 main(float2 coord) {
                 animationScope.launch { positionAnimation.snapTo(change.position) }
             }
         }
+
+    override fun onRemembered() = Unit
+
+    override fun onForgotten() = close()
+
+    override fun onAbandoned() = close()
+
+    override fun close() {
+        (shader as? AutoCloseable)?.close()
+    }
 }

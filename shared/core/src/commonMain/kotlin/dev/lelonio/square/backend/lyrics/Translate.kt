@@ -1,9 +1,11 @@
 package dev.lelonio.square.backend.lyrics
 
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 
@@ -23,7 +25,7 @@ import org.json.JSONArray
  */
 object Translate {
 
-    private val http = OkHttpClient()
+    private val http get() = SharedHttp.client
 
     /**
      * @param target a two-letter language, as [dev.lelonio.square.data.LanguageStore.language]
@@ -68,19 +70,19 @@ object Translate {
      * the translator decides to merge or split takes every line after it out of
      * step with the song, and a lyric sheet one line out is worse than none.
      */
-    private fun translate(texts: List<String>, target: String): List<String>? {
+    private suspend fun translate(texts: List<String>, target: String): List<String>? {
         val url = buildString {
             append(BASE_URL)
             append("?client=dict-chrome-ex&sl=auto&tl=").append(encode(target))
             texts.forEach { append("&q=").append(encode(it)) }
         }
 
-        val body = runCatching {
+        val body = runCancellableCatching {
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", USER_AGENT)
                 .build()
-            http.newCall(request).execute().use { response ->
+            http.executeCancellable(request) { response ->
                 if (response.isSuccessful) response.body?.string() else null
             }
         }.getOrNull() ?: return null

@@ -1,10 +1,12 @@
 package dev.lelonio.square.backend.lyrics
 
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.LyricLine
 import dev.lelonio.square.data.Lyrics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -22,11 +24,7 @@ import org.json.JSONObject
  */
 object LrcLib {
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-        .callTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
+    private val http by lazy { SharedHttp.clientWithCallTimeout(8) }
 
     /**
      * @param durationMs used to tell versions apart — a single, an album cut and
@@ -78,7 +76,7 @@ object LrcLib {
         synced = false,
     )
 
-    private fun search(title: String, artist: String, durationMs: Long): Lyrics? {
+    private suspend fun search(title: String, artist: String, durationMs: Long): Lyrics? {
         val query = "$title $artist".trim()
         val searchUrl = "https://lrclib.net/api/search?q=" + java.net.URLEncoder.encode(query, "UTF-8")
         val raw = get(searchUrl) ?: return null
@@ -125,13 +123,13 @@ object LrcLib {
     }
 
     /** Null on anything but a 200, which includes LrcLib's 404 for "no match". */
-    private fun get(url: String): String? = runCatching {
+    private suspend fun get(url: String): String? = runCancellableCatching {
         val request = Request.Builder()
             .url(url)
             // LrcLib asks clients to identify themselves.
             .header("User-Agent", USER_AGENT)
             .build()
-        http.newCall(request).execute().use { response ->
+        http.executeCancellable(request) { response ->
             if (!response.isSuccessful) null else response.body.string()
         }
     }.getOrNull()

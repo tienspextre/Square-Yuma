@@ -1,12 +1,13 @@
 package dev.lelonio.square.backend.lyrics
 
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.LyricLine
 import dev.lelonio.square.data.Lyrics
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -19,9 +20,7 @@ import org.json.JSONObject
  */
 object NetEase {
 
-    private val http = OkHttpClient.Builder()
-        .callTimeout(4, TimeUnit.SECONDS)
-        .build()
+    private val http by lazy { SharedHttp.clientWithCallTimeout(4) }
 
     private const val SEARCH_URL = "https://music.163.com/api/search/pc"
     private const val LYRIC_URL = "https://music.163.com/api/song/lyric"
@@ -49,7 +48,7 @@ object NetEase {
         null
     }
 
-    private fun query(title: String, artist: String, durationMs: Long): Lyrics? {
+    private suspend fun query(title: String, artist: String, durationMs: Long): Lyrics? {
         val q = if (artist.isBlank()) title else "$title $artist"
         val searchEncoded = runCatching { URLEncoder.encode(q, "UTF-8") }.getOrNull() ?: return null
         val searchReq = Request.Builder()
@@ -59,8 +58,8 @@ object NetEase {
             .header("Cookie", COOKIE)
             .build()
 
-        val searchBody = runCatching {
-            http.newCall(searchReq).execute().use { resp ->
+        val searchBody = runCancellableCatching {
+            http.executeCancellable(searchReq) { resp ->
                 if (resp.isSuccessful) resp.body.string() else null
             }
         }.getOrNull() ?: return null
@@ -109,8 +108,8 @@ object NetEase {
             .header("Referer", "https://music.163.com")
             .build()
 
-        val lyricBody = runCatching {
-            http.newCall(lyricReq).execute().use { resp ->
+        val lyricBody = runCancellableCatching {
+            http.executeCancellable(lyricReq) { resp ->
                 if (resp.isSuccessful) resp.body.string() else null
             }
         }.getOrNull() ?: return null

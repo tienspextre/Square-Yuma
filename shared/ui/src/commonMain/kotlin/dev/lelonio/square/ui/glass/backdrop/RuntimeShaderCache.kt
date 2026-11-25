@@ -25,6 +25,7 @@ internal class RuntimeShaderCacheImpl : RuntimeShaderCache {
     }
 
     fun clear() {
+        runtimeShaders.values.forEach { (it as? AutoCloseable)?.close() }
         runtimeShaders.clear()
     }
 }

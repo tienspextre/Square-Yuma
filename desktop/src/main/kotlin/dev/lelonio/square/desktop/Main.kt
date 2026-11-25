@@ -1,5 +1,6 @@
 package dev.lelonio.square.desktop
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -7,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -20,6 +22,8 @@ import dev.lelonio.square.desktop.nativeaudio.NativeEngine
 import dev.lelonio.square.desktop.ui.player.MiniPlayerWindow
 import dev.lelonio.square.desktop.ui.shell.App
 import dev.lelonio.square.desktop.ui.shell.NativeWindowFrameHost
+import dev.lelonio.square.ui.theme.SharedFontFamilyResolver
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.awt.Dimension
 import java.awt.Frame
@@ -93,8 +97,11 @@ private fun app(soakTest: Boolean = false) = application {
             override fun showMiniPlayer() {}
             override fun hideMiniPlayer() {}
             override fun disposeAllWindowsAndCaches() {
-                LowRamReleaser.releaseCachesAndGc(listOfNotNull(activeMainWindow))
+                LowRamReleaser.releaseCachesAndGc(listOfNotNull(activeMainWindow)) {
+                    state.analyses.releaseIdleModels()
+                }
                 activeMainWindow = null
+                activeMainState = null
             }
             override fun showFirstTrayNotice() {
                 trayManager.showFirstNotice()
@@ -141,6 +148,20 @@ private fun app(soakTest: Boolean = false) = application {
 
     LaunchedEffect(state.closeToTray) {
         windowMachine.closeToTray = state.closeToTray
+    }
+
+    LaunchedEffect(windowMachine.mode) {
+        if (windowMachine.mode == WindowMode.TRAY) {
+            // Wait for Compose to commit removal and dispose the ComposeWindow/SkiaLayer cleanly.
+            delay(40)
+            LowRamReleaser.releaseCachesAndGc(emptyList()) {
+                state.analyses.releaseIdleModels()
+            }
+            // Allow Cleaner to finalize collected Skia/ORT wrappers, then trim native heaps.
+            delay(40)
+            System.gc()
+            NativeEngine.trimMemory()
+        }
     }
 
     if (soakTest) {
@@ -201,20 +222,22 @@ private fun app(soakTest: Boolean = false) = application {
                 activeMainWindow = window
                 onDispose {
                     if (activeMainWindow === window) {
-                        LowRamReleaser.releaseWindowGpuResources(window)
                         activeMainWindow = null
+                        activeMainState = null
                     }
                 }
             }
             window.minimumSize = Dimension(940, 620)
             NativeWindowFrameHost(window = window) { frameController ->
-                this@Window.App(
-                    state = state,
-                    window = window,
-                    windowState = windowState,
-                    frameController = frameController,
-                    onCloseWindow = closeAction,
-                )
+                CompositionLocalProvider(LocalFontFamilyResolver provides SharedFontFamilyResolver) {
+                    this@Window.App(
+                        state = state,
+                        window = window,
+                        windowState = windowState,
+                        frameController = frameController,
+                        onCloseWindow = closeAction,
+                    )
+                }
             }
         }
     }

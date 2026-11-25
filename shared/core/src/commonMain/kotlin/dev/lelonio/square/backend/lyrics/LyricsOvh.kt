@@ -1,14 +1,15 @@
 package dev.lelonio.square.backend.lyrics
 
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.LyricLine
 import dev.lelonio.square.data.Lyrics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
 
 /**
  * Fallback lyrics provider using the free and open Lyrics.ovh REST API.
@@ -18,11 +19,7 @@ import java.util.concurrent.TimeUnit
  */
 object LyricsOvh {
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .callTimeout(6, TimeUnit.SECONDS)
-        .build()
+    private val http by lazy { SharedHttp.clientWithCallTimeout(6) }
 
     private const val BASE_URL = "https://api.lyrics.ovh/v1"
     private const val USER_AGENT = "SquareMusicApp/1.0"
@@ -50,7 +47,7 @@ object LyricsOvh {
             null
         }
 
-    private fun fetch(title: String, artist: String): String? = runCatching {
+    private suspend fun fetch(title: String, artist: String): String? = runCancellableCatching {
         val encodedArtist = URLEncoder.encode(artist, "UTF-8")
         val encodedTitle = URLEncoder.encode(title, "UTF-8")
         val url = "$BASE_URL/$encodedArtist/$encodedTitle"
@@ -60,8 +57,8 @@ object LyricsOvh {
             .header("User-Agent", USER_AGENT)
             .build()
 
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
+        http.executeCancellable(request) { response ->
+            if (!response.isSuccessful) return@executeCancellable null
             val body = response.body.string()
             val json = JSONObject(body)
             json.optString("lyrics").takeIf { it.isNotBlank() }

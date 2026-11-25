@@ -9,10 +9,12 @@ import dev.lelonio.square.backend.subsonic.OfflineTracks
 import dev.lelonio.square.backend.subsonic.SubsonicAlbumEntry
 import dev.lelonio.square.backend.subsonic.SubsonicArtistItem
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
+import dev.lelonio.square.common.executeCancellable
 import dev.lelonio.square.data.CatalogArtist
 import dev.lelonio.square.data.CatalogTrack
 import dev.lelonio.square.desktop.nativeaudio.NativeEngine
 import dev.lelonio.square.desktop.ui.components.Http
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -220,6 +222,9 @@ class DownloadStore(
                 val res = performResumableDownload(song, url, fallbackRawStreamUrl)
                 deferred.complete(res)
                 res
+            } catch (e: CancellationException) {
+                deferred.cancel(e)
+                throw e
             } catch (t: Throwable) {
                 val fail = Result.failure<File>(t)
                 deferred.complete(fail)
@@ -230,7 +235,7 @@ class DownloadStore(
         }
     }
 
-    private fun performResumableDownload(
+    private suspend fun performResumableDownload(
         song: SubsonicChildSong,
         primaryUrl: String,
         fallbackRawStreamUrl: String?,
@@ -253,14 +258,14 @@ class DownloadStore(
                     reqBuilder.header("Range", "bytes=$existingBytes-")
                 }
 
-                val done = httpClient.newCall(reqBuilder.build()).execute().use { r ->
+                val done = httpClient.executeCancellable(reqBuilder.build()) { r ->
                     if ((r.code == 403 || r.code == 404) && fallbackRawStreamUrl != null && activeUrl != fallbackRawStreamUrl) {
                         activeUrl = fallbackRawStreamUrl
-                        return@use false
+                        return@executeCancellable false
                     }
                     if (r.code == 416 && existingBytes > 0L) {
                         Files.deleteIfExists(partPath)
-                        return@use false
+                        return@executeCancellable false
                     }
                     if (!r.isSuccessful && r.code != 206) {
                         error("HTTP ${r.code}")
@@ -320,6 +325,8 @@ class DownloadStore(
                 saveLocked()
             }
             Result.success(targetPath.toFile())
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
             Result.failure(t)
         } finally {

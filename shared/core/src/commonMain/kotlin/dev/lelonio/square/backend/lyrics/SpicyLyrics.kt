@@ -1,13 +1,15 @@
 package dev.lelonio.square.backend.lyrics
 
 import dev.lelonio.square.common.Log
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.LyricLine
 import dev.lelonio.square.data.LyricWord
 import dev.lelonio.square.data.Lyrics
 import dev.lelonio.square.data.LyricsCredit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,7 +28,7 @@ import org.json.JSONObject
  */
 object SpicyLyrics {
 
-    private val http = OkHttpClient()
+    private val http get() = SharedHttp.client
 
     /** The listener's key, or blank when there is none; set by LyricsLibrary.attach. */
     @Volatile
@@ -50,8 +52,8 @@ object SpicyLyrics {
             .header("Origin", ORIGIN)
             .header("Accept", "application/json")
             .build()
-        val body = runCatching {
-            http.newCall(request).execute().use { response ->
+        val body = runCancellableCatching {
+            http.executeCancellable(request) { response ->
                 when {
                     response.code == 429 -> {
                         val wait = response.header("RateLimit-Reset")?.toLongOrNull() ?: 60L

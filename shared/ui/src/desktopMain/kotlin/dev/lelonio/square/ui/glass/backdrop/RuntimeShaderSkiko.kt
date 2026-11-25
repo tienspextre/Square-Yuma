@@ -8,14 +8,24 @@ import androidx.compose.ui.graphics.asComposeShader
 import org.intellij.lang.annotations.Language
 import org.jetbrains.skia.RuntimeEffect
 import org.jetbrains.skia.RuntimeShaderBuilder
+import java.util.concurrent.ConcurrentHashMap
+
+private val compiledEffects = ConcurrentHashMap<String, RuntimeEffect>()
 
 /** The same AGSL sources compile as SkSL: AGSL is Android's name for Skia's shading language. */
-actual fun RuntimeShader(@Language("AGSL") shaderString: String): RuntimeShader =
-    SkikoRuntimeShader(RuntimeShaderBuilder(RuntimeEffect.makeForShader(shaderString)))
+actual fun RuntimeShader(@Language("AGSL") shaderString: String): RuntimeShader {
+    val effect = compiledEffects.getOrPut(shaderString) { RuntimeEffect.makeForShader(shaderString) }
+    return SkikoRuntimeShader(RuntimeShaderBuilder(effect))
+}
 
 actual fun RuntimeShader.asComposeShader(): Shader = (this as SkikoRuntimeShader).builder.makeShader().asComposeShader()
 
-internal class SkikoRuntimeShader(val builder: RuntimeShaderBuilder) : RuntimeShader {
+internal class SkikoRuntimeShader(val builder: RuntimeShaderBuilder) : RuntimeShader, AutoCloseable {
+    override fun close() {
+        if (!builder.isClosed) {
+            builder.close()
+        }
+    }
     override fun setFloatUniform(name: String, value: Float) = builder.uniform(name, value)
     override fun setFloatUniform(name: String, value1: Float, value2: Float) = builder.uniform(name, value1, value2)
     override fun setFloatUniform(name: String, value1: Float, value2: Float, value3: Float) =

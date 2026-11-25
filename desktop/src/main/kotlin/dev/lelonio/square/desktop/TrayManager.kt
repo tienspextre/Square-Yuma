@@ -1,7 +1,12 @@
 package dev.lelonio.square.desktop
 
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.desktop.nativeaudio.NativeEngine
+import dev.lelonio.square.desktop.ui.components.Http
 import dev.lelonio.square.desktop.ui.components.clearArtworkCaches
 import dev.lelonio.square.desktop.ui.components.clearBlurCache
+import java.awt.KeyboardFocusManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.awt.Container
@@ -32,6 +37,7 @@ class TrayManager(
 ) {
     private var trayIcon: TrayIcon? = null
     private var playPauseItem: MenuItem? = null
+    private var statusJob: Job? = null
 
     val isSupported: Boolean
         get() = !GraphicsEnvironment.isHeadless() && runCatching { SystemTray.isSupported() }.getOrDefault(false)
@@ -77,7 +83,8 @@ class TrayManager(
             tray.add(icon)
             trayIcon = icon
 
-            state.scope.launch {
+            statusJob?.cancel()
+            statusJob = state.scope.launch {
                 combine(state.player.isPlaying, state.player.current) { playing, _ -> playing }.collect {
                     EventQueue.invokeLater { playPauseItem?.label = playLabel() }
                 }
@@ -99,6 +106,8 @@ class TrayManager(
     }
 
     fun remove() {
+        statusJob?.cancel()
+        statusJob = null
         val icon = trayIcon ?: return
         trayIcon = null
         runCatching { SystemTray.getSystemTray().remove(icon) }
@@ -149,7 +158,6 @@ object LowRamReleaser {
                 if (ctx is org.jetbrains.skia.DirectContext && !ctx.isClosed) {
                     runCatching { ctx.flush() }
                     runCatching { ctx.resourceCacheLimit = 0L }
-                    runCatching { ctx.abandon() }
                 }
             }
         }
@@ -168,10 +176,25 @@ object LowRamReleaser {
         return null
     }
 
-    fun releaseCachesAndGc(activeWindows: Collection<Window> = emptyList()) {
+    fun clearSkiaCaches() {
+        runCatching { org.jetbrains.skia.Graphics.purgeAllCaches() }
+    }
+
+    fun releaseCachesAndGc(
+        activeWindows: Collection<Window> = emptyList(),
+        onReleaseModels: (() -> Unit)? = null,
+    ) {
         activeWindows.forEach { releaseWindowGpuResources(it) }
+        if (activeWindows.isEmpty()) {
+            runCatching { KeyboardFocusManager.getCurrentKeyboardFocusManager().clearGlobalFocusOwner() }
+        }
         clearArtworkCaches()
         clearBlurCache()
+        runCatching { Http.client.connectionPool.evictAll() }
+        SharedHttp.evictAll()
+        onReleaseModels?.invoke()
+        clearSkiaCaches()
         System.gc()
+        NativeEngine.trimMemory()
     }
 }

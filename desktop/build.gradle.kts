@@ -65,7 +65,19 @@ dependencies {
 
 compose.desktop.application {
     mainClass = "dev.lelonio.square.desktop.MainKt"
-    jvmArgs += "-Dsquare.version=$desktopVersion"
+    jvmArgs += listOf(
+        "-Dsquare.version=$desktopVersion",
+        "-XX:+UseSerialGC",
+        "-Xms16m",
+        "-Xmx128m",
+        "-XX:NewRatio=4",
+        "-XX:-ShrinkHeapInSteps",
+        "-XX:MinHeapFreeRatio=10",
+        "-XX:MaxHeapFreeRatio=20",
+        "-XX:TieredStopAtLevel=1",
+        "-XX:ReservedCodeCacheSize=20m",
+        "-Xss512k",
+    )
     nativeDistributions {
         targetFormats(TargetFormat.Deb, TargetFormat.Msi)
         // Native engine binaries live in appResources/{windows,linux}.
@@ -77,6 +89,7 @@ compose.desktop.application {
         licenseFile.set(project.file("../LICENSE"))
         modules("java.naming", "java.prefs", "java.sql", "jdk.unsupported", "java.net.http", "java.logging", "jdk.security.auth")
         linux {
+            // Packaged Linux launcher wrappers should export MALLOC_ARENA_MAX=2 to avoid multi-arena RSS sprawl before nativeInit().
             iconFile.set(project.file("../docs/square.png"))
             shortcut = true
             menuGroup = "AudioVideo;Audio;Player"
@@ -94,4 +107,11 @@ compose.desktop.application {
         }
     }
     buildTypes.release.proguard { isEnabled = false }
+}
+
+// Cap glibc per-thread arenas for `./gradlew :desktop:run` on Linux (also needed in packaged Linux wrappers).
+tasks.withType<JavaExec>().matching { it.name == "run" }.configureEach {
+    if (System.getProperty("os.name").startsWith("Linux") && System.getenv("MALLOC_ARENA_MAX") == null) {
+        environment("MALLOC_ARENA_MAX", "2")
+    }
 }

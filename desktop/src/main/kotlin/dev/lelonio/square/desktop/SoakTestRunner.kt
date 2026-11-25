@@ -119,6 +119,7 @@ object SoakTestRunner {
             var maxUnderruns = 0L
             val shownHeaps = mutableListOf<Double>()
             val trayHeaps = mutableListOf<Double>()
+            val trayRss = mutableListOf<Double>()
 
             fun sample(cycle: Int, step: String): SoakCycleReport {
                 val rawStatus = NativeEngine.status()
@@ -159,8 +160,10 @@ object SoakTestRunner {
                 delay(80)
                 System.gc()
                 delay(80)
+                NativeEngine.trimMemory()
                 val trayRep = sample(cycle, "TrayPostGc")
                 trayHeaps += trayRep.heapUsedMb
+                trayRss += trayRep.rssMb
 
                 trayStateMachine.restoreMain()
                 delay(300)
@@ -180,13 +183,34 @@ object SoakTestRunner {
             val avgTray = trayHeaps.average()
             val posAdvanced = finalPos > initialPos
             val zeroUnderruns = (maxUnderruns == 0L && finalChain.underruns == 0L)
+            val firstTrayMb = trayRss.firstOrNull() ?: -1.0
+            val lastTrayMb = trayRss.lastOrNull() ?: -1.0
+            val cycle3TrayMb = trayRss.getOrNull(2) ?: firstTrayMb
+            val steadySpan = (trayRss.size - 3).coerceAtLeast(1)
+            val growthPerCycleMb = if (trayRss.size >= 3 && cycle3TrayMb >= 0.0 && lastTrayMb >= 0.0) {
+                val growth3To10 = (lastTrayMb - cycle3TrayMb) / steadySpan.toDouble()
+                // Also fit the steady post-warmup slope (cycles 5..10) so a cycle-3 ONNX spike cannot mask a leak.
+                val postWarmupSlope = if (trayRss.size >= 6) linearSlopePerCycle(trayRss.drop(4)) else growth3To10
+                maxOf(growth3To10, postWarmupSlope)
+            } else {
+                Double.POSITIVE_INFINITY
+            }
+            val rssValid = trayRss.size >= 10 && trayRss.all { it > 0.0 } && growthPerCycleMb <= 1.0
+            val rssVerdict = if (rssValid) "PASS" else "FAIL"
 
             println(
                 "SOAK_SUMMARY initialPosMs=$initialPos finalPosMs=$finalPos posAdvanced=$posAdvanced " +
                     "maxUnderruns=$maxUnderruns avgShownHeapMb=${"%.2f".format(avgShown)} avgTrayHeapMb=${"%.2f".format(avgTray)}",
             )
-            if (!posAdvanced || !zeroUnderruns) {
-                System.err.println("SOAK_FAILED posAdvanced=$posAdvanced maxUnderruns=$maxUnderruns")
+            println(
+                "SOAK_RSS firstTrayMb=${"%.2f".format(firstTrayMb)} lastTrayMb=${"%.2f".format(lastTrayMb)} " +
+                    "growthPerCycleMb=${"%.2f".format(growthPerCycleMb)} verdict=$rssVerdict",
+            )
+            if (!posAdvanced || !zeroUnderruns || !rssValid) {
+                System.err.println(
+                    "SOAK_FAILED posAdvanced=$posAdvanced maxUnderruns=$maxUnderruns " +
+                        "rssVerdict=$rssVerdict growthPerCycleMb=${"%.2f".format(growthPerCycleMb)}",
+                )
                 exitCode = 1
             }
         } catch (t: Throwable) {
@@ -197,6 +221,21 @@ object SoakTestRunner {
             runCatching { tempDir.toFile().deleteRecursively() }
             onFinish(exitCode)
         }
+    }
+
+    private fun linearSlopePerCycle(values: List<Double>): Double {
+        val n = values.size
+        if (n < 2) return 0.0
+        val meanX = (n - 1) / 2.0
+        val meanY = values.average()
+        var num = 0.0
+        var den = 0.0
+        for (i in 0 until n) {
+            val dx = i - meanX
+            num += dx * (values[i] - meanY)
+            den += dx * dx
+        }
+        return if (den > 0.0) num / den else 0.0
     }
 
     private fun generateWavAndCover(wavFile: File, coverFile: File) {

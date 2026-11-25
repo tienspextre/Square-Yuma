@@ -295,6 +295,12 @@ object NativeEngine {
         nativeUninstallFrame(hwnd)
     }
 
+    /** Returns freed native heap/arena memory to the OS when entering low-RAM tray mode. */
+    fun trimMemory() {
+        if (!loaded) return
+        nativeTrimMemory()
+    }
+
     @JvmStatic private external fun nativeInit(): Boolean
     @JvmStatic private external fun nativeShutdown()
     @JvmStatic private external fun nativeDeckLoad(deck: Int, uri: String, headersJson: String?, startMs: Long): Boolean
@@ -341,4 +347,5 @@ object NativeEngine {
         interactiveRects: IntArray,
     )
     @JvmStatic private external fun nativeUninstallFrame(hwnd: Long)
+    @JvmStatic private external fun nativeTrimMemory()
 }

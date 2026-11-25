@@ -85,22 +85,21 @@ class BeatTracker(
             session = null
             return runCatching {
                 val file = File(modelPath())
-                val options = OrtSession.SessionOptions().apply {
-                    setIntraOpNumThreads(threads)
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                OrtSession.SessionOptions().use { options ->
+                    options.setIntraOpNumThreads(threads)
+                    options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                     // ORT's arena allocator keeps every block it has ever needed, which for this
                     // graph is tens of megabytes of native heap retained for the life of the
                     // session, far past the model's own size, on a process that also has to
                     // survive in the background. Analysis runs a handful of times per track, so
                     // allocating per run is the right trade.
-                    setCPUArenaAllocator(false)
-                    setMemoryPatternOptimization(false)
+                    options.setCPUArenaAllocator(false)
+                    options.setMemoryPatternOptimization(false)
+                    OrtEnvironment.getEnvironment().createSession(file.absolutePath, options)
+                }.also {
+                    session = it
+                    sessionThreads = threads
                 }
-                OrtEnvironment.getEnvironment().createSession(file.absolutePath, options)
-                    .also {
-                        session = it
-                        sessionThreads = threads
-                    }
             }.onFailure { Log.w(TAG, it, "Beat model unavailable; falling back to no grid") }
                 .getOrNull()
         }

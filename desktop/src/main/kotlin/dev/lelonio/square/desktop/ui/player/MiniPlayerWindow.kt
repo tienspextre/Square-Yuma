@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import dev.lelonio.square.ui.theme.SharedFontFamilyResolver
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,7 +137,10 @@ fun MiniPlayerWindow(
         }
 
         SquareTheme(seed = seed, darkTheme = darkTheme) {
-            CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides Ink) {
+            CompositionLocalProvider(
+                LocalFontFamilyResolver provides SharedFontFamilyResolver,
+                androidx.compose.material3.LocalContentColor provides Ink,
+            ) {
                 val baseColor = pageColorFor(seed)
                 val bgTop = if (darkTheme) Color(0xFF1A1B22) else Color(0xFFF3F4F8)
                 val dur = song?.let(state.local::durationMsOf) ?: 0L

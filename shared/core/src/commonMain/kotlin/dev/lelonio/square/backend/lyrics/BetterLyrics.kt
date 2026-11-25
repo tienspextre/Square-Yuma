@@ -1,11 +1,13 @@
 package dev.lelonio.square.backend.lyrics
 
 import dev.lelonio.square.common.Log
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.Lyrics
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -23,7 +25,7 @@ import org.json.JSONObject
  */
 object BetterLyrics {
 
-    private val http = OkHttpClient()
+    private val http get() = SharedHttp.client
 
     private val ENDPOINTS = listOf(
         "getLyrics",
@@ -60,13 +62,13 @@ object BetterLyrics {
         }
 
     /** Null on anything but a 200, which includes the 404 for "no match". */
-    private fun get(url: String): String? = runCatching {
+    private suspend fun get(url: String): String? = runCancellableCatching {
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/json")
             .header("User-Agent", USER_AGENT)
             .build()
-        http.newCall(request).execute().use { response ->
+        http.executeCancellable(request) { response ->
             if (!response.isSuccessful) null else response.body?.string()?.takeIf(String::isNotBlank)
         }
     }.getOrNull()

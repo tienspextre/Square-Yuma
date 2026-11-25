@@ -12,6 +12,7 @@ tick boxes, list touched files, paste the gate command and its result, and write
 | 3 — Local library + Subsonic parity, queue persistence | done (Linux gate green 2026-11-25) |
 | 4 — Frameless window, 3-pane glass UI, desktop package split | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
 | 5 — Fullscreen, mini-player, PC ergonomics, tray low-RAM | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
+| 5b — Native RSS leak fixes & low-RAM tuning | done (Linux gate + SOAK_RSS PASS 2026-11-25; Windows `mem_trim_win.cpp` uncompiled here) |
 | 6 — Installer, auto-update, diagnostics, CI | not started |
 
 ## Baseline (before Phase 1)
@@ -73,6 +74,31 @@ Gate `./gradlew :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :
 
 ## Log
 _(newest first)_
+
+### 2026-11-25 — Phase 5b (native RSS leak fixes & low-RAM baseline)
+Root causes found (with `-XX:NativeMemoryTracking=summary` + `jcmd VM.native_memory summary.diff`, `jcmd GC.class_histogram`, `jcmd Thread.print`, `/proc/<pid>/smaps`, and `LD_PRELOAD` allocation tracing):
+1. **Uncompiled `malloc_trim(0)` + glibc multi-arena sprawl**: partial `native/windows/src/mem_trim_linux.cpp` checked `#ifdef __GLIBC__` before including `<malloc.h>`/`<cstdlib>`, so `__GLIBC__` was undefined and `malloc_trim(0)` compiled to a no-op (`nm -D -u` confirmed no symbol). With concurrent worker/IO threads and `ModelPass` ONNX tensors, glibc allocated multiple 64 MB sub-heaps (~258–320 MB `[anon]` + `[heap]`) that were never returned on `free()`. Fixed header order and added `configureAllocatorForLowMemory()` in `nativeInit()` (`mallopt(M_ARENA_MAX, 2)` + `mallopt(M_MMAP_THRESHOLD, 65536)`), plus `MALLOC_ARENA_MAX=2` in `:desktop:run` on Linux (also needed in packaged Linux launcher scripts before JVM startup).
+2. **Per-window `FontCache` + `font/inter.ttf` (876 KB) leak**: `RootNodeOwner$OwnerImpl` created a fresh `SkiaFontLoader`/`FontCache` per `ComposeWindow` (`Main` and `MiniPlayer`), reloading `inter.ttf` (`876,576` B = `0.84 MiB` page-aligned `Data.makeFromBytes`) and leaking Skia `TypefaceFontProviderWithFallback`/`NotoSans-Regular.ttf` VMAs across cycles (+4–5 MB/cycle). Fixed via process-wide `SharedFontFamilyResolver` in `ThemePlatform.kt` wired via `CompositionLocalProvider(LocalFontFamilyResolver provides SharedFontFamilyResolver)` in `Main.kt` and `MiniPlayerWindow.kt`, `InteractiveHighlight` `RememberObserver`/`AutoCloseable` disposal (`shader` close), `RuntimeShaderCache` close/`RuntimeEffect` reuse, `Artwork`/`AmbientBackground` `.use {}`, and `clearGlobalFocusOwner()` on tray entry.
+3. **Uncancelled OkHttp calls + 9 per-provider `OkHttpClient` pools**: `lyrics/*` providers each owned an `OkHttpClient` and ran blocking `.execute()` calls inside `Dispatchers.IO` without cancellation, growing `DefaultDispatcher-worker` (up to 53 threads) and `OkHttp` threads (+43 threads / +4.9 MB stacks across c4→c10). Unified all 9 `shared/core` lyrics providers (`SpicyLyrics`, `LyricsOvh`, `KuGou`, `BetterLyrics`, `Translate`, `Lossless`, `Amll`, `LrcLib`, `NetEase`) onto `SharedHttp` (`HttpCancellable.kt`) + `executeCancellable`/`runCancellableCatching` (also applied to `SubsonicClient.kt`, `Artwork.kt`, `Downloads.kt`, `Updates.kt`), with connection-pool eviction on tray entry.
+4. **GC / JIT CodeCache retention + cycle-3 masking in `SoakTestRunner`**: default G1GC/C2 JIT kept ~131 MB committed Java heap + expanding CodeCache/C2 arenas (+7–12 MB). Added `-XX:+UseSerialGC -Xms16m -Xmx128m -XX:NewRatio=4 -XX:-ShrinkHeapInSteps -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=20 -XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=20m -Xss512k` (`-Xss256k` SIGSEGV'd `--self-check` in native JNI DSP stack frames on `--self-check`, so `-Xss512k` is the safe minimum) to `compose.desktop.application.jvmArgs` (shared with `:desktop:run`), `OrtSession.SessionOptions.use {}` in `BeatTracker`/`VocalTracker`, `ModelPass.releaseIdleSessions()` on tray entry, `NativeEngine.trimMemory()` after `System.gc()` in `SoakTestRunner.kt`, and an OLS post-warmup slope guard over cycles 5–10 alongside `(lastTrayMb - cycle3TrayMb) / 7` so a transient cycle-3 `ModelPass` spike cannot mask tail leaks.
+
+Measure → RSS delta table (Linux `DISPLAY=:1`, 10-cycle `--soak-test`, `underruns=0` throughout):
+| Configuration | Cycle 10 `TrayPostGc` RSS | Delta vs prev | Notes |
+|---|---|---|---|
+| Baseline partial tree (`HEAD` + broken `#ifdef __GLIBC__` no-op, default G1GC/C2) | `971.49 MB` | — | `growthPerCycleMb=18.25` FAIL (orchestrator baseline on `HEAD` was `574→706 MB`) |
+| + Leak fixes + working `malloc_trim(0)` & `mallopt(M_ARENA_MAX=2, M_MMAP_THRESHOLD=65536)` (no JVM flags/env) | `444.24 MB` | `-527.25 MB` | Steady c5..c10 `451.28→444.24 MB` |
+| + SerialGC heap sizing/shrink (`-Xms16m -Xmx128m -XX:NewRatio=4 -XX:-ShrinkHeapInSteps -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=20 -XX:ReservedCodeCacheSize=32m -Xss256k`) + `MALLOC_ARENA_MAX=2` | `385.83 MB` | `-58.41 MB` | Tray Java heap shrunk to `~28.5 MB` committed (`~18.8 MB` used) |
+| + `-XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=20m -Xss512k` (final Gradle `--soak-test`) | `372.86 MB` | `-12.97 MB` | Cumulative **`-598.63 MB`** (`-61.6%`) vs baseline; `growthPerCycleMb=-7.88` PASS |
+| Diagnostic reference: `-Dskiko.renderApi=SOFTWARE` (bypassing headless Mesa `llvmpipe` LLVM/Gallium) | `274.95 MB` | `-97.91 MB` | Isolates `~98 MB` Mesa `llvmpipe` GL overhead on `DISPLAY=:1`; steady c5..c10 `267.93..277.27 MB` |
+
+**Realistic RSS floor**: the aspirational `60–90 MB` target in spec §5 is **unreachable** for an OpenJDK 21 + Skia + Skiko + Compose Desktop process. Even with Java heap shrunk to `~28.5 MB` committed (`18.05 MB` used), ONNX sessions closed, Skia caches purged, `MALLOC_ARENA_MAX=2`, and `malloc_trim(0)`, the realistic Linux/X11 floor is **~364–373 MB RSS on OpenGL** (`~89–98 MB` attributable to Mesa `llvmpipe` software OpenGL on `DISPLAY=:1`) and **~270–277 MB RSS even on Skia Software rendering** (JVM Metaspace/CodeCache/Shared class space/Symbol/NMT + `libjvm`/`libskiko`/`libonnxruntime`/fonts/X11/glibc).
+
+Final `-Xss512k` `--soak-test` (`XMODIFIERS=@im=none DISPLAY=:1 ./gradlew --console=plain :desktop:run --args=--soak-test`):
+- Per-cycle `TrayPostGc` RSS (cycles 1–10): `396.70, 413.95, 442.88, 480.34, 430.11, 365.83, 370.98, 364.24, 371.52, 372.86 MB` (cycles 3–5 reflect transient background ONNX `ModelPass` inference on the synthetic 30s track before idle release returns RSS to ~364–373 MB at cycles 6–10)
+- `SOAK_SUMMARY initialPosMs=224 finalPosMs=20809 posAdvanced=true maxUnderruns=0 avgShownHeapMb=27.10 avgTrayHeapMb=27.56`
+- `SOAK_RSS firstTrayMb=396.70 lastTrayMb=372.86 growthPerCycleMb=-7.88 verdict=PASS`
+- Note: also re-verified with `-Xss256k`: `381.95, 422.11, 431.92, 500.24, 365.71, 359.44, 365.83, 365.00, 361.83, 363.61 MB`, `growthPerCycleMb=-0.12 verdict=PASS`, before raising `-Xss` to `512k` for `--self-check` native stack safety.
+- Linux launcher note: packaged Linux scripts should set `MALLOC_ARENA_MAX=2` before launching the JVM so early OpenJDK/AWT/Skia threads share at most 2 arenas prior to `NativeEngine.nativeInit()`; `native/windows/src/mem_trim_win.cpp` (`HeapCompact` + `SetProcessWorkingSetSizeEx(-1,-1)` + `EmptyWorkingSet`) is Windows-only and uncompiled on this Linux host.
 
 ### 2026-11-25 — Phase 5 landed
 Gates on Linux:
@@ -226,3 +252,4 @@ Next: Phase 2 (native `square_win_native.dll`, WASAPI, JNI). Desktop still uses 
 - Gate re-run with `--rerun-tasks`: green; `:desktop:test` 29, Android 66 + 24 unchanged.
 - `--soak-test` (10 cycles, Linux/OpenGL): audio OK (position advanced, underruns 0), Java heap after GC in Tray ≈ 21 MB.
 - **FAILED: native RSS.** Tray-post-GC RSS per cycle: 574, 578, 628, 621, 644, 656, 670, 677, 690, 706 MB → ~13 MB/cycle growth (native leak on window dispose/recreate) and absolute level far above the 60–90 MB target. Phase 5 stays open until a follow-up fixes the growth and lowers the baseline; see "Phase 5b".
+  → **Resolved in Phase 5b (2026-11-25, see Log top):** `396.70, 413.95, 442.88, 480.34, 430.11, 365.83, 370.98, 364.24, 371.52, 372.86 MB`, `growthPerCycleMb=-7.88 verdict=PASS`.

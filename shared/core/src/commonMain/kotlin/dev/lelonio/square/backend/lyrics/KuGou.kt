@@ -1,6 +1,9 @@
 package dev.lelonio.square.backend.lyrics
 
 import dev.lelonio.square.common.Log
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.LyricLine
 import dev.lelonio.square.data.LyricWord
 import dev.lelonio.square.data.Lyrics
@@ -8,7 +11,6 @@ import java.net.URLEncoder
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -27,7 +29,7 @@ import org.json.JSONObject
  */
 object KuGou {
 
-    private val http = OkHttpClient()
+    private val http get() = SharedHttp.client
 
     suspend fun lyrics(title: String, artist: String, durationMs: Long): Lyrics? =
         withContext(Dispatchers.IO) {
@@ -41,7 +43,7 @@ object KuGou {
         }
 
     /** The id and key of the candidate closest in length, or null. */
-    private fun search(title: String, artist: String, durationMs: Long): Pair<String, String>? {
+    private suspend fun search(title: String, artist: String, durationMs: Long): Pair<String, String>? {
         val url = buildString {
             append(SEARCH_URL).append("?ver=1&man=yes&client=pc&hash=")
             append("&keyword=").append(encode("$artist - $title"))
@@ -61,7 +63,7 @@ object KuGou {
         return best.optString("id") to best.optString("accesskey")
     }
 
-    private fun download(id: String, key: String): String? {
+    private suspend fun download(id: String, key: String): String? {
         val url = "$DOWNLOAD_URL?ver=1&client=pc&fmt=krc&charset=utf8&id=${encode(id)}&accesskey=${encode(key)}"
         val body = get(url) ?: return null
         val content = runCatching { JSONObject(body).optString("content") }.getOrNull()
@@ -118,9 +120,9 @@ object KuGou {
         return sung.takeIf { it.isNotEmpty() }?.let { Lyrics(lines = it, synced = true) }
     }
 
-    private fun get(url: String): String? = runCatching {
+    private suspend fun get(url: String): String? = runCancellableCatching {
         val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
-        http.newCall(request).execute().use { response ->
+        http.executeCancellable(request) { response ->
             if (!response.isSuccessful) null else response.body?.string()?.takeIf(String::isNotBlank)
         }
     }.getOrNull()

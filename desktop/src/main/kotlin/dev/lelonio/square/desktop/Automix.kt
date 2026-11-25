@@ -67,7 +67,11 @@ class Analyses(
                 gate.release()
             }
         }
+        ModelPass.releaseIdleSessions()
     }
+
+    /** Closes idle ONNX Runtime sessions when entering low-RAM tray mode; recreated lazily on demand. */
+    fun releaseIdleModels(): Boolean = ModelPass.releaseIdleSessions()
 
     fun cacheKey(song: SubsonicChildSong): String =
         if (song.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)) {

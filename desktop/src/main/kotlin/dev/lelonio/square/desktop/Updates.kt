@@ -1,5 +1,6 @@
 package dev.lelonio.square.desktop
 
+import dev.lelonio.square.common.executeCancellable
 import dev.lelonio.square.desktop.ui.components.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,7 +21,8 @@ data class Update(val version: String, val url: String, val fileName: String, va
 suspend fun checkForUpdate(): Update? = withContext(Dispatchers.IO) {
     val req = Request.Builder().url("https://api.github.com/repos/tienspextre/Square-Yuma/releases?per_page=40")
         .header("Accept", "application/vnd.github+json").build()
-    val body = Http.client.newCall(req).execute().use { if (it.isSuccessful) it.body.string() else return@withContext null }
+    val body = Http.client.executeCancellable(req) { if (it.isSuccessful) it.body.string() else null }
+        ?: return@withContext null
     val releases = JSONArray(body)
     val windows = System.getProperty("os.name").startsWith("Windows")
     val deb = !windows && File("/usr/bin/dpkg").exists()
@@ -45,7 +47,7 @@ internal fun versionKey(v: String): Long = v.split('.', '-').take(3).map { it.to
 suspend fun installUpdate(u: Update, progress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
     val dir = File(System.getProperty("user.home"), "Downloads").apply { mkdirs() }
     val file = File(dir, u.fileName)
-    Http.client.newCall(Request.Builder().url(u.url).build()).execute().use { r ->
+    Http.client.executeCancellable(Request.Builder().url(u.url).build()) { r ->
         if (!r.isSuccessful) error("HTTP ${r.code}")
         val total = r.body.contentLength()
         r.body.byteStream().use { input ->

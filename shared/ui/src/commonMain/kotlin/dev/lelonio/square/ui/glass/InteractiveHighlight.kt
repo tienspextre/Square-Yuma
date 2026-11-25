@@ -14,6 +14,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -32,7 +33,7 @@ import kotlinx.coroutines.launch
 class InteractiveHighlight(
     val animationScope: CoroutineScope,
     val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset }
-) {
+) : RememberObserver, AutoCloseable {
 
     private val pressProgressAnimationSpec =
         spring(0.5f, 300f, 0.001f)
@@ -128,4 +129,14 @@ half4 main(float2 coord) {
                 animationScope.launch { positionAnimation.snapTo(change.position) }
             }
         }
+
+    override fun onRemembered() = Unit
+
+    override fun onForgotten() = close()
+
+    override fun onAbandoned() = close()
+
+    override fun close() {
+        (shader as? AutoCloseable)?.close()
+    }
 }

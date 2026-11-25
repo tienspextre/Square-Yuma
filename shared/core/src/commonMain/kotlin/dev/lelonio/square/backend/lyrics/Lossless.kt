@@ -1,12 +1,14 @@
 package dev.lelonio.square.backend.lyrics
 
 import dev.lelonio.square.common.Log
+import dev.lelonio.square.common.SharedHttp
+import dev.lelonio.square.common.executeCancellable
+import dev.lelonio.square.common.runCancellableCatching
 import dev.lelonio.square.data.Lyrics
 import java.net.URLEncoder
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -33,7 +35,7 @@ import org.json.JSONObject
  */
 object Lossless {
 
-    private val http = OkHttpClient()
+    private val http get() = SharedHttp.client
 
     /**
      * @param durationMs tells versions apart — a single, an album cut and a live
@@ -67,7 +69,7 @@ object Lossless {
      * Square holds, since a YouTube video id and a Spotify uri each mean
      * nothing to the other.
      */
-    private fun search(title: String, artist: String, durationMs: Long): List<JSONObject>? {
+    private suspend fun search(title: String, artist: String, durationMs: Long): List<JSONObject>? {
         val url = buildString {
             append(SEARCH_URL).append("?track=").append(encode(title))
             append("&artist=").append(encode(artist))
@@ -104,7 +106,7 @@ object Lossless {
         ?.optString("lyricsUrl")
 
     /** Null on anything but a 200, which includes the 404 for "no match". */
-    private fun get(url: String): String? = runCatching {
+    private suspend fun get(url: String): String? = runCancellableCatching {
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/ttml+xml, application/xml, application/json")
@@ -115,7 +117,7 @@ object Lossless {
             .header("Referer", "$PLAYER_URL/")
             .header("Origin", PLAYER_URL)
             .build()
-        http.newCall(request).execute().use { response ->
+        http.executeCancellable(request) { response ->
             if (!response.isSuccessful) null else response.body?.string()?.takeIf(String::isNotBlank)
         }
     }.getOrNull()

@@ -108,11 +108,19 @@ private suspend fun blurred(url: String, px: Int, sigma: Float): ImageBitmap? {
     synchronized(blurCache) { blurCache[key] }?.let { return it }
     val src = loadArtwork(url) ?: return null
     return withContext(Dispatchers.Default) {
-        val image = Image.makeFromBitmap(src.asSkiaBitmap())
-        val surface = Surface.makeRasterN32Premul(px, px)
-        val paint = Paint().apply { imageFilter = ImageFilter.makeBlur(sigma, sigma, FilterTileMode.CLAMP) }
-        surface.canvas.drawImageRect(image, Rect.makeWH(px.toFloat(), px.toFloat()), paint)
-        surface.makeImageSnapshot().toComposeImageBitmap()
+        Image.makeFromBitmap(src.asSkiaBitmap()).use { image ->
+            Surface.makeRasterN32Premul(px, px).use { surface ->
+                ImageFilter.makeBlur(sigma, sigma, FilterTileMode.CLAMP).use { blur ->
+                    Paint().use { paint ->
+                        paint.imageFilter = blur
+                        surface.canvas.drawImageRect(image, Rect.makeWH(px.toFloat(), px.toFloat()), paint)
+                        surface.makeImageSnapshot().use { snap ->
+                            snap.toComposeImageBitmap()
+                        }
+                    }
+                }
+            }
+        }
     }.also { synchronized(blurCache) { blurCache[key] = it } }
 }
 

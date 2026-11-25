@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "mem_trim.h"
 #include "window_frame.h"
 
 #include <jni.h>
@@ -129,6 +130,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 JNIEXPORT jboolean JNICALL
 Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeInit(JNIEnv* env, jclass) {
     if (!gJvm) env->GetJavaVM(&gJvm);
+    square::configureAllocatorForLowMemory();
     auto* eng = getEngine();
     installEngineCallbacks(eng);
     return eng->init(false) ? JNI_TRUE : JNI_FALSE;
@@ -380,6 +382,11 @@ JNIEXPORT void JNICALL
 Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeUninstallFrame(
     JNIEnv*, jclass, jlong hwnd) {
     square::uninstallWindowFrame(static_cast<intptr_t>(hwnd));
+}
+
+JNIEXPORT void JNICALL
+Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeTrimMemory(JNIEnv*, jclass) {
+    square::trimProcessMemory();
 }
 
 } // extern "C"

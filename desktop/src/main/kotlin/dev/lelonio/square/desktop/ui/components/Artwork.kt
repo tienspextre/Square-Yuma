@@ -23,11 +23,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import dev.lelonio.square.common.executeCancellable
 import dev.lelonio.square.data.local.AudioMetadataParser
 import dev.lelonio.square.desktop.LocalCatalog
 import dev.lelonio.square.ui.theme.Ink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jetbrains.skia.Bitmap
@@ -95,7 +98,7 @@ suspend fun loadArtworkBytes(url: String): ByteArray? = withContext(Dispatchers.
                 if (Files.isRegularFile(p)) Files.readAllBytes(p) else null
             }
             else -> {
-                Http.client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                Http.client.executeCancellable(Request.Builder().url(url).build()) { r ->
                     if (r.isSuccessful) r.body.bytes() else null
                 }
             }
@@ -108,7 +111,9 @@ suspend fun loadArtwork(url: String): ImageBitmap? {
     synchronized(bitmaps) { bitmaps[k] }?.let { return it }
     val bytes = loadArtworkBytes(url) ?: return null
     return withContext(Dispatchers.IO) {
-        runCatching { Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+        runCatching {
+            Image.makeFromEncoded(bytes).use { it.toComposeImageBitmap() }
+        }.getOrNull()
     }?.also { synchronized(bitmaps) { bitmaps[k] = it } }
 }
 
@@ -151,11 +156,6 @@ fun rememberArtworkColor(url: String?): State<Color?> {
 }
 
 private fun dominant(image: ImageBitmap): Color {
-    val bmp = Bitmap().apply { allocN32Pixels(48, 48) }
-    org.jetbrains.skia.Canvas(bmp).drawImageRect(
-        Image.makeFromBitmap(image.asSkiaBitmap()),
-        org.jetbrains.skia.Rect.makeWH(48f, 48f),
-    )
     var x = 0.0
     var y = 0.0
     var sat = 0f
@@ -163,18 +163,26 @@ private fun dominant(image: ImageBitmap): Color {
     var value = 0f
     var count = 0
     val hsb = FloatArray(3)
-    for (py in 0 until 48) {
-        for (px in 0 until 48) {
-            val c = bmp.getColor(px, py)
-            java.awt.Color.RGBtoHSB((c shr 16) and 0xFF, (c shr 8) and 0xFF, c and 0xFF, hsb)
-            val w = hsb[1] * hsb[2] + 0.05f
-            val rad = hsb[0] * 2 * Math.PI
-            x += cos(rad) * w
-            y += sin(rad) * w
-            sat += hsb[1] * w
-            weight += w
-            value += hsb[2]
-            count++
+    Bitmap().use { bmp ->
+        bmp.allocN32Pixels(48, 48)
+        org.jetbrains.skia.Canvas(bmp).use { canvas ->
+            Image.makeFromBitmap(image.asSkiaBitmap()).use { skiaImg ->
+                canvas.drawImageRect(skiaImg, org.jetbrains.skia.Rect.makeWH(48f, 48f))
+            }
+        }
+        for (py in 0 until 48) {
+            for (px in 0 until 48) {
+                val c = bmp.getColor(px, py)
+                java.awt.Color.RGBtoHSB((c shr 16) and 0xFF, (c shr 8) and 0xFF, c and 0xFF, hsb)
+                val w = hsb[1] * hsb[2] + 0.05f
+                val rad = hsb[0] * 2 * Math.PI
+                x += cos(rad) * w
+                y += sin(rad) * w
+                sat += hsb[1] * w
+                weight += w
+                value += hsb[2]
+                count++
+            }
         }
     }
     val hue = ((atan2(y, x) / (2 * Math.PI)).toFloat() + 1f) % 1f
@@ -183,7 +191,9 @@ private fun dominant(image: ImageBitmap): Color {
 
 object Http {
     val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .dispatcher(Dispatcher().apply { maxRequests = 16; maxRequestsPerHost = 6 })
+        .connectionPool(ConnectionPool(4, 30, TimeUnit.SECONDS))
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build()
 }
