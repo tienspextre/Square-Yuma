@@ -1,7 +1,7 @@
 name: Desktop Windows
 
 # jpackage cannot make Windows packages from Linux, so a PC tag (yuma-pc-v*)
-# builds the MSI and a portable zip here and adds them to that tag's release.
+# builds the MSI and a portable zip here and attaches them to that tag's release.
 # The Linux .deb/.tar.gz are still built and released by hand. Android's
 # release.yml listens to v* tags only and is not touched by this.
 on:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: PC release tag to build and attach to (e.g. yuma-pc-v1.1.1); empty = build only
+        description: PC release tag to build and attach to (e.g. yuma-pc-v2.0.0); empty = build only
         default: ''
         type: string
 
@@ -45,39 +45,69 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      # Build the native C++20 engine + analysis DLL (WASAPI, decoders, DSP, SMTC, JNI).
+      # Bungee is not checked into git (see app/build.gradle.kts bungeeTag = v2.4.24).
+      - uses: actions/cache@v6
+        with:
+          path: native-dsp/bungee
+          key: bungee-${{ hashFiles('app/build.gradle.kts') }}
+
+      - name: Fetch Bungee
+        run: |
+          if [ ! -f native-dsp/bungee/bungee/Bungee.h ]; then
+            rm -rf native-dsp/bungee
+            mkdir -p native-dsp
+            git clone --depth 1 --branch v2.4.24 --recurse-submodules --shallow-submodules \
+              https://github.com/bungee-audio-stretch/bungee.git native-dsp/bungee
+          fi
+
+      # Build the native C++20 engine + analysis DLL (WASAPI, decoders, DSP, SMTC, JNI, static CRT).
       - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Build square_win_native.dll
         shell: cmd
         run: |
           set JAVA_HOME=%JAVA_HOME_17_X64%
-          cmake -S native\windows -B native\windows\build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S native\windows -B native\windows\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           if errorlevel 1 exit /b 1
-          cmake --build native\windows\build --target square_win_native
+          cmake --build native\windows\build
           if errorlevel 1 exit /b 1
           if not exist desktop\appResources\windows mkdir desktop\appResources\windows
           copy /Y native\windows\build\square_win_native.dll desktop\appResources\windows\square_win_native.dll
           if errorlevel 1 exit /b 1
           dir desktop\appResources\windows
 
+      - name: Native CTest
+        shell: cmd
+        run: |
+          ctest --test-dir native\windows\build --output-on-failure
+          if errorlevel 1 exit /b 1
+
+      - name: Desktop unit tests
+        run: ./gradlew :desktop:test --stacktrace --console=plain
+
       - name: Package
-        run: ./gradlew :desktop:packageReleaseMsi :desktop:createReleaseDistributable --stacktrace
+        run: ./gradlew :desktop:packageReleaseMsi :desktop:createReleaseDistributable --stacktrace --console=plain
 
       - name: Name the packages
         run: |
           ver=$(grep -oP 'val desktopVersion = "\K[^"]+' desktop/build.gradle.kts)
-          mkdir out
+          mkdir -p out
           cp desktop/build/compose/binaries/main-release/msi/*.msi "out/Square-Yuma-PC-$ver-windows-x64.msi"
           (cd desktop/build/compose/binaries/main-release/app && 7z a -tzip -bso0 "$GITHUB_WORKSPACE/out/Square-Yuma-PC-$ver-windows-x64.zip" square-yuma)
           ls -la out
+          sha256sum out/*
 
-      # The portable build has to come up and stay up; a crash at start ends the process.
+      # The portable build has to verify native DSP/ONNX/analysis and stay up without crashing.
+      # Note: `--soak-test` is skipped on headless Windows CI runners because they lack a WASAPI audio
+      # endpoint, an interactive WDDM/D3D/tray desktop session, and Linux `/proc/self/statm` RSS reporting.
       - name: Smoke test
         run: |
+          set -euo pipefail
           app=desktop/build/compose/binaries/main-release/app/square-yuma
-          test -f "$app/app/resources/square_win_native.dll" # $APPDIR is app/ on Windows (lib/app on Linux)
-          # Native engine, analysis, and ONNX Runtime on Windows; the launcher has no console, so the result is a file too.
-          "$app/square-yuma.exe" --self-check || true
+          test -f "$app/app/resources/square_win_native.dll"
+          "$app/square-yuma.exe" --self-check
           cat "$USERPROFILE/.square-yuma/self-check.txt"
           grep -q "self-check ok" "$USERPROFILE/.square-yuma/self-check.txt"
           "$app/square-yuma.exe" &

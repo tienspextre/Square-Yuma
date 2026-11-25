@@ -69,6 +69,7 @@ import dev.lelonio.square.desktop.ui.browse.MonthScreen
 import dev.lelonio.square.desktop.ui.browse.PlaylistScreen
 import dev.lelonio.square.desktop.ui.components.AmbientBackground
 import dev.lelonio.square.desktop.ui.components.Artwork
+import dev.lelonio.square.desktop.ui.components.UpdateNoticeOverlay
 import dev.lelonio.square.desktop.ui.components.rememberArtworkColor
 import dev.lelonio.square.desktop.ui.home.HomeScreen
 import dev.lelonio.square.desktop.ui.library.LibraryScreen
@@ -271,6 +272,15 @@ fun WindowScope.App(
                                 .padding(horizontal = 20.dp, vertical = 10.dp),
                         )
                     }
+                    UpdateNoticeOverlay(
+                        update = state.update,
+                        visible = state.updateNoticeVisible,
+                        downloading = state.updateDownloading,
+                        progress = state.updateProgress,
+                        errorMessage = state.updateError,
+                        onAction = { state.applyUpdate() },
+                        onDismiss = { state.dismissUpdateNotice() },
+                    )
                 }
             }
         }

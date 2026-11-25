@@ -43,9 +43,13 @@
     <string name="desktop_open_folder">Open folder</string>
     <string name="desktop_removed_all_downloads">Removed all downloads</string>
     <string name="desktop_updates">Updates</string>
+    <string name="desktop_beta_channel">Beta channel (prereleases)</string>
+    <string name="desktop_beta_tag">Beta</string>
+    <string name="desktop_open_release_page">Open release page</string>
     <string name="desktop_diagnostics">Diagnostics</string>
     <string name="desktop_save_diagnostics">Save diagnostics report</string>
-    <string name="desktop_report_saved_to">Report saved to %1$s and copied</string>
+    <string name="desktop_include_file_paths">Include file paths in report</string>
+    <string name="desktop_report_saved_to">Report saved to %1$s</string>
     <string name="desktop_done">Done</string>
     <string name="desktop_volume">Volume</string>
     <string name="desktop_mood">Mood</string>

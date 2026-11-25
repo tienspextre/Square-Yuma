@@ -72,6 +72,12 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# Shared lyrics cache entry serialization (:shared:core)
+-keepclassmembers class dev.lelonio.square.backend.lyrics.** {
+    *** Companion;
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
 # Dual-deck playback engine
 -keep class dev.lelonio.square.playback.engine.** { *; }
 

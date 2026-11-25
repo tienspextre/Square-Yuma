@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -43,13 +44,14 @@ import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.fill.Play
 import dev.lelonio.square.desktop.AppState
 import dev.lelonio.square.desktop.AppVersion
+import dev.lelonio.square.desktop.DiagnosticsReport
+import dev.lelonio.square.desktop.DropTargetHandler
 import dev.lelonio.square.desktop.GlassProfile
 import dev.lelonio.square.desktop.Language
 import dev.lelonio.square.desktop.Renderer
 import dev.lelonio.square.desktop.Screen
 import dev.lelonio.square.desktop.ShortcutDispatch
 import dev.lelonio.square.desktop.ThemeMode
-import dev.lelonio.square.desktop.diagnostics
 import dev.lelonio.square.desktop.str
 import dev.lelonio.square.desktop.ui.components.BarClearance
 import dev.lelonio.square.desktop.ui.components.Gutter
@@ -64,6 +66,7 @@ import kotlinx.coroutines.launch
 import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
+import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -149,37 +152,104 @@ fun SettingsScreen(state: AppState) {
                 }
             }
 
-            item { SectionLabel("desktop_updates", Modifier.padding(top = 14.dp)) }
+            item { SectionLabel("about", Modifier.padding(top = 14.dp)) }
             item {
-                Column {
+                var includePaths by remember { mutableStateOf(false) }
+                var savingReport by remember { mutableStateOf(false) }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     val u = state.update
                     Text(
-                        str("version") + " $AppVersion" + (u?.let { " · ${it.version}" } ?: ""),
+                        buildString {
+                            append(str("version")).append(' ').append(AppVersion)
+                            if (u != null) append(" · ").append(str("update_available", u.version))
+                            else if (state.updateChecking) append(" · ").append(str("update_checking"))
+                        },
                         color = InkDim,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Row {
-                        TextButton({ scope.launch { if (state.findUpdate() == null) state.say(str("update_none")) } }) {
-                            Text(str("check_for_updates"))
+                    Toggle("desktop_beta_channel", state.betaChannel) { state.useBetaChannel(it) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    val found = state.findUpdate(force = true)
+                                    if (found == null) {
+                                        val err = state.updateError
+                                        state.say(if (err != null) str("desktop_update_failed", err) else str("update_none"))
+                                    }
+                                }
+                            },
+                            enabled = !state.updateChecking && !state.updateDownloading,
+                        ) {
+                            Text(str(if (state.updateChecking) "update_checking" else "check_for_updates"))
                         }
                         if (u != null) {
-                            TextButton({ state.installUpdate() }, enabled = state.updateProgress == null) {
-                                Text(state.updateProgress?.let { str("downloading") + " ${(it * 100).toInt()}%" } ?: "${str("update_install")} ${u.version}")
+                            TextButton(
+                                onClick = { state.applyUpdate() },
+                                enabled = !state.updateDownloading,
+                            ) {
+                                Text(
+                                    when {
+                                        state.updateDownloading -> state.updateProgress?.let { "${str("downloading")} ${(it * 100).toInt()}%" } ?: str("update_downloading")
+                                        u.canInstallInApp -> "${str("update_install")} ${u.version}"
+                                        else -> str("desktop_open_release_page")
+                                    },
+                                )
                             }
                         }
                     }
-                }
-            }
 
-            item { SectionLabel("desktop_diagnostics", Modifier.padding(top = 14.dp)) }
-            item {
-                TextButton({
-                    scope.launch {
-                        val f = diagnostics(state)
-                        runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(f.readText()), null) }
-                        state.say(str("desktop_report_saved_to", f.path))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { includePaths = !includePaths }
+                            .padding(vertical = 2.dp, horizontal = 2.dp),
+                    ) {
+                        Checkbox(checked = includePaths, onCheckedChange = { includePaths = it })
+                        Spacer(Modifier.width(4.dp))
+                        Text(str("desktop_include_file_paths"), color = Ink, style = MaterialTheme.typography.bodyMedium)
                     }
-                }) { Text(str("desktop_save_diagnostics")) }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                if (savingReport) return@TextButton
+                                savingReport = true
+                                scope.launch {
+                                    runCatching {
+                                        DiagnosticsReport.buildZip(
+                                            state,
+                                            DiagnosticsReport.Options(includeFilePaths = includePaths),
+                                        )
+                                    }.onSuccess { zip ->
+                                        state.lastReportPath = zip.absolutePath
+                                        runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(zip.absolutePath), null) }
+                                        state.say(str("desktop_report_saved_to", zip.absolutePath))
+                                    }.onFailure {
+                                        state.say(str("report_failed"))
+                                    }
+                                    savingReport = false
+                                }
+                            },
+                            enabled = !savingReport,
+                        ) {
+                            Text(str(if (savingReport) "report_preparing" else "save_report"))
+                        }
+                        state.lastReportPath?.let { path ->
+                            TextButton({ DropTargetHandler.openInFolder(state, path) }) {
+                                Text(str("desktop_show_in_folder"))
+                            }
+                        }
+                    }
+                    state.lastReportPath?.let { path ->
+                        Text(
+                            File(path).name,
+                            color = InkDim,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
 
             item { SectionLabel("theme_title", Modifier.padding(top = 14.dp)) }

@@ -49,13 +49,6 @@ object Strings {
     private val androidCache = ConcurrentHashMap<String, Map<String, String>>()
     private val desktopCache = ConcurrentHashMap<String, Map<String, String>>()
     private val mergedCache = ConcurrentHashMap<String, Map<String, String>>()
-    private val reverseEnIndex: Map<String, String> by lazy {
-        buildMap {
-            for ((k, v) in loadLanguage(Language.English.code)) {
-                putIfAbsent(v, k)
-            }
-        }
-    }
 
     fun str(key: String, vararg args: Any): String = formatForLanguage(current.code, key, *args)
 

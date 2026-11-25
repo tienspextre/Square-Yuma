@@ -20,11 +20,6 @@ import moe.rukamori.archivetune.audiodsp.TrackAnalysisResult
 import moe.rukamori.archivetune.audiodsp.TransitionPlanner
 import moe.rukamori.archivetune.audiodsp.TransitionRules
 import moe.rukamori.archivetune.audiodsp.TransitionTier
-import moe.rukamori.archivetune.audiodsp.incomingBassGainDb
-import moe.rukamori.archivetune.audiodsp.incomingStageGain
-import moe.rukamori.archivetune.audiodsp.outgoingBassGainDb
-import moe.rukamori.archivetune.audiodsp.outgoingLowPassHz
-import moe.rukamori.archivetune.audiodsp.outgoingStageGain
 import moe.rukamori.archivetune.playback.smart.ModelPass
 import moe.rukamori.archivetune.playback.smart.ModelSource
 import moe.rukamori.archivetune.playback.smart.StereoRegion
@@ -172,22 +167,6 @@ class Analyses(
 
 /** One deck's DJ filter at progress p of a mix: linear gain, low-pass, high-pass (Hz), low-shelf (dB). */
 data class Shape(val gain: Float, val lowPassHz: Double = MixStyles.OPEN_HZ, val highPassHz: Double = MixStyles.OFF_HZ, val bassDb: Double = 0.0)
-
-/** The phone's ExoDeck.applyAutomation for both decks: (outgoing, incoming). */
-fun automation(plan: AutomixPlan, progress: Float): Pair<Shape, Shape> {
-    val p = progress.coerceIn(0f, 1f)
-    val style = plan.style
-    if (style != null && style != MixStyle.BLEND) {
-        val (o, i) = MixStyles.shape(style, p, plan.swapAt, plan.swapWidth, plan.vocalClash)
-        return Shape(o.gain, o.lowPassHz, o.highPassHz, o.bassDb) to Shape(i.gain, i.lowPassHz, i.highPassHz, i.bassDb)
-    }
-    val staged = plan.tier != TransitionTier.PLAIN_CROSSFADE || plan.enableBassSwap
-    val inGain = if (staged) incomingStageGain(p) else sin(p * PI.toFloat() / 2)
-    val outGain = if (staged) minOf(outgoingStageGain(p), 1f - inGain) else cos(p * PI.toFloat() / 2)
-    return if (plan.enableBassSwap) {
-        Shape(outGain, outgoingLowPassHz(p), bassDb = outgoingBassGainDb(p)) to Shape(inGain, bassDb = incomingBassGainDb(p))
-    } else Shape(outGain) to Shape(inGain)
-}
 
 /**
  * Reference Kotlin DJ filter kept for self-check parity verification against the C++ filter.

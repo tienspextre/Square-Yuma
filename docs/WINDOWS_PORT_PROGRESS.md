@@ -13,7 +13,7 @@ tick boxes, list touched files, paste the gate command and its result, and write
 | 4 — Frameless window, 3-pane glass UI, desktop package split | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
 | 5 — Fullscreen, mini-player, PC ergonomics, tray low-RAM | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
 | 5b — Native RSS leak fixes & low-RAM tuning | done (Linux gate + SOAK_RSS PASS 2026-11-25; Windows `mem_trim_win.cpp` uncompiled here) |
-| 6 — Installer, auto-update, diagnostics, CI | not started |
+| 6 — Installer, auto-update, diagnostics, CI | done (Linux gate green 2026-11-25; Windows CI run pending) |
 
 ## Baseline (before Phase 1)
 Gate `./gradlew :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :desktop:compileKotlin` on commit 3cf484c: **BUILD SUCCESSFUL in 4m40s, 90 @Test (66 app + 24 audio-dsp), 0 failures** — earlier "174" double-counted release variants (2026-11-24).
@@ -72,8 +72,59 @@ Gate `./gradlew :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :
 - [x] Fixed Phase 4 Light+Performance `TransportBar` glass readability & bottom `BarClearance` (`120.dp`)
 - [x] Unit & leak tests in `:desktop:test` (`ShortcutDispatchTest`, `MiniPlayerBoundsTest`, `DropTargetHandlerTest`, `WindowTrayAndLeakTest`, `WindowHitTestTest` fullscreen check), live 10-cycle `--soak-test` (`maxUnderruns=0`, `posAdvanced=true`), and Phase 5 verification screenshots under `docs/screenshots/windows-port/` (< 5 MB total)
 
+## Phase 6 checklist
+- [x] Auto-update (`Updates.kt`, `UpdateNotice.kt`, `AppState.kt`, `SettingsScreen.kt`): GitHub Releases `yuma-pc-v*` check (ignoring Android `v*`, drafts, and prereleases unless Beta channel is enabled), SemVer parser/comparator, 24 h auto-check throttle + manual check, in-app liquid glass notice, Windows `.msi` temp download with progress + size/SHA-256 verification + `msiexec /i` launch and exit (preserving `upgradeUuid = 67fc8a84-7a38-4b2f-bb0f-8df4ac7267af`), Linux release-page open
+- [x] Diagnostics (`Diagnostics.kt`, `SettingsScreen.kt` → About): rolling file log under `~/.square-yuma/logs` (`square-yuma.log`, 512 KB × 3 files), zip report (`summary.txt`, `native-status.json`, `settings.txt`, `logs.txt`, `self-check.txt`) with secrets redacted (Subsonic password/token/salt/URL creds, auth headers/tokens, emails), local library counts only unless "Include file paths in report" is ticked
+- [x] jlink runtime minimization (`desktop/build.gradle.kts` via `:desktop:suggestRuntimeModules` + `jdk.crypto.ec`), Phase 5b JVM flags preserved, Linux `.deb` `MALLOC_ARENA_MAX=2` guidance added, packaged `createDistributable` `--self-check` & startup verified
+- [x] Windows CI (`.github/workflows/desktop-windows.yml`): fetches `native-dsp/bungee` (`v2.4.24`), MSVC x64 CMake Release static CRT (`/MT`) build into `desktop/appResources/windows`, runs CTest and `:desktop:test`, packages MSI + portable zip, runs `--self-check` (fails on non-zero exit), documents why `--soak-test` is skipped on headless Windows runners, uploads artifacts and attaches to release when `TAG` is set; YAML + `actionlint` clean
+- [x] Android release safety: fixed `ThemePlatformKt` duplicate class collision across `:app` and `:shared:ui` (renamed `:app` file to `ChosenTheme.kt`), added `:shared:core` `LyricsLibrary` serialization keep rule in `app/proguard-rules.pro`, verified `:app:assembleRelease` (R8) and `build.yml`/`release.yml`
+- [x] Cleanup, version bump (`desktopVersion = "2.0.0"`), and docs (`WINDOWS_PORT_SPEC.md` §5/§7 updated with realistic RSS floor & JAWT/miniaudio reality; `DEVELOPMENT.md` maintainer guide added)
+- [x] Full Linux gate + `UpdatesAndDiagnosticsTest` green
+
 ## Log
 _(newest first)_
+
+### 2026-11-25 — Phase 6 landed
+Gates on Linux:
+- `cmake -S native/windows -B native/windows/build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build native/windows/build && ctest --test-dir native/windows/build --output-on-failure`: **4/4 passed** (`ring_buffer`, `dsp_chain`, `decoders`, `exclusive_format`).
+- `./gradlew --console=plain :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest :core:audio-dsp:test :shared:core:desktopTest :desktop:test :desktop:compileKotlin`: **BUILD SUCCESSFUL** (`:app:testDebugUnitTest` 66, `:core:audio-dsp:testDebugUnitTest` 24, `:core:audio-dsp:desktopTest` 21, `:shared:core:desktopTest` 6, `:desktop:test` 36; **153 total**, 0 failures, 0 errors, 0 skipped; R8 `:app:assembleRelease` passed).
+- `./gradlew --console=plain :desktop:createDistributable` + `./desktop/build/compose/binaries/main/app/square-yuma/bin/square-yuma --self-check`: exit 0 (`self-check ok: native self-check ok (4 MixStyles + full DSP + AnalyzeAudio) (duration=1.0s lufs=-19.9)`). Packaged GUI startup on `DISPLAY=:1` stayed alive cleanly (0 errors).
+- `XMODIFIERS=@im=none DISPLAY=:1 ./gradlew --console=plain :desktop:run --args=--soak-test`: exit 0, `SOAK_SUMMARY initialPosMs=112 finalPosMs=20715 posAdvanced=true maxUnderruns=0 avgShownHeapMb=28.05 avgTrayHeapMb=22.88`, `SOAK_RSS firstTrayMb=410.93 lastTrayMb=365.63 growthPerCycleMb=0.47 verdict=PASS`.
+- Workflow YAML validation (`yaml.safe_load` + `actionlint` v1.7.7 on `desktop-windows.yml`, `build.yml`, `release.yml`): passed with 0 diagnostics.
+- `grep -rn --exclude-dir=build "ffmpeg\|jnativehook\|SourceDataLine" desktop .github`: empty.
+- `grep -n upgradeUuid desktop/build.gradle.kts`: `upgradeUuid = "67fc8a84-7a38-4b2f-bb0f-8df4ac7267af"`.
+
+Runtime image size (jlink, Linux x64):
+- Before (`java.naming`, `java.prefs`, `java.sql`, `jdk.unsupported`, `java.net.http`, `java.logging`, `jdk.security.auth` → 15 jlink modules incl. transitive deps): `229M` total distributable (`43M` `du -sh` on ZFS for `lib/runtime`).
+- After (`java.instrument`, `java.prefs`, `jdk.security.auth`, `jdk.unsupported`, `jdk.crypto.ec` → 13 jlink modules; `java.sql`, `java.transaction.xa`, `java.net.http` removed): `228M` total distributable (`43M` `du -sh` / `88,891,127` apparent bytes for `lib/runtime`, `55M` `lib/runtime/lib/modules`). Note: `java.naming`, `java.logging`, `java.security.sasl`, `java.security.jgss` remain pulled in transitively by `jdk.security.auth` (needed for Linux D-Bus/MPRIS).
+
+Created:
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/Diagnostics.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/components/UpdateNotice.kt`
+- `desktop/src/test/kotlin/dev/lelonio/square/desktop/UpdatesAndDiagnosticsTest.kt`
+
+Renamed:
+- `app/src/main/java/dev/lelonio/square/ui/theme/ThemePlatform.kt` → `ChosenTheme.kt` (eliminated `ThemePlatformKt` duplicate class in `:app:minifyReleaseWithR8`)
+
+Changed:
+- `.github/workflows/desktop-windows.yml`, `.gitignore`, `app/proguard-rules.pro`
+- `desktop/build.gradle.kts` (`desktopVersion = "2.0.0"`, minimized jlink `modules(...)`, `MALLOC_ARENA_MAX=2` guidance)
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{AppState,Automix,Main,Strings,Updates}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/settings/SettingsScreen.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/shell/Shell.kt`
+- `desktop/src/main/resources/i18n/values/strings.xml`
+- `docs/{DEVELOPMENT,WINDOWS_PORT_SPEC,WINDOWS_PORT_PROGRESS}.md`
+
+Consolidated Windows-only code never compiled on this Linux host (target of first Windows CI run):
+- `native/windows/src/http_stream_win.cpp` (WinHTTP Range streaming)
+- `native/windows/src/mf_aac_decoder.cpp` (Media Foundation `IMFSourceReader` AAC/M4A decoder)
+- `native/windows/src/smtc_win.cpp` (WinRT `SystemMediaTransportControls` on hidden message-only HWND)
+- `native/windows/src/window_win.cpp` (JAWT HWND lookup + Win32 frameless subclass, Snap Layouts, DWM attributes, fullscreen `HTCLIENT`)
+- `native/windows/src/mem_trim_win.cpp` (`HeapCompact` + `SetProcessWorkingSetSizeEx(-1, -1)` + `EmptyWorkingSet`)
+- `#ifdef _WIN32` branches in `native/windows/src/audio_stream.cpp` (UTF-16 wide-char file open), `native/windows/src/engine.cpp` (MMCSS `"Pro Audio"` thread boost), and `native/windows/src/decoder.cpp` (Media Foundation AAC path)
+- Runtime-only Windows behavior in JVM code (`Updates.kt` `msiexec /i` launch, `NativeEngine.getWindowHwnd` / `installFrame`, `DropTargetHandler.kt` `explorer.exe /select,`, `TrayManager.kt` Windows tray, miniaudio WASAPI shared/exclusive on Windows 10/11)
+
+Next: push branch `windows-port` + run `desktop-windows.yml` via `workflow_dispatch`, fix any MSVC/Windows CI errors.
 
 ### 2026-11-25 — Phase 5b (native RSS leak fixes & low-RAM baseline)
 Root causes found (with `-XX:NativeMemoryTracking=summary` + `jcmd VM.native_memory summary.diff`, `jcmd GC.class_histogram`, `jcmd Thread.print`, `/proc/<pid>/smaps`, and `LD_PRELOAD` allocation tracing):

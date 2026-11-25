@@ -144,6 +144,7 @@ private fun app(soakTest: Boolean = false) = application {
         state.onCloseRequested = {
             windowMachine.onCloseRequested(snapshotBounds(activeMainWindow, activeMainState))
         }
+        state.onRequestExit = shutdownApp
     }
 
     LaunchedEffect(state.closeToTray) {

@@ -36,5 +36,5 @@ releases/
 *.apk
 .kotlin/
 
-# Built per OS: ffmpeg.exe (Windows CI), libyuma_analysis
+# Built per OS: square_win_native.dll (Windows CI), libsquare_win_native.so (Linux)
 desktop/appResources/

@@ -217,6 +217,7 @@ class AppState(
     /** Callback for Phase 5's always-on-top Mini-Player window. */
     var onMiniPlayerToggle: (() -> Unit)? = null
     var onCloseRequested: (() -> Unit)? = null
+    var onRequestExit: (() -> Unit)? = null
     fun requestMiniPlayerToggle() {
         onMiniPlayerToggle?.invoke()
     }
@@ -481,16 +482,82 @@ class AppState(
         lyricsOffsetMs = ms; ui.putLong("lyricsOffset", ms)
     }
 
+    var betaChannel by mutableStateOf(ui.getBoolean("betaChannel", false))
+        private set
+
+    fun useBetaChannel(on: Boolean) {
+        betaChannel = on
+        ui.putBoolean("betaChannel", on)
+    }
+
     var update by mutableStateOf<Update?>(null)
+    var updateNoticeVisible by mutableStateOf(false)
+    var updateChecking by mutableStateOf(false)
     var updateProgress by mutableStateOf<Float?>(null)
-    suspend fun findUpdate(): Update? = runCatching { checkForUpdate() }.getOrNull().also { update = it }
-    fun installUpdate() {
+    var updateDownloading by mutableStateOf(false)
+    var updateError by mutableStateOf<String?>(null)
+    var lastReportPath by mutableStateOf<String?>(null)
+
+    suspend fun findUpdate(force: Boolean = false): Update? {
+        val now = System.currentTimeMillis()
+        if (!force && !ReleaseSelector.shouldAutoCheck(ui.getLong("lastUpdateCheckMs", 0L), now)) {
+            return null
+        }
+        ui.putLong("lastUpdateCheckMs", now)
+        updateChecking = true
+        updateError = null
+        return try {
+            val found = checkForUpdate(includeBeta = betaChannel)
+            update = found
+            if (found != null) {
+                val skipped = ui.get("skippedUpdateVersion", null)
+                if (force || found.version != skipped) {
+                    updateNoticeVisible = true
+                }
+            }
+            found
+        } catch (t: Throwable) {
+            if (force) updateError = t.message ?: "Network error"
+            null
+        } finally {
+            updateChecking = false
+        }
+    }
+
+    fun dismissUpdateNotice() {
+        updateNoticeVisible = false
+        update?.version?.let { ui.put("skippedUpdateVersion", it) }
+    }
+
+    fun applyUpdate() {
         val u = update ?: return
-        scope.launch {
-            updateProgress = 0f
-            runCatching { installUpdate(u) { p -> scope.launch { updateProgress = p } } }
-                .onSuccess { say(str("desktop_installer_opened", it.name)) }
+        if (!u.canInstallInApp) {
+            runCatching { openReleasePage(u.page) }
                 .onFailure { say(str("desktop_update_failed", it.message.orEmpty())) }
+            updateNoticeVisible = false
+            return
+        }
+        if (updateDownloading) return
+        scope.launch {
+            updateDownloading = true
+            updateProgress = 0f
+            updateError = null
+            runCatching {
+                val file = downloadAndVerifyUpdate(u) { p ->
+                    scope.launch { updateProgress = p }
+                }
+                launchWindowsInstallerAndExit(file) {
+                    onRequestExit?.invoke() ?: run {
+                        shutdown()
+                        kotlin.system.exitProcess(0)
+                    }
+                }
+            }.onFailure { t ->
+                val msg = t.message.orEmpty().ifBlank { "Error" }
+                updateError = msg
+                say(str("desktop_update_failed", msg))
+            }
+            updateDownloading = false
             updateProgress = null
         }
     }
@@ -550,7 +617,7 @@ class AppState(
         downloads.setCacheLimitBytes(cacheLimitGb.toLong() * 1_073_741_824L)
         if (startMediaKeysService) {
             Thread({ startMediaKeys(this) }, "media-keys").apply { isDaemon = true }.start()
-            scope.launch { findUpdate()?.let { say(str("desktop_update_banner", it.version)) } }
+            scope.launch { findUpdate(force = false) }
         }
         dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
         Strings.current = language

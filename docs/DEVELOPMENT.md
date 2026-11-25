@@ -6,6 +6,7 @@ what the app does and how to install it, see the [README](../README.md).
 - [Architecture](#architecture)
 - [Building](#building)
 - [Signing a release build](#signing-a-release-build)
+- [Desktop (Windows & Linux)](#desktop-windows--linux)
 - [Notes for anyone reading the code](#notes-for-anyone-reading-the-code)
 
 ## Architecture
@@ -98,6 +99,74 @@ storePassword=…
 keyAlias=square
 keyPassword=…
 ```
+
+## Desktop (Windows & Linux)
+
+The desktop app (`:desktop`) shares core logic, lyrics, Subsonic, and automix planners with Android via `:shared:core`, `:shared:ui`, and `:core:audio-dsp`, and drives audio + Win32 frameless windowing + SMTC through `native/windows/` (`square_win_native`).
+
+### Building `native/windows` on Linux
+
+Requirements: CMake ≥ 3.24, Ninja, C++20 compiler (`g++`/`clang++`), JDK 17 (`JAVA_HOME`), and `native-dsp/bungee` (cloned automatically by `./gradlew :app:fetchBungee`). Optional: `libcurl` dev headers for Linux HTTP streaming (`http_stream_curl.cpp`; otherwise `http_stream_linux_stub.cpp` is used for local files).
+
+```bash
+./gradlew :app:fetchBungee
+cmake -S native/windows -B native/windows/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build native/windows/build
+ctest --test-dir native/windows/build --output-on-failure
+```
+
+`:desktop:run` and `:desktop:prepareAppResources` automatically run `:desktop:squareWinNativeLinux` to copy `libsquare_win_native.so` into `desktop/appResources/linux/`.
+
+### Building `native/windows` on Windows
+
+Requirements: Visual Studio 2022 (MSVC x64 toolset), CMake ≥ 3.24, Ninja, JDK 17 (`JAVA_HOME` pointing to JDK 17 for JNI headers), JDK 21 (for Gradle), and `native-dsp/bungee` (`git clone --depth 1 --branch v2.4.24 --recurse-submodules --shallow-submodules https://github.com/bungee-audio-stretch/bungee.git native-dsp/bungee`).
+
+From an **x64 Native Tools Command Prompt** (or after `ilammy/msvc-dev-cmd`):
+
+```cmd
+cmake -S native\windows -B native\windows\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+cmake --build native\windows\build
+ctest --test-dir native\windows\build --output-on-failure
+mkdir desktop\appResources\windows 2>nul
+copy /Y native\windows\build\square_win_native.dll desktop\appResources\windows\square_win_native.dll
+```
+
+### Tests, `--self-check`, `--soak-test`, and packaging
+
+```bash
+# Desktop & shared unit tests
+./gradlew --console=plain :core:audio-dsp:desktopTest :shared:core:desktopTest :desktop:test
+
+# Deterministic native DSP / Automix / ONNX / analyzer verification (exits 0/1)
+./gradlew -q :desktop:run --args=--self-check
+
+# 10-cycle window/mini-player/tray RSS & audio underrun soak test (Linux X11)
+# XMODIFIERS=@im=none avoids an OpenJDK XIM disposeXIC hang under fcitx during rapid window teardown.
+XMODIFIERS=@im=none DISPLAY=:1 ./gradlew --console=plain :desktop:run --args=--soak-test
+
+# Self-contained runtime image (minimized via jlink)
+./gradlew :desktop:createDistributable
+./desktop/build/compose/binaries/main/app/square-yuma/bin/square-yuma --self-check
+```
+
+**Linux `.deb` launcher note (`MALLOC_ARENA_MAX`)**: `jpackage`'s native binary launcher does not export environment variables before glibc initializes arenas. Packaged Linux `.deb` desktop entries/wrapper scripts should invoke the binary with `MALLOC_ARENA_MAX=2` (e.g., `Exec=env MALLOC_ARENA_MAX=2 /opt/square-yuma/bin/square-yuma %U`) to prevent ~60+ MB of multi-arena RSS sprawl before `NativeEngine.init()`.
+
+### Runtime data, logs, and diagnostic reports
+
+Everything written by the desktop app lives under `~/.square-yuma/` (`%USERPROFILE%\.square-yuma\` on Windows):
+
+- `logs/square-yuma.log` (and `.1`, `.2`): rolling stderr/crash log (512 KB × 3 files)
+- `reports/square-yuma-report-<version>-<timestamp>.zip`: diagnostics bundles saved from **Settings → About → Save a report** (secrets redacted; local paths excluded unless ticked)
+- `self-check.txt`: output of the last `--self-check` run (included in diagnostic reports)
+- `analysis/`, `local_index.json`, `local_folders.json`, `playlists/`, `downloads.json`, `queue.json`, `listening.json`
+
+### Cutting a `yuma-pc-vX.Y.Z` release
+
+Desktop releases use `yuma-pc-v*` tags independently of Android `v*` tags:
+
+1. Bump `desktopVersion` in `desktop/build.gradle.kts` (never change `upgradeUuid = "67fc8a84-7a38-4b2f-bb0f-8df4ac7267af"`, or MSI upgrades will break).
+2. Commit and push to GitHub, then create and push tag `yuma-pc-vX.Y.Z` (or run `.github/workflows/desktop-windows.yml` via `workflow_dispatch` first to verify).
+3. Create the GitHub Release for `yuma-pc-vX.Y.Z`; `.github/workflows/desktop-windows.yml` builds `Square-Yuma-PC-X.Y.Z-windows-x64.msi` and `Square-Yuma-PC-X.Y.Z-windows-x64.zip` and uploads them to the release.
 
 ## Notes for anyone reading the code
 

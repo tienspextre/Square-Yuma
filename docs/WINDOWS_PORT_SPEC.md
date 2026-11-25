@@ -136,10 +136,11 @@ analyze(...)                                 // existing yuma_analysis entry poi
 `MixStyle` {BLEND, FILTER_SWEEP, BASS_HANDOFF, EQUAL_POWER}; `TransitionTier` {SMART_BEATMATCH, PLAIN_CROSSFADE, GAPLESS, HARD_CUT}; `LoopAudioProcessor`/`PcmLoop`; speed returns to the listener's rate over the last 35 % of the mix; `TransitionRules` (spoken word / live recording detection by metadata not by title words; album playthrough gapless vs *Automix Albums*; durations 0/3/6/9/12 s). Planners are shared Kotlin; desktop executes plans in C++. Analysis cache: `%USERPROFILE%/.square-yuma/analysis`.
 
 ## 5. Desktop UI (Phases 4–5)
-Frameless window (Compose `undecorated` + Win32 subclass: `WM_NCCALCSIZE`, `WM_NCHITTEST` → `HTCAPTION`/`HTMAXBUTTON` for Snap Layouts, `DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE)`, `DwmExtendFrameIntoClientArea` for shadow), via JNA-free JNI in the same DLL.
+Frameless window (Compose `undecorated` + Win32 subclass: `WM_NCCALCSIZE`, `WM_NCHITTEST` → `HTCAPTION`/`HTMAXBUTTON` for Snap Layouts, `DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE)`, `DwmExtendFrameIntoClientArea` for shadow), via JNA-free JAWT/JNI (`window_win.cpp`) in `square_win_native.dll` without `--add-opens`.
 Shell: glass titlebar (back/forward, `Ctrl+K` search, mini-player toggle, min/max/close) · collapsible sidebar (Home, Library[Songs, Albums, Artists, Playlists], Local Folders, Downloads/Offline, Settings; icon rail when narrow) · main pane · toggleable inspector (Lyrics | Queue | Audio & Automix chain) · floating transport bar · immersive fullscreen NowPlaying · always-on-top mini-player.
 Tray: close → tray; dispose Compose `Window` and Skia caches; engine keeps playing; tray menu Play/Pause, Next, Previous, Mini-player, Open, Quit.
-Shortcuts: `Space`, `Ctrl+K`, `Ctrl+L` (lyrics), `Ctrl+Q` (queue), `Ctrl+Left/Right`, wheel on volume. 12 languages, glass profiles Performance/Balanced/Quality.
+Memory / tray RSS target (revised Phase 5b): the original aspirational 60–90 MB RSS target is **not reachable** for an OpenJDK 21 + Skia + Skiko + Compose Desktop + ONNX Runtime process. With SerialGC (`-Xms16m -Xmx128m -XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=20m -Xss512k`), `SharedFontFamilyResolver`, `SharedHttp` cancellation/eviction, idle ONNX session release, Skia `DirectContext` purge on tray entry, `MALLOC_ARENA_MAX=2` + `malloc_trim(0)` (Linux) / `HeapCompact` + `EmptyWorkingSet` (Windows), the measured Linux RSS floor is **~350–373 MB on OpenGL** (~270–277 MB on Skia Software rendering, isolating ~90–98 MB Mesa `llvmpipe` overhead on headless X11).
+Shortcuts: `Space`, `Ctrl+K`, `Ctrl+L` (lyrics), `Ctrl+Q` (queue), `Ctrl+Left/Right`, wheel on volume, `F11`, `Ctrl+M`, `Alt+Left/Right`, `Ctrl+,`. 12 languages, glass profiles Performance/Balanced/Quality.
 
 ## 6. Feature/screen parity checklist
 
@@ -165,5 +166,5 @@ Shortcuts: `Space`, `Ctrl+K`, `Ctrl+L` (lyrics), `Ctrl+Q` (queue), `Ctrl+Left/Ri
 - Phase 1: `./gradlew :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :desktop:compileKotlin`.
 - Phase 2: + native unit tests (ctest), `square-yuma --self-check`.
 - Phase 3: + `:desktop:test` (scanner, playlist sync, queue persistence, PairPlanner on both sources).
-- Phase 4–5: manual checklist in PROGRESS + `:desktop:test`.
-- Phase 6: full suite + `desktop-windows.yml` green with smoke test.
+- Phase 4–5: manual checklist in PROGRESS + `:desktop:test` + `--soak-test` (`underruns=0`, RSS `verdict=PASS`).
+- Phase 6: full suite (including `:app:assembleRelease` R8), `createDistributable` `--self-check`, and `desktop-windows.yml` green with MSVC build, CTest, `:desktop:test`, MSI/zip packaging, and portable `--self-check` smoke test.

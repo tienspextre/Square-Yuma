@@ -8,7 +8,7 @@ plugins {
 }
 
 /** Desktop releases are numbered on their own (tags yuma-pc-vX.Y.Z); the Android versionName is not touched. */
-val desktopVersion = "1.4.0"
+val desktopVersion = "2.0.0"
 
 /** The native C++20 engine + analysis library (native/windows), built for Linux; Windows CI builds the .dll. */
 val squareWinNativeLinux by tasks.registering(Exec::class) {
@@ -87,9 +87,13 @@ compose.desktop.application {
         description = "Navidrome/Subsonic music player"
         vendor = "Square-Yuma"
         licenseFile.set(project.file("../LICENSE"))
-        modules("java.naming", "java.prefs", "java.sql", "jdk.unsupported", "java.net.http", "java.logging", "jdk.security.auth")
+        // Minimized via `./gradlew :desktop:suggestRuntimeModules` + `jdk.crypto.ec` for TLS ECDHE (HTTPS).
+        modules("java.instrument", "java.prefs", "jdk.security.auth", "jdk.unsupported", "jdk.crypto.ec")
         linux {
-            // Packaged Linux launcher wrappers should export MALLOC_ARENA_MAX=2 to avoid multi-arena RSS sprawl before nativeInit().
+            // jpackage's native Linux launcher cannot set env vars before glibc spawns threads.
+            // When distributing or running the .deb launcher, wrap or launch with:
+            //   Exec=env MALLOC_ARENA_MAX=2 /opt/square-yuma/bin/square-yuma %U
+            // so glibc bounds per-thread arenas before OpenJDK/AWT/Skia startup (saves ~60+ MB RSS).
             iconFile.set(project.file("../docs/square.png"))
             shortcut = true
             menuGroup = "AudioVideo;Audio;Player"
