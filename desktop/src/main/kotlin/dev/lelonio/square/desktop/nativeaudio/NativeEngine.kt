@@ -86,6 +86,11 @@ object NativeEngine {
 
     @Volatile
     private var loaded = false
+    @Volatile
+    private var activeCallback: Callback? = null
+
+    val hasRegisteredCallback: Boolean get() = activeCallback != null
+    val registeredCallbackCount: Int get() = if (activeCallback != null) 1 else 0
 
     fun ensureLoaded() {
         if (loaded) return
@@ -103,6 +108,7 @@ object NativeEngine {
     }
 
     fun shutdown() {
+        activeCallback = null
         if (!loaded) return
         nativeShutdown()
     }
@@ -207,6 +213,7 @@ object NativeEngine {
         smtcUpdate(json.encodeToString(payload), artwork)
 
     fun setCallback(cb: Callback?) {
+        activeCallback = cb
         ensureLoaded()
         nativeSetCallback(cb)
     }

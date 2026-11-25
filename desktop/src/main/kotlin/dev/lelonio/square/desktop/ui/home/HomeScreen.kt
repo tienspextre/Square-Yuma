@@ -49,7 +49,9 @@ import dev.lelonio.square.desktop.ui.components.Gutter
 import dev.lelonio.square.desktop.ui.components.Loaded
 import dev.lelonio.square.desktop.ui.components.MaxContent
 import dev.lelonio.square.desktop.ui.components.Pill
+import dev.lelonio.square.desktop.ui.components.PlaylistContextWrapper
 import dev.lelonio.square.desktop.ui.components.Shelf
+import dev.lelonio.square.desktop.ui.components.SongContextWrapper
 import dev.lelonio.square.desktop.ui.components.Title
 import dev.lelonio.square.desktop.ui.components.load
 import dev.lelonio.square.ui.theme.InkDim
@@ -73,8 +75,9 @@ fun HomeScreen(state: AppState) {
                         LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                             itemsIndexed(kept.take(30), key = { _, s -> "d" + s.id }) { i, s ->
                                 Box(Modifier.width(160.dp)) {
-                                    Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(kept, i) }) {
-                                        state.player.playQueue(kept, i)
+                                    val play = { state.player.playQueue(kept, i) }
+                                    SongContextWrapper(state, s, play) { menuMod ->
+                                        Card(s.title, s.artist, state.cover(s.coverArt), modifier = menuMod, onPlay = play, onClick = play)
                                     }
                                 }
                             }
@@ -91,8 +94,9 @@ fun HomeScreen(state: AppState) {
                         LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                             itemsIndexed(localSongs.take(30), key = { _, s -> "l" + s.id }) { i, s ->
                                 Box(Modifier.width(160.dp)) {
-                                    Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(localSongs, i) }) {
-                                        state.player.playQueue(localSongs, i)
+                                    val play = { state.player.playQueue(localSongs, i) }
+                                    SongContextWrapper(state, s, play) { menuMod ->
+                                        Card(s.title, s.artist, state.cover(s.coverArt), modifier = menuMod, onPlay = play, onClick = play)
                                     }
                                 }
                             }
@@ -130,8 +134,9 @@ fun HomeScreen(state: AppState) {
                     LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                         itemsIndexed(kept.take(30), key = { _, s -> "d" + s.id }) { i, s ->
                             Box(Modifier.width(160.dp)) {
-                                Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(kept, i) }) {
-                                    state.player.playQueue(kept, i)
+                                val play = { state.player.playQueue(kept, i) }
+                                SongContextWrapper(state, s, play) { menuMod ->
+                                    Card(s.title, s.artist, state.cover(s.coverArt), modifier = menuMod, onPlay = play, onClick = play)
                                 }
                             }
                         }
@@ -149,8 +154,9 @@ fun HomeScreen(state: AppState) {
                     LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                         itemsIndexed(localSongs, key = { _, s -> "lh" + s.id }) { i, s ->
                             Box(Modifier.width(160.dp)) {
-                                Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(localSongs, i) }) {
-                                    state.player.playQueue(localSongs, i)
+                                val play = { state.player.playQueue(localSongs, i) }
+                                SongContextWrapper(state, s, play) { menuMod ->
+                                    Card(s.title, s.artist, state.cover(s.coverArt), modifier = menuMod, onPlay = play, onClick = play)
                                 }
                             }
                         }
@@ -168,8 +174,9 @@ fun HomeScreen(state: AppState) {
                         LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                             itemsIndexed(songs, key = { _, s -> "q" + s.id }) { i, s ->
                                 Box(Modifier.width(160.dp)) {
-                                    Card(s.title, s.artist, state.cover(s.coverArt), onPlay = { state.player.playQueue(songs, i) }) {
-                                        state.player.playQueue(songs, i)
+                                    val play = { state.player.playQueue(songs, i) }
+                                    SongContextWrapper(state, s, play) { menuMod ->
+                                        Card(s.title, s.artist, state.cover(s.coverArt), modifier = menuMod, onPlay = play, onClick = play)
                                     }
                                 }
                             }
@@ -192,8 +199,10 @@ fun HomeScreen(state: AppState) {
                         LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                             items(list, key = { "p" + it.id }) { p ->
                                 Box(Modifier.width(184.dp)) {
-                                    Card(p.name, "${p.songCount} ${str("desktop_songs_unit")}", state.cover(p.coverArt)) {
-                                        state.open(Screen.Playlist(p.id, p.name))
+                                    PlaylistContextWrapper(state, p) { menuMod ->
+                                        Card(p.name, "${p.songCount} ${str("desktop_songs_unit")}", state.cover(p.coverArt), modifier = menuMod) {
+                                            state.open(Screen.Playlist(p.id, p.name))
+                                        }
                                     }
                                 }
                             }

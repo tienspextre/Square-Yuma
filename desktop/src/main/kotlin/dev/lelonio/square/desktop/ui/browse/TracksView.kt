@@ -1,6 +1,7 @@
 package dev.lelonio.square.desktop.ui.browse
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Fill
@@ -48,6 +52,7 @@ import com.adamglin.phosphoricons.regular.SortDescending
 import com.adamglin.phosphoricons.regular.Trash
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import dev.lelonio.square.desktop.AppState
+import dev.lelonio.square.desktop.DropZone
 import dev.lelonio.square.desktop.LocalCatalog
 import dev.lelonio.square.desktop.str
 import dev.lelonio.square.desktop.ui.components.Artwork
@@ -123,7 +128,29 @@ fun Tracks(
         },
     )
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    DisposableEffect(isLocalPlaylist) {
+        onDispose { state.playlistDropBounds = null }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (isLocalPlaylist) {
+                    Modifier.onGloballyPositioned { state.playlistDropBounds = it.boundsInWindow() }
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (isLocalPlaylist && state.dropZoneHighlight == DropZone.LOCAL_PLAYLIST) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp))
+                } else {
+                    Modifier
+                },
+            ),
+        contentAlignment = Alignment.TopCenter,
+    ) {
         LazyColumn(Modifier.widthIn(max = MaxContent).fillMaxSize(), contentPadding = PaddingValues(Gutter, 18.dp, Gutter, BarClearance)) {
             item {
                 BackButton(state)

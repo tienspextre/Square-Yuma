@@ -1,6 +1,7 @@
 package dev.lelonio.square.desktop.ui.shell
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +36,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +53,7 @@ import com.adamglin.phosphoricons.regular.Shuffle
 import com.adamglin.phosphoricons.regular.Sparkle
 import com.adamglin.phosphoricons.regular.X
 import dev.lelonio.square.desktop.AppState
+import dev.lelonio.square.desktop.DropZone
 import dev.lelonio.square.desktop.RepeatMode
 import dev.lelonio.square.desktop.str
 import dev.lelonio.square.desktop.ui.components.Artwork
@@ -83,7 +88,22 @@ fun QueueInspectorContent(state: AppState, modifier: Modifier = Modifier) {
         onMove = { from, to -> p.move(from, to) },
     )
 
-    Column(modifier.fillMaxSize()) {
+    DisposableEffect(Unit) {
+        onDispose { state.queueDropBounds = null }
+    }
+
+    Column(
+        modifier
+            .fillMaxSize()
+            .onGloballyPositioned { state.queueDropBounds = it.boundsInWindow() }
+            .then(
+                if (state.dropZoneHighlight == DropZone.QUEUE_INSPECTOR) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp))
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
         // Queue controls row: Smart Shuffle, Shuffle, Repeat, Radio from song, Autoplay at end, Clear
         Row(
             Modifier.fillMaxWidth().padding(bottom = 8.dp),

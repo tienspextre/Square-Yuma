@@ -124,6 +124,7 @@ private:
         std::atomic<uint32_t> sourceSampleRate{44100};
         std::atomic<uint16_t> sourceChannels{2};
         std::atomic<bool> endedNotified{false};
+        std::atomic<bool> hasRenderedAudio{false};
 
         BungeeStretcher bungee;
         DjFilter djFilter;
@@ -211,6 +212,7 @@ private:
     std::vector<float> bufMix_;
     std::vector<uint8_t> bufRaw_;
     std::atomic<bool> sleepTimerTriggered_{false};
+    std::atomic<uint64_t> underruns_{0};
 
     // Control-side copy of DSP config
     DspConfig controlDsp_{};

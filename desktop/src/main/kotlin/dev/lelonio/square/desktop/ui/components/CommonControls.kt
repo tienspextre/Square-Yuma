@@ -83,7 +83,7 @@ import kotlinx.coroutines.launch
 
 val MaxContent = 1480.dp
 val Gutter = 28.dp
-val BarClearance = 108.dp
+val BarClearance = 120.dp
 
 @Composable
 fun <T> load(state: AppState, vararg keys: Any?, block: suspend () -> Result<T>): Result<T>? =
@@ -124,6 +124,7 @@ fun Card(
     subtitle: String?,
     cover: String?,
     round: Boolean = false,
+    modifier: Modifier = Modifier,
     onPlay: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -131,7 +132,7 @@ fun Card(
     val hovered by hover.collectIsHoveredAsState()
     val scale by animateFloatAsState(if (hovered) 1.03f else 1f, spring(stiffness = 500f))
     val shape = if (round) CircleShape else RoundedCornerShape(12.dp)
-    Column(Modifier.hoverable(hover).clickable(onClick = onClick).pointerHoverIcon(PointerIcon.Hand)) {
+    Column(modifier.hoverable(hover).clickable(onClick = onClick).pointerHoverIcon(PointerIcon.Hand)) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).scale(scale).softShadow(shape, if (hovered) 22.dp else 14.dp)) {
             Artwork(cover, Modifier.fillMaxSize().clip(shape))
             if (onPlay != null) {
@@ -158,25 +159,30 @@ fun Card(
 @Composable
 fun AlbumCard(state: AppState, a: SubsonicAlbumEntry) {
     val scope = rememberCoroutineScope()
-    Card(
-        a.name,
-        listOfNotNull(a.artist, a.year?.toString()).joinToString(" · "),
-        state.cover(a.coverArt),
-        onPlay = {
-            if (state.offlineMode) {
-                val cached = state.downloads.cachedSongs().filter { (it.albumId ?: it.album.orEmpty()) == a.id }
-                if (cached.isNotEmpty()) state.player.playQueue(cached)
-            } else {
-                scope.launch { state.client.getAlbum(a.id).onSuccess { state.player.playQueue(it) } }
-            }
-        },
-    ) { state.open(Screen.Album(a.id, a.name)) }
+    AlbumContextWrapper(state, a) { menuMod ->
+        Card(
+            a.name,
+            listOfNotNull(a.artist, a.year?.toString()).joinToString(" · "),
+            state.cover(a.coverArt),
+            modifier = menuMod,
+            onPlay = {
+                if (state.offlineMode) {
+                    val cached = state.downloads.cachedSongs().filter { (it.albumId ?: it.album.orEmpty()) == a.id }
+                    if (cached.isNotEmpty()) state.player.playQueue(cached)
+                } else {
+                    scope.launch { state.client.getAlbum(a.id).onSuccess { state.player.playQueue(it) } }
+                }
+            },
+        ) { state.open(Screen.Album(a.id, a.name)) }
+    }
 }
 
 @Composable
 fun ArtistCard(state: AppState, a: SubsonicArtistItem) =
-    Card(a.name, str("album_count", a.albumCount), state.cover(a.coverArt), round = true) {
-        state.open(Screen.Artist(a.id, a.name))
+    ArtistContextWrapper(state, a) { menuMod ->
+        Card(a.name, str("album_count", a.albumCount), state.cover(a.coverArt), round = true, modifier = menuMod) {
+            state.open(Screen.Artist(a.id, a.name))
+        }
     }
 
 @Composable
@@ -230,13 +236,14 @@ fun ListEntry(
     title: String,
     subtitle: String,
     round: Boolean = false,
+    modifier: Modifier = Modifier,
     trailing: @Composable () -> Unit = {},
     onClick: () -> Unit,
 ) {
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (hovered) Ink.copy(alpha = 0.07f) else Color.Transparent)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (hovered) Ink.copy(alpha = 0.07f) else Color.Transparent)
             .hoverable(hover).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

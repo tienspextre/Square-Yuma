@@ -11,7 +11,7 @@ tick boxes, list touched files, paste the gate command and its result, and write
 | 2 — Native engine (WASAPI, decoders, DSP, SMTC, JNI) | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
 | 3 — Local library + Subsonic parity, queue persistence | done (Linux gate green 2026-11-25) |
 | 4 — Frameless window, 3-pane glass UI, desktop package split | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
-| 5 — Fullscreen, mini-player, PC ergonomics, tray low-RAM | not started |
+| 5 — Fullscreen, mini-player, PC ergonomics, tray low-RAM | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
 | 6 — Installer, auto-update, diagnostics, CI | not started |
 
 ## Baseline (before Phase 1)
@@ -61,8 +61,56 @@ Gate `./gradlew :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :
 - [x] Localization: single source of truth from `app/src/main/res/values*/strings.xml` packaged via `:desktop:sharedResources` (`android-res/`) + desktop-only XML files (`desktop/src/main/resources/i18n/values*/strings.xml`) parsed at runtime across all 12 languages with `en` fallback
 - [x] Unit tests in `:desktop:test` (`NavigationHistoryTest`, `SidebarCollapseTest`, `StringsLoaderTest`, `WindowHitTestTest`, `QueueReorderTest`) + ~60s live soak + verification screenshots under `docs/screenshots/windows-port/`
 
+## Phase 5 checklist
+- [x] Immersive Fullscreen NowPlaying: borderless fullscreen (`F11` / artwork double-click / button, `Esc` exits), shared `AmbientBackground` & album-adaptive palette, shared synced `LyricsView`, `LiquidSlider` + `AutomixBadge` / `mixRing`, 3 s mouse-idle auto-hide of controls and cursor; native `hitTestPoint` returns `HTCLIENT` when caption/resize insets are zero in fullscreen
+- [x] Floating Mini-Player: always-on-top undecorated Compose window (`MiniPlayerWindow.kt`) with artwork, title/artist, `mixRing`, prev/play/next, thin progress bar, whole-window drag, per-monitor position persistence & clamping (`MiniPlayerBounds.kt`), toggled via titlebar button & `Ctrl+M` (main hides while mini shows and restores at previous bounds)
+- [x] Shared `GlassMenu` context menu (`ContextMenus.kt`): right-click and `Menu` / `Shift+F10` across track rows, albums, artists, playlists, and grid cards (`Play`, `Play next`, `Add to queue`, `Add to playlist…`, `Go to album`, `Go to artist`, `Download`/`Remove download`, `Show in folder` via `explorer.exe /select,` on Windows or `xdg-open` parent on Linux, `Start radio`, `Remove from playlist`)
+- [x] Drag & Drop (`DropTargetHandler.kt` + `Shell.kt` / `QueueInspector.kt`): Explorer/file-manager drops of audio files play immediately, folders prompt with confirmation snackbar to add as Local root, drops onto Queue Inspector append, drops onto a local playlist add
+- [x] Global in-app shortcuts (`ShortcutDispatch.kt`, suppressed during text input except Ctrl-combos): `Space`, `Ctrl+K`, `Ctrl+L`, `Ctrl+Q`, `Ctrl+Left/Right`, `Ctrl+Up/Down`, mouse wheel on volume, `F11`, `Ctrl+M`, `Alt+Left/Right`, `Ctrl+,` — documented in Settings → Shortcuts
+- [x] System Tray + headless low-RAM mode (`TrayManager.kt`, `WindowTrayController.kt`, `Main.kt`): close (`X`) hides to tray when "Close to tray" is enabled (default on, first-time notice shown; graceful exit fallback on Linux if AWT `SystemTray` unsupported); tray menu (`Play/Pause`, `Next`, `Previous`, `Mini-Player`, `Open`, `Quit`) + left-click restore; dispose Compose main/mini windows from composition, clear artwork & ambient blur caches, release Skia `DirectContext` GPU resources (`flush`, `resourceCacheLimit = 0`, `abandon`), and request GC while keeping audio playback (`NativeEngine`), SMTC HWND, and queue persistence running uninterrupted
+- [x] Fixed Phase 4 Light+Performance `TransportBar` glass readability & bottom `BarClearance` (`120.dp`)
+- [x] Unit & leak tests in `:desktop:test` (`ShortcutDispatchTest`, `MiniPlayerBoundsTest`, `DropTargetHandlerTest`, `WindowTrayAndLeakTest`, `WindowHitTestTest` fullscreen check), live 10-cycle `--soak-test` (`maxUnderruns=0`, `posAdvanced=true`), and Phase 5 verification screenshots under `docs/screenshots/windows-port/` (< 5 MB total)
+
 ## Log
 _(newest first)_
+
+### 2026-11-25 — Phase 5 landed
+Gates on Linux:
+- `cmake -S native/windows -B native/windows/build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build native/windows/build && ctest --test-dir native/windows/build --output-on-failure`: **4/4 passed** (`ring_buffer`, `dsp_chain`, `decoders`, `exclusive_format`).
+- `./gradlew --console=plain :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :shared:core:desktopTest :desktop:test :desktop:compileKotlin`: **BUILD SUCCESSFUL** (`:app:testDebugUnitTest` 66, `:core:audio-dsp:testDebugUnitTest` 24, `:core:audio-dsp:desktopTest` 21, `:shared:core:desktopTest` 6, `:desktop:test` 29; 0 failures, 0 errors, 0 skipped).
+- `./gradlew -q :desktop:run --args=--self-check`: exit 0 (`self-check ok: native self-check ok (4 MixStyles + full DSP + AnalyzeAudio) (duration=1.0s lufs=-19.9)`).
+- Live 10-cycle soak test (`XMODIFIERS=@im=none DISPLAY=:1 ./gradlew --console=plain :desktop:run --args=--soak-test`): exit 0, `SOAK_SUMMARY initialPosMs=243 finalPosMs=21970 posAdvanced=true maxUnderruns=0 avgShownHeapMb=30.38 avgTrayHeapMb=29.00` (steady-state cycles 6–10 `TrayPostGc` heap `20.64–20.91 MB` vs `31–38 MB` shown; `underruns=0` across all 50 samples). Note: `XMODIFIERS=@im=none` was passed on this Linux host to avoid an OpenJDK X11/XIM `disposeXIC` hang triggered by `fcitx` when rapidly disposing and recreating AWT `ComposeWindow`s.
+- `find desktop/src/main -name '*.kt' -size +26k`: 0 files.
+- Screenshots captured under `docs/screenshots/windows-port/` (total folder size `4.2M`): `10_fixed_transport_light_perf.png`, `11_context_menu.png`, `12_mini_player.png`, `13_fullscreen_now_playing.png`.
+
+Created:
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{DropTargetHandler,MiniPlayerBounds,ShortcutDispatch,SoakTestRunner,TrayManager,WindowTrayController}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/components/ContextMenus.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/player/MiniPlayerWindow.kt`
+- `desktop/src/test/kotlin/dev/lelonio/square/desktop/{DropTargetHandlerTest,MiniPlayerBoundsTest,ShortcutDispatchTest,WindowTrayAndLeakTest}.kt`
+- `docs/screenshots/windows-port/{10_fixed_transport_light_perf,11_context_menu,12_mini_player,13_fullscreen_now_playing}.png`
+
+Changed:
+- `native/windows/src/{engine.h,engine.cpp}` (non-EOF `underruns_` counter exposed in `statusJson()`)
+- `native/windows/src/window_win.cpp` (`hitTestPoint` returns `HTCLIENT` for fullscreen `captionHeightPx <= 0 && resizeBorderPx <= 0`)
+- `desktop/src/main/resources/i18n/values/strings.xml` (Phase 5 `desktop_*` keys)
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{AppState,Automix,DesktopPlayer,Main,QueueLogic}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/nativeaudio/NativeEngine.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/browse/TracksView.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/components/{AmbientBackground,Artwork,CommonControls,TrackRow}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/home/HomeScreen.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/library/{LibraryScreen,LocalFoldersScreen,PlaylistsScreen}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/player/{NowPlaying,TransportBar}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/settings/SettingsScreen.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/shell/{QueueInspector,Shell,WindowFrame,WindowHitTest}.kt`
+- `desktop/src/test/kotlin/dev/lelonio/square/desktop/WindowHitTestTest.kt`
+
+Deleted: none.
+
+Untested Windows-only code (host is Linux, no MSVC/MinGW):
+- `native/windows/src/window_win.cpp` (including Phase 5 fullscreen `hitTestPoint` `HTCLIENT` branch), `native/windows/src/{wasapi_out.cpp,smtc_win.cpp,http_stream_win.cpp,mf_aac_decoder.cpp}`, and Windows `explorer.exe /select,` + AWT `SystemTray` behavior on Windows 10/11 (Linux tested via AWT fallback / XFCE).
+
+Next: Phase 6 (MSI/MSIX installer, auto-update, diagnostics bundle, Windows CI & end-to-end verification of native Windows code).
 
 ### 2026-11-25 — Phase 4 landed
 Gates on Linux:
@@ -173,3 +221,8 @@ Deviations from the spec (all deliberate):
 Known risks: R8/release build and `:app:assembleRelease` were not run (consumer/keep rules unchanged, packages unchanged); `compileCommonMainKotlinMetadata` is not expected to pass; the desktop app was compiled but not launched.
 
 Next: Phase 2 (native `square_win_native.dll`, WASAPI, JNI). Desktop still uses ffmpeg + `SourceDataLine` + jnativehook.
+
+### 2026-11-25 — Phase 5 independent verification (orchestrator)
+- Gate re-run with `--rerun-tasks`: green; `:desktop:test` 29, Android 66 + 24 unchanged.
+- `--soak-test` (10 cycles, Linux/OpenGL): audio OK (position advanced, underruns 0), Java heap after GC in Tray ≈ 21 MB.
+- **FAILED: native RSS.** Tray-post-GC RSS per cycle: 574, 578, 628, 621, 644, 656, 670, 677, 690, 706 MB → ~13 MB/cycle growth (native leak on window dispose/recreate) and absolute level far above the 60–90 MB target. Phase 5 stays open until a follow-up fixes the growth and lowers the baseline; see "Phase 5b".

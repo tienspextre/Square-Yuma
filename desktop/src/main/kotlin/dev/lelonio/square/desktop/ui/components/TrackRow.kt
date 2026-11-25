@@ -2,7 +2,9 @@ package dev.lelonio.square.desktop.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -35,13 +37,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Fill
@@ -51,6 +57,7 @@ import com.adamglin.phosphoricons.fill.Play
 import com.adamglin.phosphoricons.regular.Broadcast
 import com.adamglin.phosphoricons.regular.Disc
 import com.adamglin.phosphoricons.regular.DownloadSimple
+import com.adamglin.phosphoricons.regular.FolderOpen
 import com.adamglin.phosphoricons.regular.LinkSimple
 import com.adamglin.phosphoricons.regular.ListPlus
 import com.adamglin.phosphoricons.regular.MinusCircle
@@ -63,9 +70,11 @@ import com.adamglin.phosphoricons.regular.XCircle
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import dev.lelonio.square.data.CatalogPlaylist
 import dev.lelonio.square.desktop.AppState
+import dev.lelonio.square.desktop.DropTargetHandler
 import dev.lelonio.square.desktop.Inspection
 import dev.lelonio.square.desktop.LocalCatalog
 import dev.lelonio.square.desktop.Screen
+import dev.lelonio.square.desktop.ShortcutDispatch
 import dev.lelonio.square.desktop.inspect
 import dev.lelonio.square.desktop.str
 import dev.lelonio.square.ui.components.GlassMenu
@@ -86,6 +95,8 @@ fun TrackRow(
     onClick: () -> Unit,
 ) {
     var menuAt by remember { mutableStateOf<IntOffset?>(null) }
+    var focused by remember { mutableStateOf(false) }
+    var rowSize by remember { mutableStateOf(IntSize.Zero) }
     var confirmDelete by remember { mutableStateOf(false) }
     var inspecting by remember { mutableStateOf(false) }
     var pickingPlaylist by remember { mutableStateOf(false) }
@@ -115,16 +126,29 @@ fun TrackRow(
     Box {
         TrackRowBody(
             state, s, number, showArt, onClick,
-            Modifier.onPointerEvent(PointerEventType.Press) { e ->
-                if (e.buttons.isSecondaryPressed) {
-                    e.changes.first().position.let { menuAt = IntOffset(it.x.roundToInt(), it.y.roundToInt()) }
+            Modifier
+                .onSizeChanged { rowSize = it }
+                .onFocusChanged { focused = it.isFocused }
+                .focusable()
+                .then(if (focused) Modifier.border(1.dp, Ink.copy(alpha = 0.28f), RoundedCornerShape(8.dp)) else Modifier)
+                .onPointerEvent(PointerEventType.Press) { e ->
+                    if (e.buttons.isSecondaryPressed) {
+                        e.changes.first().position.let { menuAt = IntOffset(it.x.roundToInt(), it.y.roundToInt()) }
+                    }
                 }
-            },
+                .onPreviewKeyEvent { e ->
+                    if (ShortcutDispatch.isContextMenuShortcut(e)) {
+                        menuAt = IntOffset((rowSize.width / 3).coerceAtLeast(16), (rowSize.height / 2).coerceAtLeast(16))
+                        true
+                    } else {
+                        false
+                    }
+                },
         )
         GlassMenu(menuAt != null, menuAt ?: IntOffset.Zero, onDismiss = { menuAt = null }) {
+            GlassMenuItem(str("play"), PhosphorIcons.Fill.Play) { menuAt = null; onClick() }
             GlassMenuItem(str("desktop_play_next"), PhosphorIcons.Regular.Queue) { state.player.playNext(s); menuAt = null }
             GlassMenuItem(str("add_to_queue"), PhosphorIcons.Regular.ListPlus) { state.player.addToQueue(s); menuAt = null }
-            GlassMenuItem(str("desktop_radio_from_song"), PhosphorIcons.Regular.Broadcast) { state.startRadio(s); menuAt = null }
             GlassMenuItem(str("add_to_playlist"), PhosphorIcons.Regular.Plus) { menuAt = null; pickingPlaylist = true }
             s.albumId?.let { id ->
                 GlassMenuItem(str("go_to_album"), PhosphorIcons.Regular.Disc) {
@@ -146,7 +170,16 @@ fun TrackRow(
                 } else {
                     GlassMenuItem(str("download"), PhosphorIcons.Regular.DownloadSimple) { menuAt = null; state.download(listOf(s)) }
                 }
+            } else {
+                val trackPath = s.path ?: state.local.findById(s.id)?.path
+                if (!trackPath.isNullOrBlank()) {
+                    GlassMenuItem(str("desktop_show_in_folder"), PhosphorIcons.Regular.FolderOpen) {
+                        menuAt = null
+                        DropTargetHandler.openInFolder(state, trackPath)
+                    }
+                }
             }
+            GlassMenuItem(str("desktop_radio_from_song"), PhosphorIcons.Regular.Broadcast) { state.startRadio(s); menuAt = null }
             GlassMenuItem(str("inspect"), PhosphorIcons.Regular.Waveform) { menuAt = null; inspecting = true }
             if (!isLocal) {
                 GlassMenuItem(str("copy_link"), PhosphorIcons.Regular.LinkSimple) {

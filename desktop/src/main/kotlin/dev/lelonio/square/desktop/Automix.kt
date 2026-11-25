@@ -5,9 +5,12 @@ import dev.lelonio.square.desktop.nativeaudio.NativeEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import moe.rukamori.archivetune.audiodsp.AutomixPlan
 import moe.rukamori.archivetune.audiodsp.MixFeatures
 import moe.rukamori.archivetune.audiodsp.MixStyle
@@ -52,6 +55,19 @@ class Analyses(
     private val running = ConcurrentHashMap.newKeySet<String>()
     private val gate = Semaphore(1)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var closed = false
+
+    fun shutdown() {
+        closed = true
+        scope.cancel()
+        // Wait briefly for any in-flight native ONNX inference to exit before JVM shutdown tears down libonnxruntime
+        runBlocking {
+            withTimeoutOrNull(10_000L) {
+                gate.acquire()
+                gate.release()
+            }
+        }
+    }
 
     fun cacheKey(song: SubsonicChildSong): String =
         if (song.id.startsWith(LocalCatalog.LOCAL_TRACK_PREFIX)) {
@@ -75,11 +91,15 @@ class Analyses(
 
     /** Starts analysing [song] unless it is known or under way. */
     fun request(song: SubsonicChildSong) {
+        if (closed) return
         val k = cacheKey(song)
         if (durationMsOf(song) < 30_000L || get(k) != null || !running.add(k)) return
         scope.launch {
             try {
-                gate.withPermit { analyze(song)?.let { memory[k] = it; save(k, it) } }
+                gate.withPermit {
+                    if (closed) return@withPermit
+                    analyze(song)?.let { memory[k] = it; save(k, it) }
+                }
             } catch (t: Throwable) {
                 System.err.println("automix analysis failed for ${song.title}: $t")
             } finally { running.remove(k) }

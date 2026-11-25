@@ -140,6 +140,7 @@ bool NativeAudioEngine::init(bool headless) {
 
     evStop_.store(false);
     evThread_ = std::thread([this]() { eventLoop(); });
+    underruns_.store(0);
 
     smtc_ = createSmtcController();
     smtc_->start([this](const std::string& btn) {
@@ -342,6 +343,7 @@ bool NativeAudioEngine::deckLoad(int deck, const std::string& uri, const std::st
     d.eofDecoded.store(false);
     d.errorFlag.store(false);
     d.endedNotified.store(false);
+    d.hasRenderedAudio.store(false);
     d.lastError.clear();
     {
         std::lock_guard<std::mutex> lk(d.loopMu);
@@ -637,6 +639,7 @@ std::string NativeAudioEngine::statusJson() const {
         {"mixProgress", mixProgressAtomic_.load()},
         {"lufs", loudness_.lastMeasuredLufs()},
         {"normalizeGain", loudness_.currentGainLinear()},
+        {"underruns", underruns_.load()},
         {"bufferedMs", static_cast<int64_t>(d.floatRing.availableRead() * 1000ULL /
                                             std::max<size_t>(1, deviceSampleRate_ * deviceChannels_))},
     };
@@ -972,11 +975,14 @@ void NativeAudioEngine::renderAudio(void* output, uint32_t frameCount) {
             return;
         }
         const size_t gotBytes = d.rawRing.read(static_cast<uint8_t*>(output), wantBytes);
+        if (gotBytes > 0) d.hasRenderedAudio.store(true);
         if (gotBytes < wantBytes) {
             std::memset(static_cast<uint8_t*>(output) + gotBytes, 0, wantBytes - gotBytes);
             if (d.eofDecoded.load() && d.rawRing.availableRead() == 0 && !d.endedNotified.exchange(true)) {
                 d.playing.store(false);
                 rtEventRing_.pushOne({EventType::DECK_ENDED, active});
+            } else if (!d.eofDecoded.load() && d.hasRenderedAudio.load()) {
+                underruns_.fetch_add(1, std::memory_order_relaxed);
             }
         }
         const int64_t gotFrames = static_cast<int64_t>(gotBytes / std::max<size_t>(1, bytesPerFrame));
@@ -1041,6 +1047,12 @@ void NativeAudioEngine::renderAudio(void* output, uint32_t frameCount) {
             outDeck.floatRing, bufOut_.data(), static_cast<int>(frames), rtDsp_.speed, rtDsp_.pitch, outEnd);
         const size_t inConsumed = inDeck.bungee.renderFromRing(
             inDeck.floatRing, bufIn_.data(), static_cast<int>(frames), rtDsp_.speed * incTempo, rtDsp_.pitch, inEnd);
+        if (outConsumed > 0) outDeck.hasRenderedAudio.store(true);
+        if (inConsumed > 0) inDeck.hasRenderedAudio.store(true);
+        if ((outEnd && !outDeck.eofDecoded.load() && outDeck.hasRenderedAudio.load()) ||
+            (inEnd && !inDeck.eofDecoded.load() && inDeck.hasRenderedAudio.load())) {
+            underruns_.fetch_add(1, std::memory_order_relaxed);
+        }
 
         outDeck.sourceFramePos.fetch_add(
             static_cast<int64_t>(outConsumed) * outDeck.sourceSampleRate.load() / std::max<int64_t>(1, deviceSampleRate_));
@@ -1068,6 +1080,7 @@ void NativeAudioEngine::renderAudio(void* output, uint32_t frameCount) {
         bool reachedEnd = false;
         const size_t consumed = dOut.bungee.renderFromRing(
             dOut.floatRing, bufMix_.data(), static_cast<int>(frames), rtDsp_.speed, rtDsp_.pitch, reachedEnd);
+        if (consumed > 0) dOut.hasRenderedAudio.store(true);
         dOut.sourceFramePos.fetch_add(
             static_cast<int64_t>(consumed) * dOut.sourceSampleRate.load() / std::max<int64_t>(1, deviceSampleRate_));
 
@@ -1078,6 +1091,9 @@ void NativeAudioEngine::renderAudio(void* output, uint32_t frameCount) {
         manualShape.bassDb = rtDsp_.filterBassDb;
         dOut.djFilter.process(bufMix_.data(), static_cast<int>(frames), manualShape);
 
+        if (reachedEnd && !dOut.eofDecoded.load() && dOut.hasRenderedAudio.load()) {
+            underruns_.fetch_add(1, std::memory_order_relaxed);
+        }
         if (reachedEnd && dOut.eofDecoded.load() && dOut.floatRing.availableRead() == 0) {
             if (!dOut.endedNotified.exchange(true)) {
                 dOut.playing.store(false);

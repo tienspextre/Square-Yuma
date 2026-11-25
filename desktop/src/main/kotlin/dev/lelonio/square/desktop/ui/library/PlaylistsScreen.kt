@@ -30,6 +30,7 @@ import dev.lelonio.square.desktop.ui.components.Grid
 import dev.lelonio.square.desktop.ui.components.LayoutToggle
 import dev.lelonio.square.desktop.ui.components.ListEntry
 import dev.lelonio.square.desktop.ui.components.Pill
+import dev.lelonio.square.desktop.ui.components.PlaylistContextWrapper
 import dev.lelonio.square.desktop.ui.components.Title
 import dev.lelonio.square.desktop.ui.components.load
 import kotlinx.coroutines.launch
@@ -74,20 +75,23 @@ fun PlaylistsScreen(state: AppState) {
                 (if (isLocal) " · .m3u8" else "") +
                 (if (pin) " · " + str("pinned") else "")
             val open = { state.open(Screen.Playlist(p.id, p.name)) }
-            if (state.listMode) {
-                ListEntry(
-                    state.cover(p.coverArt, 100),
-                    p.name,
-                    sub,
-                    trailing = {
-                        Glyph(PhosphorIcons.Regular.PushPin, if (pin) "unpin" else "pin", active = pin) {
-                            state.togglePin(p.id, p.name, p.coverArt)
-                        }
-                    },
-                    onClick = open,
-                )
-            } else {
-                Card(p.name, sub, state.cover(p.coverArt), onClick = open)
+            PlaylistContextWrapper(state, p) { menuMod ->
+                if (state.listMode) {
+                    ListEntry(
+                        state.cover(p.coverArt, 100),
+                        p.name,
+                        sub,
+                        modifier = menuMod,
+                        trailing = {
+                            Glyph(PhosphorIcons.Regular.PushPin, if (pin) "unpin" else "pin", active = pin) {
+                                state.togglePin(p.id, p.name, p.coverArt)
+                            }
+                        },
+                        onClick = open,
+                    )
+                } else {
+                    Card(p.name, sub, state.cover(p.coverArt), modifier = menuMod, onClick = open)
+                }
             }
         }
     }

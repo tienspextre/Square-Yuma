@@ -30,6 +30,8 @@ class NativeWindowFrameController(
 
     var captionHeightPx: Int = 44
         private set
+    var fullscreenMode: Boolean = false
+        private set
     var minButtonRect: PixelRect = PixelRect()
         private set
     var maxButtonRect: PixelRect = PixelRect()
@@ -61,6 +63,13 @@ class NativeWindowFrameController(
         }
         installed = false
         hwnd = 0L
+    }
+
+    fun setFullscreen(fullscreen: Boolean) {
+        if (fullscreenMode != fullscreen) {
+            fullscreenMode = fullscreen
+            pushLayout()
+        }
     }
 
     fun updateCaptionHeight(heightPx: Int) {
@@ -96,8 +105,8 @@ class NativeWindowFrameController(
         if (!installed || hwnd == 0L) return
         NativeEngine.updateFrameLayout(
             hwnd = hwnd,
-            captionHeightPx = captionHeightPx,
-            resizeBorderPx = resizeBorderPx,
+            captionHeightPx = if (fullscreenMode) 0 else captionHeightPx,
+            resizeBorderPx = if (fullscreenMode) 0 else resizeBorderPx,
             minWidthPx = minWidthPx,
             minHeightPx = minHeightPx,
             buttonRects = packButtonRects(minButtonRect, maxButtonRect, closeButtonRect),

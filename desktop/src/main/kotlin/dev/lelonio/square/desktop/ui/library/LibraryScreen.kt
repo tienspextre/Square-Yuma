@@ -44,13 +44,16 @@ import dev.lelonio.square.desktop.LocalCatalog
 import dev.lelonio.square.desktop.Screen
 import dev.lelonio.square.desktop.str
 import dev.lelonio.square.desktop.ui.components.AlbumCard
+import dev.lelonio.square.desktop.ui.components.AlbumContextWrapper
 import dev.lelonio.square.desktop.ui.components.ArtistCard
+import dev.lelonio.square.desktop.ui.components.ArtistContextWrapper
 import dev.lelonio.square.desktop.ui.components.Card
 import dev.lelonio.square.desktop.ui.components.Glyph
 import dev.lelonio.square.desktop.ui.components.Grid
 import dev.lelonio.square.desktop.ui.components.LayoutToggle
 import dev.lelonio.square.desktop.ui.components.ListEntry
 import dev.lelonio.square.desktop.ui.components.Pill
+import dev.lelonio.square.desktop.ui.components.PlaylistContextWrapper
 import dev.lelonio.square.desktop.ui.components.Segmented
 import dev.lelonio.square.desktop.ui.components.Title
 import dev.lelonio.square.desktop.ui.components.TrackRow
@@ -154,11 +157,14 @@ fun LibraryScreen(state: AppState) {
             LibraryTab.ALBUMS -> {
                 items(albums, key = { "al:" + it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { a ->
                     if (state.listMode) {
-                        ListEntry(
-                            state.cover(a.coverArt, 100),
-                            a.name,
-                            listOfNotNull(a.artist, a.year?.toString()).joinToString(" · "),
-                        ) { state.open(Screen.Album(a.id, a.name)) }
+                        AlbumContextWrapper(state, a) { menuMod ->
+                            ListEntry(
+                                state.cover(a.coverArt, 100),
+                                a.name,
+                                listOfNotNull(a.artist, a.year?.toString()).joinToString(" · "),
+                                modifier = menuMod,
+                            ) { state.open(Screen.Album(a.id, a.name)) }
+                        }
                     } else {
                         AlbumCard(state, a)
                     }
@@ -171,8 +177,10 @@ fun LibraryScreen(state: AppState) {
             LibraryTab.ARTISTS -> {
                 items(artistList?.getOrNull().orEmpty(), key = { "ar:" + it.id }, span = { if (state.listMode) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { ar ->
                     if (state.listMode) {
-                        ListEntry(state.cover(ar.coverArt, 100), ar.name, str("album_count", ar.albumCount), round = true) {
-                            state.open(Screen.Artist(ar.id, ar.name))
+                        ArtistContextWrapper(state, ar) { menuMod ->
+                            ListEntry(state.cover(ar.coverArt, 100), ar.name, str("album_count", ar.albumCount), round = true, modifier = menuMod) {
+                                state.open(Screen.Artist(ar.id, ar.name))
+                            }
                         }
                     } else {
                         ArtistCard(state, ar)
@@ -188,20 +196,23 @@ fun LibraryScreen(state: AppState) {
                         (if (isLocal) " · .m3u8" else "") +
                         (if (pin) " · " + str("pinned") else "")
                     val open = { state.open(Screen.Playlist(p.id, p.name)) }
-                    if (state.listMode) {
-                        ListEntry(
-                            state.cover(p.coverArt, 100),
-                            p.name,
-                            sub,
-                            trailing = {
-                                Glyph(PhosphorIcons.Regular.PushPin, if (pin) "unpin" else "pin", active = pin) {
-                                    state.togglePin(p.id, p.name, p.coverArt)
-                                }
-                            },
-                            onClick = open,
-                        )
-                    } else {
-                        Card(p.name, sub, state.cover(p.coverArt), onClick = open)
+                    PlaylistContextWrapper(state, p) { menuMod ->
+                        if (state.listMode) {
+                            ListEntry(
+                                state.cover(p.coverArt, 100),
+                                p.name,
+                                sub,
+                                modifier = menuMod,
+                                trailing = {
+                                    Glyph(PhosphorIcons.Regular.PushPin, if (pin) "unpin" else "pin", active = pin) {
+                                        state.togglePin(p.id, p.name, p.coverArt)
+                                    }
+                                },
+                                onClick = open,
+                            )
+                        } else {
+                            Card(p.name, sub, state.cover(p.coverArt), modifier = menuMod, onClick = open)
+                        }
                     }
                 }
             }

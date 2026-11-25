@@ -84,6 +84,7 @@ data class AudioSignalChain(
     val mixProgress: Double = 0.0,
     val lufs: Double = Double.NaN,
     val normalizeGain: Double = 1.0,
+    val underruns: Long = 0L,
 ) {
     val qualityLabel: String?
         get() {
@@ -121,6 +122,7 @@ data class AudioSignalChain(
                     mixProgress = j.optDouble("mixProgress", 0.0),
                     lufs = j.optDouble("lufs", Double.NaN),
                     normalizeGain = j.optDouble("normalizeGain", 1.0),
+                    underruns = j.optLong("underruns", 0L),
                 )
             }.getOrDefault(AudioSignalChain())
         }

@@ -58,6 +58,9 @@ fun hitTestWindowFrame(
     if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) {
         return HitRegion.CLIENT
     }
+    if (captionHeightPx <= 0 && resizeBorderPx <= 0) {
+        return HitRegion.CLIENT
+    }
     if (!isMaximized) {
         val border = resizeBorderPx.coerceAtLeast(4)
         val left = x < border

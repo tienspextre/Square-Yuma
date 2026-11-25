@@ -4,6 +4,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -37,6 +39,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -64,6 +67,7 @@ import com.adamglin.phosphoricons.regular.SpeakerHigh
 import com.adamglin.phosphoricons.regular.SpeakerX
 import com.adamglin.phosphoricons.regular.Waveform
 import dev.lelonio.square.desktop.AppState
+import dev.lelonio.square.desktop.GlassProfile
 import dev.lelonio.square.desktop.InspectorTab
 import dev.lelonio.square.desktop.RepeatMode
 import dev.lelonio.square.desktop.str
@@ -78,6 +82,8 @@ import dev.lelonio.square.ui.glass.backdrop.Backdrop
 import dev.lelonio.square.ui.glass.liquidGlass
 import dev.lelonio.square.ui.theme.Ink
 import dev.lelonio.square.ui.theme.InkDim
+import dev.lelonio.square.ui.theme.LocalLightTheme
+import dev.lelonio.square.ui.theme.softShadow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,11 +107,23 @@ fun TransportBar(state: AppState, config: GlassEffectConfig, modifier: Modifier 
     val settle = remember { spring<Float>(stiffness = Spring.StiffnessMediumLow) }
     val gone = state.expand.value
     val pillShape = RoundedCornerShape(28.dp)
+    val light = LocalLightTheme.current
+    val barConfig = remember(state.glassProfile, config, light) {
+        transportGlassConfig(state.glassProfile, config, light)
+    }
+    val blurDp = when (state.glassProfile) {
+        GlassProfile.Performance -> 0f
+        GlassProfile.Balanced -> 14f
+        GlassProfile.Quality -> 24f
+    }
+    val edgeColor = if (light) Color.Black.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.14f)
 
     Box(
         modifier
             .graphicsLayer { scaleX = pressScale; scaleY = pressScale; alpha = 1f - gone * 0.6f }
-            .liquidGlass(config, pillShape, highlightAlpha = 0.3f)
+            .softShadow(pillShape, 20.dp, spot = if (light) 0.14f else 0.35f)
+            .liquidGlass(barConfig, pillShape, highlightAlpha = 0.32f, blurRadiusDp = blurDp)
+            .border(1.dp, edgeColor, pillShape)
             .automixNeonBorder(pillShape, chain.mixing)
             .then(glow.modifier)
             .clipToBounds()
@@ -329,6 +347,23 @@ fun Volume(state: AppState, modifier: Modifier, backdrop: Backdrop = LocalAppBac
             thumbPressedScale = 0.95f,
         )
     }
+}
+
+private fun transportGlassConfig(
+    profile: GlassProfile,
+    base: GlassEffectConfig,
+    light: Boolean,
+): GlassEffectConfig {
+    val tint = if (light) Color(0xFFF4F4F8) else Color(0xFF1F2028)
+    val opacity = when (profile) {
+        GlassProfile.Performance -> if (light) 0.94f else 0.92f
+        GlassProfile.Balanced -> if (light) 0.80f else 0.68f
+        GlassProfile.Quality -> if (light) 0.74f else 0.60f
+    }
+    return base.copy(
+        surfaceTintColor = tint,
+        surfaceOpacity = opacity,
+    )
 }
 
 private fun formatClock(ms: Long): String {

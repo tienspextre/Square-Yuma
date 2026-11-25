@@ -47,6 +47,7 @@ import dev.lelonio.square.desktop.GlassProfile
 import dev.lelonio.square.desktop.Language
 import dev.lelonio.square.desktop.Renderer
 import dev.lelonio.square.desktop.Screen
+import dev.lelonio.square.desktop.ShortcutDispatch
 import dev.lelonio.square.desktop.ThemeMode
 import dev.lelonio.square.desktop.diagnostics
 import dev.lelonio.square.desktop.str
@@ -250,15 +251,52 @@ fun SettingsScreen(state: AppState) {
                 }
             }
 
+            item { Toggle("desktop_close_to_tray", state.closeToTray) { state.useCloseToTray(it) } }
+            if (!state.traySupported) {
+                item {
+                    Text(
+                        str("desktop_tray_unavailable"),
+                        color = InkDim,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
             audioSettingsItems(state)
 
+            item { SectionLabel("desktop_shortcuts", Modifier.padding(top = 14.dp)) }
             item {
-                Text(
-                    str("desktop_keys_hint"),
-                    color = InkDim,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Ink.copy(alpha = 0.05f))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ShortcutDispatch.ALL_SHORTCUTS.forEach { spec ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                str(spec.labelKey),
+                                color = Ink,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                spec.keys,
+                                color = InkDim,
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Ink.copy(alpha = 0.08f))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
             }
             item { TextButton(onClick = { state.root(Screen.Home) }) { Text(str("desktop_done")) } }
         }

@@ -57,6 +57,24 @@ class WindowHitTestTest {
     }
 
     @Test
+    fun fullscreenDisablesCaptionAndResizeHitTest() {
+        val hitCorner = hitTestWindowFrame(
+            x = 0,
+            y = 0,
+            width = 1920,
+            height = 1080,
+            captionHeightPx = 0,
+            resizeBorderPx = 0,
+            isMaximized = false,
+            minButton = minBtn,
+            maxButton = maxBtn,
+            closeButton = closeBtn,
+            interactiveRects = emptyList(),
+        )
+        assertEquals(HitRegion.CLIENT, hitCorner)
+    }
+
+    @Test
     fun packsRectsForNativeBridge() {
         assertArrayEquals(
             intArrayOf(1140, 0, 1186, 44, 1186, 0, 1232, 44, 1232, 0, 1280, 44),

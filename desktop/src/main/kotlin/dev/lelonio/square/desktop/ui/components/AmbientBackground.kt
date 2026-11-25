@@ -97,6 +97,12 @@ private val blurCache = object : LinkedHashMap<String, ImageBitmap>(32, 0.75f, t
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 32
 }
 
+fun clearBlurCache() {
+    synchronized(blurCache) { blurCache.clear() }
+}
+
+fun blurCacheSize(): Int = synchronized(blurCache) { blurCache.size }
+
 private suspend fun blurred(url: String, px: Int, sigma: Float): ImageBitmap? {
     val key = "$px:" + if (url.contains("id=")) url.substringAfter("id=").substringBefore('&') else url
     synchronized(blurCache) { blurCache[key] }?.let { return it }

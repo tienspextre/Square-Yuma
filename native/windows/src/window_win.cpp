@@ -41,6 +41,9 @@ bool contains(const FrameRect& r, int32_t x, int32_t y) {
 }
 
 LRESULT hitTestPoint(HWND hwnd, const FrameLayout& layout, int screenX, int screenY) {
+    if (layout.captionHeightPx <= 0 && layout.resizeBorderPx <= 0) {
+        return HTCLIENT;
+    }
     RECT wr{};
     if (!GetWindowRect(hwnd, &wr)) return HTCLIENT;
 

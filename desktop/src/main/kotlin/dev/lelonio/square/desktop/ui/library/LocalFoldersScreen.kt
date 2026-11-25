@@ -42,11 +42,15 @@ import com.adamglin.phosphoricons.fill.Play
 import com.adamglin.phosphoricons.regular.ArrowsClockwise
 import com.adamglin.phosphoricons.regular.FolderPlus
 import com.adamglin.phosphoricons.regular.Shuffle
+import dev.lelonio.square.backend.subsonic.SubsonicAlbumEntry
+import dev.lelonio.square.backend.subsonic.SubsonicArtistItem
 import dev.lelonio.square.data.CatalogPlaylist
 import dev.lelonio.square.data.SearchItem
 import dev.lelonio.square.desktop.AppState
 import dev.lelonio.square.desktop.Screen
 import dev.lelonio.square.desktop.str
+import dev.lelonio.square.desktop.ui.components.AlbumContextWrapper
+import dev.lelonio.square.desktop.ui.components.ArtistContextWrapper
 import dev.lelonio.square.desktop.ui.components.BarClearance
 import dev.lelonio.square.desktop.ui.components.Gutter
 import dev.lelonio.square.desktop.ui.components.ListEntry
@@ -135,13 +139,19 @@ fun LocalFoldersScreen(state: AppState) {
                     TrackRow(state, s, null, true) { state.player.playQueue(songs, i) }
                 }
                 1 -> items(albums, key = { it.uri }) { a ->
-                    ListEntry(state.cover(a.artworkUrl, 100), a.name, a.subtitle.orEmpty()) {
-                        state.open(Screen.LocalAlbum(a.uri, a.name))
+                    val entry = remember(a) { SubsonicAlbumEntry(id = a.uri, name = a.name, coverArt = a.artworkUrl) }
+                    AlbumContextWrapper(state, entry) { menuMod ->
+                        ListEntry(state.cover(a.artworkUrl, 100), a.name, a.subtitle.orEmpty(), modifier = menuMod) {
+                            state.open(Screen.LocalAlbum(a.uri, a.name))
+                        }
                     }
                 }
                 else -> items(artists, key = { it.uri }) { a ->
-                    ListEntry(state.cover(a.artworkUrl, 100), a.title, a.subtitle, round = true) {
-                        state.open(Screen.LocalArtist(a.uri, a.title))
+                    val item = remember(a) { SubsonicArtistItem(id = a.uri, name = a.title, coverArt = a.artworkUrl) }
+                    ArtistContextWrapper(state, item) { menuMod ->
+                        ListEntry(state.cover(a.artworkUrl, 100), a.title, a.subtitle, round = true, modifier = menuMod) {
+                            state.open(Screen.LocalArtist(a.uri, a.title))
+                        }
                     }
                 }
             }

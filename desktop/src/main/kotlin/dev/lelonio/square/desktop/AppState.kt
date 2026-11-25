@@ -9,9 +9,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isAltPressed
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import dev.lelonio.square.backend.BackendId
@@ -19,16 +16,17 @@ import dev.lelonio.square.backend.subsonic.SubsonicCatalog
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import dev.lelonio.square.backend.subsonic.SubsonicClient
 import dev.lelonio.square.backend.subsonic.SubsonicPreferences
-import dev.lelonio.square.desktop.nativeaudio.NativeEngine
 import dev.lelonio.square.desktop.ui.components.Http
 import dev.lelonio.square.desktop.ui.components.loadArtworkBytes
 import dev.lelonio.square.desktop.ui.lyrics.LyricSource
 import dev.lelonio.square.ui.glass.GlassEffectConfig
 import dev.lelonio.square.ui.glass.GlassStyle
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -92,7 +90,12 @@ enum class Renderer(val label: String, val api: String?) {
 
 internal val uiPrefs: Preferences = Preferences.userRoot().node("square-yuma/ui")
 
-class AppState {
+class AppState(
+    initEngine: Boolean = true,
+    startMediaKeysService: Boolean = true,
+    installShutdownHook: Boolean = true,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+) {
     private val ui = uiPrefs
     val dataDir: Path = Paths.get(System.getProperty("user.home"), ".square-yuma")
     val prefs = SubsonicPreferences()
@@ -141,6 +144,7 @@ class AppState {
             loadArtworkBytes(u)
         },
         durationMsOf = local::durationMsOf,
+        initEngine = initEngine,
     ).apply {
         volume.value = ui.getFloat("volume", 0.8f)
         crossfadeSeconds = ui.getInt("crossfade", 6)
@@ -171,11 +175,21 @@ class AppState {
     }
 
     var nowPlaying by mutableStateOf(false)
+    var fullscreen by mutableStateOf(false)
     var typing by mutableStateOf(false)
     var themeMode by mutableStateOf(runCatching { ThemeMode.valueOf(ui.get("theme", "DARK")) }.getOrDefault(ThemeMode.DARK))
         private set
     var glassProfile by mutableStateOf(runCatching { GlassProfile.valueOf(ui.get("glass", "Balanced")) }.getOrDefault(GlassProfile.Balanced))
         private set
+    var closeToTray by mutableStateOf(ui.getBoolean("closeToTray", true))
+        private set
+    var trayNoticeShown by mutableStateOf(ui.getBoolean("trayNoticeShown", false))
+        private set
+    var traySupported by mutableStateOf(false)
+    var pendingDropFolders by mutableStateOf<List<Path>>(emptyList())
+    var dropZoneHighlight by mutableStateOf<DropZone?>(null)
+    var queueDropBounds by mutableStateOf<Rect?>(null)
+    var playlistDropBounds by mutableStateOf<Rect?>(null)
 
     /** 0 = bar, 1 = full NowPlaying sheet. */
     val expand = Animatable(0f)
@@ -200,10 +214,27 @@ class AppState {
     var quickSearchFocusTick by mutableStateOf(0)
         private set
 
-    /** Stubbed callback for Phase 5's always-on-top Mini-Player window. */
+    /** Callback for Phase 5's always-on-top Mini-Player window. */
     var onMiniPlayerToggle: (() -> Unit)? = null
+    var onCloseRequested: (() -> Unit)? = null
     fun requestMiniPlayerToggle() {
         onMiniPlayerToggle?.invoke()
+    }
+    fun toggleFullscreen() {
+        val next = !fullscreen
+        fullscreen = next
+        if (next) nowPlaying = true
+    }
+    fun exitFullscreen() {
+        fullscreen = false
+    }
+    fun useCloseToTray(on: Boolean) {
+        closeToTray = on
+        ui.putBoolean("closeToTray", on)
+    }
+    fun markTrayNoticeShown() {
+        trayNoticeShown = true
+        ui.putBoolean("trayNoticeShown", true)
     }
 
     fun selectLibraryTab(tab: LibraryTab) {
@@ -242,11 +273,15 @@ class AppState {
     var generation by mutableStateOf(0)
 
     var toast by mutableStateOf<String?>(null)
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
+    private var toastJob: Job? = null
     fun say(text: String) {
         toast = text
-        scope.launch { delay(3500); if (toast == text) toast = null }
+        toastJob?.cancel()
+        toastJob = scope.launch { delay(3500); if (toast == text) toast = null }
     }
+    fun activeChildJobCount(): Int =
+        scope.coroutineContext[Job]?.children?.count { it.isActive } ?: 0
 
     val listening = ListeningStore()
 
@@ -513,8 +548,10 @@ class AppState {
     init {
         downloads.offlineMode = offlineMode
         downloads.setCacheLimitBytes(cacheLimitGb.toLong() * 1_073_741_824L)
-        Thread({ startMediaKeys(this) }, "media-keys").apply { isDaemon = true }.start()
-        scope.launch { findUpdate()?.let { say(str("desktop_update_banner", it.version)) } }
+        if (startMediaKeysService) {
+            Thread({ startMediaKeys(this) }, "media-keys").apply { isDaemon = true }.start()
+            scope.launch { findUpdate()?.let { say(str("desktop_update_banner", it.version)) } }
+        }
         dev.lelonio.square.ui.theme.DesktopSystemFont.value = systemFont
         Strings.current = language
         if (player.outputMode != "shared" || player.outputDeviceId != null) {
@@ -536,12 +573,14 @@ class AppState {
         player.onQueueStateChanged = { scheduleQueueSave(250L) }
         player.onPositionChanged = { scheduleQueueSave(1500L) }
 
-        Runtime.getRuntime().addShutdownHook(Thread {
-            saveQueueNow()
-            listening.save()
-            local.close()
-            loudness.shutdown()
-        })
+        if (installShutdownHook) {
+            Runtime.getRuntime().addShutdownHook(Thread {
+                saveQueueNow()
+                listening.save()
+                local.close()
+                loudness.shutdown()
+            })
+        }
 
         if (local.folders.value.isNotEmpty()) {
             scope.launch { local.scan() }
@@ -587,6 +626,10 @@ class AppState {
     }
 
     fun back() {
+        if (fullscreen) {
+            fullscreen = false
+            return
+        }
         if (nowPlaying) {
             nowPlaying = false
             return
@@ -635,25 +678,28 @@ class AppState {
         player.setVolumeLevel(v); ui.putFloat("volume", player.volume.value)
     }
 
+    fun shutdown() {
+        queueSaveJob?.cancel()
+        toastJob?.cancel()
+        saveQueueNow()
+        listening.save()
+        local.close()
+        loudness.shutdown()
+        analyses.shutdown()
+        player.shutdown()
+        scope.cancel()
+    }
+
     fun onKey(e: KeyEvent): Boolean {
-        if (e.type != KeyEventType.KeyDown) return false
-        val mod = e.isCtrlPressed || e.isMetaPressed
-        if (mod && (e.key == Key.K || e.key == Key.F)) { focusQuickSearch(); return true }
-        if (mod && e.key == Key.L) { toggleInspector(InspectorTab.LYRICS); return true }
-        if (mod && e.key == Key.Q) { toggleInspector(InspectorTab.QUEUE); return true }
-        if (e.isAltPressed && e.key == Key.DirectionLeft) { back(); return true }
-        if (e.isAltPressed && e.key == Key.DirectionRight) { forward(); return true }
-        if (e.key == Key.Escape) { back(); return true }
-        if (typing) return false
-        when (e.key) {
-            Key.Spacebar -> player.toggle()
-            Key.DirectionRight -> if (mod) player.next() else player.seek(player.positionMs.value + 10_000)
-            Key.DirectionLeft -> if (mod) player.previous() else player.seek(player.positionMs.value - 10_000)
-            Key.DirectionUp -> setVolume(player.volume.value + 0.05f)
-            Key.DirectionDown -> setVolume(player.volume.value - 0.05f)
-            Key.L -> nowPlaying = !nowPlaying
-            else -> return false
+        val action = ShortcutDispatch.resolveEvent(e, typing) ?: return false
+        return ShortcutDispatch.dispatch(this, action)
+    }
+
+    fun onPostKey(e: KeyEvent): Boolean {
+        if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
+            back()
+            return true
         }
-        return true
+        return false
     }
 }

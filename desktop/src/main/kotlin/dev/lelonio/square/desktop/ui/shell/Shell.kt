@@ -8,7 +8,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -25,8 +27,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,9 +53,12 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.WindowState
 import dev.lelonio.square.desktop.AppState
+import dev.lelonio.square.desktop.DropTargetHandler
+import dev.lelonio.square.desktop.DropZone
 import dev.lelonio.square.desktop.NavMove
 import dev.lelonio.square.desktop.Screen
 import dev.lelonio.square.desktop.ThemeMode
+import dev.lelonio.square.desktop.str
 import dev.lelonio.square.desktop.ui.browse.AlbumScreen
 import dev.lelonio.square.desktop.ui.browse.ArtistScreen
 import dev.lelonio.square.desktop.ui.browse.DownloadsScreen
@@ -73,6 +80,7 @@ import dev.lelonio.square.desktop.ui.player.TransportBar
 import dev.lelonio.square.desktop.ui.search.SearchScreen
 import dev.lelonio.square.desktop.ui.settings.SettingsScreen
 import dev.lelonio.square.ui.glass.GlassEffectConfig
+import dev.lelonio.square.ui.glass.GlassStyle
 import dev.lelonio.square.ui.glass.LocalAppBackdrop
 import dev.lelonio.square.ui.glass.LocalGlassEffectConfig
 import dev.lelonio.square.ui.glass.backdrop.backdrops.layerBackdrop
@@ -134,7 +142,15 @@ fun WindowScope.App(
             val config = state.glassProfile.config()
             val pageBackdrop = rememberLayerBackdrop()
             val scope = rememberCoroutineScope()
+            val density = LocalDensity.current.density
             LaunchedEffect(state.nowPlaying) { state.expand.animateTo(if (state.nowPlaying) 1f else 0f, ExpandSpec) }
+            LaunchedEffect(state.fullscreen) { frameController.setFullscreen(state.fullscreen) }
+            DisposableEffect(window) {
+                val target = DropTargetHandler.attachWindowDropTarget(window, state) { density }
+                onDispose {
+                    runCatching { target.isActive = false; window.dropTarget = null }
+                }
+            }
 
             CompositionLocalProvider(
                 LocalContentColor provides Ink,
@@ -204,8 +220,44 @@ fun WindowScope.App(
                         }
                     }
                     SharedCover(state)
+                    if (state.dropZoneHighlight == DropZone.MAIN) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(8.dp)
+                                .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), RoundedCornerShape(18.dp)),
+                        )
+                    }
                     AnimatedVisibility(
-                        state.toast != null,
+                        state.pendingDropFolders.isNotEmpty(),
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = TransportHeight + 24.dp),
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                    ) {
+                        val folders = state.pendingDropFolders
+                        val prompt = if (folders.size == 1) {
+                            str("desktop_drop_folder_prompt", folders.first().fileName?.toString() ?: folders.first().toString())
+                        } else {
+                            str("desktop_drop_folders_prompt", folders.size)
+                        }
+                        Row(
+                            Modifier
+                                .liquidGlass(chrome, RoundedCornerShape(50), highlightAlpha = 0.3f)
+                                .padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(prompt, color = Ink, style = MaterialTheme.typography.bodyMedium)
+                            TextButton({ DropTargetHandler.confirmAddDroppedFolders(state) }) {
+                                Text(str("desktop_add"), color = MaterialTheme.colorScheme.primary)
+                            }
+                            TextButton({ state.pendingDropFolders = emptyList() }) {
+                                Text(str("desktop_dismiss"), color = Ink)
+                            }
+                        }
+                    }
+                    AnimatedVisibility(
+                        state.toast != null && state.pendingDropFolders.isEmpty(),
                         Modifier.align(Alignment.BottomCenter).padding(bottom = TransportHeight + 24.dp),
                         enter = fadeIn(),
                         exit = fadeOut(),
@@ -230,11 +282,16 @@ private fun chromeConfig(config: GlassEffectConfig): GlassEffectConfig {
     val light = LocalLightTheme.current
     val defaults = GlassEffectConfig()
     fun scaled(tuned: Float, set: Float, default: Float) = (tuned * set / default).coerceIn(0f, 1f)
+    val opacity = if (config.style == GlassStyle.TRANSPARENT) {
+        if (light) 0.86f else 0.82f
+    } else {
+        scaled(if (light) 0.45f else 0.18f, config.surfaceOpacity, defaults.surfaceOpacity)
+    }
     return config.copy(
         lensHeight = scaled(0.60f, config.lensHeight, defaults.lensHeight),
         lensAmount = scaled(0.69f, config.lensAmount, defaults.lensAmount),
         surfaceTintColor = if (config.surfaceTintColor.isSpecified) config.surfaceTintColor else if (light) Color(0xFFF5F5F7) else Color.White,
-        surfaceOpacity = scaled(if (light) 0.40f else 0.15f, config.surfaceOpacity, defaults.surfaceOpacity),
+        surfaceOpacity = opacity,
     )
 }
 

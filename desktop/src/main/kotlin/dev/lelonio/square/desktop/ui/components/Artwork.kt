@@ -50,6 +50,17 @@ private val bitmaps = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, tru
 private val colours = object : LinkedHashMap<String, Color>(64, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Color>?) = size > 500
 }
+
+fun clearArtworkCaches() {
+    synchronized(bitmaps) { bitmaps.clear() }
+    synchronized(colours) { colours.clear() }
+}
+
+fun artworkCacheSize(): Int = synchronized(bitmaps) { bitmaps.size }
+
+fun seedArtworkCacheForTest(key: String, bitmap: ImageBitmap) {
+    synchronized(bitmaps) { bitmaps[key] = bitmap }
+}
 private val artCacheDir: Path = Paths.get(System.getProperty("user.home"), ".square-yuma", "art_cache")
 
 /** Subsonic hands out a fresh salt per URL, so the cache keys on the cover id and size, not the URL. */

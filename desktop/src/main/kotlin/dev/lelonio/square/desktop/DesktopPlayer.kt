@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -71,6 +72,18 @@ class DesktopPlayer(
     private var currentLoudnessDb = 0f
     private var smtcJob: Job? = null
     private var engineReady = false
+    @Volatile var smtcUpdateCount: Int = 0
+        private set
+
+    fun shutdown() {
+        smtcJob?.cancel()
+        scope.cancel()
+        if (engineReady) {
+            engineReady = false
+            NativeEngine.setCallback(null)
+            NativeEngine.shutdown()
+        }
+    }
 
     init {
         if (initEngine) {
@@ -260,12 +273,13 @@ class DesktopPlayer(
     fun play(i: Int, atMs: Long = 0L, fade: Boolean = true) {
         val song: SubsonicChildSong
         val deckToUse: Int
+        val wasCrossfade: Boolean
         synchronized(lock) {
             song = queue.value.getOrNull(i) ?: return
             dropStandby()
             val oldDeck = activeDeck
-            val useCrossfade = fade && skipFade && isPlaying.value && current.value != null && engineReady
-            deckToUse = if (useCrossfade) 1 - oldDeck else oldDeck
+            wasCrossfade = fade && skipFade && isPlaying.value && current.value != null && engineReady
+            deckToUse = if (wasCrossfade) 1 - oldDeck else oldDeck
             activeDeck = deckToUse
             index.value = i
             current.value = song
@@ -290,8 +304,7 @@ class DesktopPlayer(
             return
         }
 
-        val oldDeck = 1 - deckToUse
-        if (fade && skipFade && current.value != null && oldDeck != deckToUse) {
+        if (wasCrossfade) {
             val skipPlan = AutomixPlan(
                 triggerOffsetMs = SKIP_FADE_MS,
                 durationMs = SKIP_FADE_MS,
@@ -613,6 +626,7 @@ class DesktopPlayer(
             positionMs = posMs,
             durationMs = song.duration * 1000L,
         )
+        smtcUpdateCount++
         smtcJob = scope.launch {
             val art = runCatching { coverBytes?.invoke(song) }.getOrNull()
             NativeEngine.smtcUpdate(payload, art)
