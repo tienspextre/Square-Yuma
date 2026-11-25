@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_forward">İleri</string>
+    <string name="desktop_mini_player">Mini Oynatıcı</string>
+    <string name="desktop_minimize">Simge durumuna küçült</string>
+    <string name="desktop_maximize">Ekranı kapla</string>
+    <string name="desktop_restore">Geri yükle</string>
+    <string name="desktop_inspector">Denetçi</string>
+    <string name="desktop_collapse_sidebar">Kenar çubuğunu daralt</string>
+    <string name="desktop_expand_sidebar">Kenar çubuğunu genişlet</string>
+    <string name="desktop_quick_search_hint">Ara (Ctrl+K)</string>
+    <string name="desktop_local_folders">Yerel Klasörler</string>
+    <string name="desktop_add_folder">Klasör ekle</string>
+    <string name="desktop_rescan">Yeniden tara</string>
+    <string name="desktop_scanning">Taranıyor…</string>
+    <string name="desktop_your_month">Ayın özeti</string>
+    <string name="desktop_not_playing">Çalmıyor</string>
+    <string name="desktop_theme_system">Sistem</string>
+    <string name="desktop_glass_performance">Performans</string>
+    <string name="desktop_cache_limit">Önbellek sınırı</string>
+    <string name="desktop_unlimited">Sınırsız</string>
+    <string name="desktop_done">Bitti</string>
+    <string name="desktop_volume">Ses</string>
+    <string name="desktop_on">Açık</string>
+    <string name="desktop_audio_tab">Ses ve Automix</string>
+    <string name="desktop_signal_chain">Sinyal zinciri</string>
+    <string name="desktop_chain_source">Kaynak dosya</string>
+    <string name="desktop_chain_dsp">DSP ve Automix</string>
+    <string name="desktop_chain_output">Çıkış cihazı</string>
+    <string name="desktop_output_mode">Çıkış modu</string>
+    <string name="desktop_radio_from_song">Şarkıdan radyo</string>
+    <string name="desktop_autoplay_end">Sonda otomatik oynat</string>
+    <string name="desktop_recent_searches">Son aramalar</string>
+</resources>

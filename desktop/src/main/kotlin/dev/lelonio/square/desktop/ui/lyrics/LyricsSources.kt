@@ -1,22 +1,18 @@
-package dev.lelonio.square.desktop
+package dev.lelonio.square.desktop.ui.lyrics
 
 import dev.lelonio.square.backend.lyrics.BetterLyrics
 import dev.lelonio.square.backend.lyrics.KuGou
-import dev.lelonio.square.backend.lyrics.LrcLib
 import dev.lelonio.square.backend.lyrics.Lossless
+import dev.lelonio.square.backend.lyrics.LrcLib
 import dev.lelonio.square.backend.lyrics.LyricsOvh
 import dev.lelonio.square.backend.lyrics.NetEase
 import dev.lelonio.square.backend.lyrics.Translate
 import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import dev.lelonio.square.data.LyricLine
 import dev.lelonio.square.data.Lyrics
+import dev.lelonio.square.desktop.AppState
+import dev.lelonio.square.desktop.LocalCatalog
 
-/**
- * Where the words can come from, in the order the phone asks for a NAS song
- * (LyricsLibrary.sourcesFor): the server's own first, then the online
- * libraries. Spotify's, AMLL's and Spicy Lyrics' need a Spotify track, so they
- * are not offered for a Navidrome library on the phone either.
- */
 enum class LyricSource(val label: String) {
     EMBEDDED("Embedded / .lrc"),
     NAVIDROME("Navidrome"),
@@ -51,7 +47,6 @@ suspend fun fetchLyrics(state: AppState, s: SubsonicChildSong, source: LyricSour
     }
 }.getOrNull()?.takeIf { it.lines.isNotEmpty() }
 
-/** The listener's pick for this song if there is one, else the first source that has it, timed words preferred over plain text. */
 suspend fun bestLyrics(state: AppState, s: SubsonicChildSong): Pair<LyricSource, Lyrics>? {
     state.lyricsPick(s.id)?.let { pick -> fetchLyrics(state, s, pick)?.let { return pick to it } }
     var plain: Pair<LyricSource, Lyrics>? = null
@@ -63,7 +58,6 @@ suspend fun bestLyrics(state: AppState, s: SubsonicChildSong): Pair<LyricSource,
     return plain
 }
 
-/** Each line with the translator's answer under it, unless the document brought its own. */
 suspend fun translated(lyrics: Lyrics, target: String): Lyrics {
     if (lyrics.lines.any { !it.translation.isNullOrBlank() }) return lyrics
     val answers = Translate.lines(lyrics.lines.map { it.text }, target) ?: return lyrics

@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "window_frame.h"
 
 #include <jni.h>
 #include <nlohmann/json.hpp>
@@ -293,6 +294,92 @@ Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeSelfCheckRender(J
     };
     const std::string s = j.dump();
     return env->NewStringUTF(s.c_str());
+}
+
+namespace {
+square::FrameLayout parseFrameLayout(
+    JNIEnv* env,
+    jint captionHeightPx,
+    jint resizeBorderPx,
+    jint minWidthPx,
+    jint minHeightPx,
+    jintArray buttonRects,
+    jintArray interactiveRects) {
+
+    square::FrameLayout layout;
+    layout.captionHeightPx = static_cast<int32_t>(captionHeightPx);
+    layout.resizeBorderPx = static_cast<int32_t>(resizeBorderPx);
+    layout.minWidthPx = static_cast<int32_t>(minWidthPx);
+    layout.minHeightPx = static_cast<int32_t>(minHeightPx);
+
+    if (buttonRects && env->GetArrayLength(buttonRects) >= 12) {
+        jint buf[12]{};
+        env->GetIntArrayRegion(buttonRects, 0, 12, buf);
+        layout.minButton = {buf[0], buf[1], buf[2], buf[3]};
+        layout.maxButton = {buf[4], buf[5], buf[6], buf[7]};
+        layout.closeButton = {buf[8], buf[9], buf[10], buf[11]};
+    }
+    if (interactiveRects) {
+        const jsize n = env->GetArrayLength(interactiveRects);
+        if (n >= 4) {
+            std::vector<jint> buf(static_cast<size_t>(n));
+            env->GetIntArrayRegion(interactiveRects, 0, n, buf.data());
+            for (jsize i = 0; i + 3 < n; i += 4) {
+                layout.interactiveRects.push_back({
+                    buf[static_cast<size_t>(i)],
+                    buf[static_cast<size_t>(i + 1)],
+                    buf[static_cast<size_t>(i + 2)],
+                    buf[static_cast<size_t>(i + 3)],
+                });
+            }
+        }
+    }
+    return layout;
+}
+} // namespace
+
+JNIEXPORT jlong JNICALL
+Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeGetWindowHwnd(
+    JNIEnv* env, jclass, jobject awtWindow) {
+    return static_cast<jlong>(square::hwndFromAwtWindow(env, awtWindow));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeInstallFrame(
+    JNIEnv* env,
+    jclass,
+    jlong hwnd,
+    jint captionHeightPx,
+    jint resizeBorderPx,
+    jint minWidthPx,
+    jint minHeightPx,
+    jintArray buttonRects,
+    jintArray interactiveRects) {
+    const auto layout = parseFrameLayout(
+        env, captionHeightPx, resizeBorderPx, minWidthPx, minHeightPx, buttonRects, interactiveRects);
+    return square::installWindowFrame(static_cast<intptr_t>(hwnd), layout) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeUpdateFrameLayout(
+    JNIEnv* env,
+    jclass,
+    jlong hwnd,
+    jint captionHeightPx,
+    jint resizeBorderPx,
+    jint minWidthPx,
+    jint minHeightPx,
+    jintArray buttonRects,
+    jintArray interactiveRects) {
+    const auto layout = parseFrameLayout(
+        env, captionHeightPx, resizeBorderPx, minWidthPx, minHeightPx, buttonRects, interactiveRects);
+    square::updateWindowFrame(static_cast<intptr_t>(hwnd), layout);
+}
+
+JNIEXPORT void JNICALL
+Java_dev_lelonio_square_desktop_nativeaudio_NativeEngine_nativeUninstallFrame(
+    JNIEnv*, jclass, jlong hwnd) {
+    square::uninstallWindowFrame(static_cast<intptr_t>(hwnd));
 }
 
 } // extern "C"

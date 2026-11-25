@@ -235,6 +235,22 @@ class SubsonicClient(
         }
     }
 
+    suspend fun getSimilarSongs(songId: String, count: Int = 25): Result<List<SubsonicChildSong>> = withContext(Dispatchers.IO) {
+        val url = buildUrl("getSimilarSongs2.view", mapOf("id" to songId, "count" to count.toString()))
+            ?: return@withContext Result.failure(IOException("Invalid URL"))
+        try {
+            val request = Request.Builder().url(url).build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val parsed = json.decodeFromString(SubsonicResponseWrapper.serializer(SubsonicRandomSongsContainer.serializer()), body)
+                val songs = parsed.`subsonic-response`.similarSongs2?.song ?: emptyList()
+                Result.success(songs)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun getAlbumList(type: String, size: Int = 30, offset: Int = 0, genre: String? = null): Result<List<SubsonicAlbumEntry>> = withContext(Dispatchers.IO) {
         val params = mapOf("type" to type, "size" to size.toString(), "offset" to offset.toString()) +
             (genre?.let { mapOf("genre" to it) } ?: emptyMap())

@@ -137,6 +137,8 @@ if(WIN32)
         avrt
         ole32
         user32
+        dwmapi
+        comctl32
         windowsapp
     )
 else()
@@ -190,8 +192,15 @@ if(JNI_FOUND)
     else()
         set_source_files_properties(${APP_CPP_DIR}/stretch.cpp PROPERTIES COMPILE_FLAGS "-include cmath -include vector -include limits")
     endif()
+    set(JNI_WINDOW_SRC)
+    if(WIN32)
+        list(APPEND JNI_WINDOW_SRC src/window_win.cpp)
+    else()
+        list(APPEND JNI_WINDOW_SRC src/window_frame_stub.cpp)
+    endif()
     add_library(square_win_native SHARED
         src/jni_bridge.cpp
+        ${JNI_WINDOW_SRC}
         ${APP_CPP_DIR}/jni/analysis_jni.cpp
         ${APP_CPP_DIR}/jni/mel_jni.cpp
         ${APP_CPP_DIR}/jni/vocal_jni.cpp

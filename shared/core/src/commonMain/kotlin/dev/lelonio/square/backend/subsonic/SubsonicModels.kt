@@ -25,6 +25,7 @@ data class SubsonicResponse<T>(
     val lyricsList: SubsonicLyricsListContainer? = null,
     val randomSongs: SubsonicRandomSongsContainer? = null,
     val songsByGenre: SubsonicRandomSongsContainer? = null,
+    val similarSongs2: SubsonicRandomSongsContainer? = null,
     val genres: SubsonicGenresContainer? = null,
 )
 

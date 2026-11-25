@@ -245,6 +245,49 @@ object NativeEngine {
         return nativeSelfCheckRender()
     }
 
+    /** Extracts HWND via JAWT on Windows (returns 0 on Linux/macOS). */
+    fun getWindowHwnd(awtWindow: java.awt.Window): Long {
+        if (!System.getProperty("os.name").startsWith("Windows")) return 0L
+        ensureLoaded()
+        runCatching { System.loadLibrary("jawt") }
+        return nativeGetWindowHwnd(awtWindow)
+    }
+
+    /** Installs the Win32 frameless subclass on [hwnd] (no-op returning false outside Windows). */
+    fun installFrame(
+        hwnd: Long,
+        captionHeightPx: Int,
+        resizeBorderPx: Int,
+        minWidthPx: Int,
+        minHeightPx: Int,
+        buttonRects: IntArray,
+        interactiveRects: IntArray,
+    ): Boolean {
+        if (hwnd == 0L || !System.getProperty("os.name").startsWith("Windows")) return false
+        ensureLoaded()
+        return nativeInstallFrame(hwnd, captionHeightPx, resizeBorderPx, minWidthPx, minHeightPx, buttonRects, interactiveRects)
+    }
+
+    fun updateFrameLayout(
+        hwnd: Long,
+        captionHeightPx: Int,
+        resizeBorderPx: Int,
+        minWidthPx: Int,
+        minHeightPx: Int,
+        buttonRects: IntArray,
+        interactiveRects: IntArray,
+    ) {
+        if (hwnd == 0L || !System.getProperty("os.name").startsWith("Windows")) return
+        ensureLoaded()
+        nativeUpdateFrameLayout(hwnd, captionHeightPx, resizeBorderPx, minWidthPx, minHeightPx, buttonRects, interactiveRects)
+    }
+
+    fun uninstallFrame(hwnd: Long) {
+        if (hwnd == 0L || !System.getProperty("os.name").startsWith("Windows")) return
+        if (!loaded) return
+        nativeUninstallFrame(hwnd)
+    }
+
     @JvmStatic private external fun nativeInit(): Boolean
     @JvmStatic private external fun nativeShutdown()
     @JvmStatic private external fun nativeDeckLoad(deck: Int, uri: String, headersJson: String?, startMs: Long): Boolean
@@ -271,4 +314,24 @@ object NativeEngine {
     ): FloatArray?
     @JvmStatic private external fun nativeMeasureTrackLufs(uri: String, headersJson: String?): Double
     @JvmStatic private external fun nativeSelfCheckRender(): String
+    @JvmStatic private external fun nativeGetWindowHwnd(awtWindow: java.awt.Window): Long
+    @JvmStatic private external fun nativeInstallFrame(
+        hwnd: Long,
+        captionHeightPx: Int,
+        resizeBorderPx: Int,
+        minWidthPx: Int,
+        minHeightPx: Int,
+        buttonRects: IntArray,
+        interactiveRects: IntArray,
+    ): Boolean
+    @JvmStatic private external fun nativeUpdateFrameLayout(
+        hwnd: Long,
+        captionHeightPx: Int,
+        resizeBorderPx: Int,
+        minWidthPx: Int,
+        minHeightPx: Int,
+        buttonRects: IntArray,
+        interactiveRects: IntArray,
+    )
+    @JvmStatic private external fun nativeUninstallFrame(hwnd: Long)
 }

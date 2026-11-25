@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_forward">आगे</string>
+    <string name="desktop_mini_player">मिनी-प्लेयर</string>
+    <string name="desktop_minimize">छोटा करें</string>
+    <string name="desktop_maximize">बड़ा करें</string>
+    <string name="desktop_restore">पुनर्स्थापित करें</string>
+    <string name="desktop_inspector">निरीक्षक</string>
+    <string name="desktop_collapse_sidebar">साइडबार समेटें</string>
+    <string name="desktop_expand_sidebar">साइडबार फैलाएं</string>
+    <string name="desktop_quick_search_hint">खोजें (Ctrl+K)</string>
+    <string name="desktop_local_folders">स्थानीय फ़ोल्डर</string>
+    <string name="desktop_add_folder">फ़ोल्डर जोड़ें</string>
+    <string name="desktop_rescan">पुनः स्कैन करें</string>
+    <string name="desktop_scanning">स्कैन हो रहा है…</string>
+    <string name="desktop_your_month">आपका महीना</string>
+    <string name="desktop_not_playing">कुछ नहीं चल रहा</string>
+    <string name="desktop_theme_system">सिस्टम</string>
+    <string name="desktop_glass_performance">प्रदर्शन</string>
+    <string name="desktop_cache_limit">कैश सीमा</string>
+    <string name="desktop_unlimited">असीमित</string>
+    <string name="desktop_done">हो गया</string>
+    <string name="desktop_volume">आवाज़</string>
+    <string name="desktop_on">चालू</string>
+    <string name="desktop_audio_tab">ऑडियो और ऑटोमिक्स</string>
+    <string name="desktop_signal_chain">सिग्नल चेन</string>
+    <string name="desktop_radio_from_song">गाने से रेडियो</string>
+    <string name="desktop_autoplay_end">अंत में ऑटोप्ले</string>
+    <string name="desktop_recent_searches">हाल की खोजें</string>
+</resources>

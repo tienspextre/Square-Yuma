@@ -1,4 +1,4 @@
-package dev.lelonio.square.desktop
+package dev.lelonio.square.desktop.ui.components
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -24,9 +24,11 @@ import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import dev.lelonio.square.data.local.AudioMetadataParser
+import dev.lelonio.square.desktop.LocalCatalog
 import dev.lelonio.square.ui.theme.Ink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Image
@@ -37,6 +39,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -44,11 +47,13 @@ import kotlin.math.sin
 private val bitmaps = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 300
 }
-private val colours = HashMap<String, Color>()
+private val colours = object : LinkedHashMap<String, Color>(64, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Color>?) = size > 500
+}
 private val artCacheDir: Path = Paths.get(System.getProperty("user.home"), ".square-yuma", "art_cache")
 
 /** Subsonic hands out a fresh salt per URL, so the cache keys on the cover id and size, not the URL. */
-private fun key(url: String): String =
+private fun artKey(url: String): String =
     if (url.contains("getCoverArt.view")) {
         url.substringAfter("id=").substringBefore('&') + "@" + url.substringAfter("size=").substringBefore('&')
     } else {
@@ -88,7 +93,7 @@ suspend fun loadArtworkBytes(url: String): ByteArray? = withContext(Dispatchers.
 }
 
 suspend fun loadArtwork(url: String): ImageBitmap? {
-    val k = key(url)
+    val k = artKey(url)
     synchronized(bitmaps) { bitmaps[k] }?.let { return it }
     val bytes = loadArtworkBytes(url) ?: return null
     return withContext(Dispatchers.IO) {
@@ -98,9 +103,7 @@ suspend fun loadArtwork(url: String): ImageBitmap? {
 
 @Composable
 fun Artwork(url: String?, modifier: Modifier = Modifier) {
-    // Seeded from the cache, so a cover already shown elsewhere (the one in flight
-    // between the bar and the player) never blinks through the placeholder.
-    val cached = url?.let { u -> synchronized(bitmaps) { bitmaps[key(u)] } }
+    val cached = remember(url) { url?.let { u -> synchronized(bitmaps) { bitmaps[artKey(u)] } } }
     val image by produceState(cached, url) { value = url?.let { loadArtwork(it) } }
     Box(modifier.background(Ink.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
         Crossfade(image, animationSpec = tween(250)) { img ->
@@ -115,20 +118,23 @@ fun Artwork(url: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * The colour that seeds the theme, as the phone's rememberArtworkColor does:
- * a hue mean weighted by how colourful each pixel is (the same reading the
- * Android app gives the cover's foot), so a busy cover does not average to grey.
- */
 @Composable
 fun rememberArtworkColor(url: String?): State<Color?> {
     val state = remember { mutableStateOf<Color?>(null) }
     LaunchedEffect(url) {
-        if (url == null) { state.value = null; return@LaunchedEffect }
-        val k = key(url)
-        colours[k]?.let { state.value = it; return@LaunchedEffect }
+        if (url == null) {
+            state.value = null
+            return@LaunchedEffect
+        }
+        val k = artKey(url)
+        synchronized(colours) { colours[k] }?.let {
+            state.value = it
+            return@LaunchedEffect
+        }
         val img = loadArtwork(url) ?: return@LaunchedEffect
-        state.value = withContext(Dispatchers.Default) { dominant(img) }.also { colours[k] = it }
+        state.value = withContext(Dispatchers.Default) { dominant(img) }.also {
+            synchronized(colours) { colours[k] = it }
+        }
     }
     return state
 }
@@ -139,23 +145,34 @@ private fun dominant(image: ImageBitmap): Color {
         Image.makeFromBitmap(image.asSkiaBitmap()),
         org.jetbrains.skia.Rect.makeWH(48f, 48f),
     )
-    var x = 0.0; var y = 0.0; var sat = 0f; var weight = 0f; var value = 0f; var count = 0
+    var x = 0.0
+    var y = 0.0
+    var sat = 0f
+    var weight = 0f
+    var value = 0f
+    var count = 0
     val hsb = FloatArray(3)
-    for (py in 0 until 48) for (px in 0 until 48) {
-        val c = bmp.getColor(px, py)
-        java.awt.Color.RGBtoHSB((c shr 16) and 0xFF, (c shr 8) and 0xFF, c and 0xFF, hsb)
-        val w = hsb[1] * hsb[2] + 0.05f
-        val rad = hsb[0] * 2 * Math.PI
-        x += cos(rad) * w; y += sin(rad) * w
-        sat += hsb[1] * w; weight += w; value += hsb[2]; count++
+    for (py in 0 until 48) {
+        for (px in 0 until 48) {
+            val c = bmp.getColor(px, py)
+            java.awt.Color.RGBtoHSB((c shr 16) and 0xFF, (c shr 8) and 0xFF, c and 0xFF, hsb)
+            val w = hsb[1] * hsb[2] + 0.05f
+            val rad = hsb[0] * 2 * Math.PI
+            x += cos(rad) * w
+            y += sin(rad) * w
+            sat += hsb[1] * w
+            weight += w
+            value += hsb[2]
+            count++
+        }
     }
     val hue = ((atan2(y, x) / (2 * Math.PI)).toFloat() + 1f) % 1f
     return Color(java.awt.Color.HSBtoRGB(hue, (sat / weight).coerceIn(0.2f, 0.9f), (value / count).coerceIn(0.35f, 0.9f)))
 }
 
 object Http {
-    val client = okhttp3.OkHttpClient.Builder()
-        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+    val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 }

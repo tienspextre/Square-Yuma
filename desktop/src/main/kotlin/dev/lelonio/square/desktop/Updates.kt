@@ -1,5 +1,6 @@
 package dev.lelonio.square.desktop
 
+import dev.lelonio.square.desktop.ui.components.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request

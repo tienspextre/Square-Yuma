@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_forward">進む</string>
+    <string name="desktop_mini_player">ミニプレーヤー</string>
+    <string name="desktop_minimize">最小化</string>
+    <string name="desktop_maximize">最大化</string>
+    <string name="desktop_restore">元に戻す</string>
+    <string name="desktop_inspector">インスペクタ</string>
+    <string name="desktop_collapse_sidebar">サイドバーを折りたたむ</string>
+    <string name="desktop_expand_sidebar">サイドバーを展開</string>
+    <string name="desktop_quick_search_hint">検索 (Ctrl+K)</string>
+    <string name="desktop_local_folders">ローカルフォルダ</string>
+    <string name="desktop_add_folder">フォルダを追加</string>
+    <string name="desktop_rescan">再スキャン</string>
+    <string name="desktop_scanning">スキャン中…</string>
+    <string name="desktop_your_month">今月のまとめ</string>
+    <string name="desktop_quick_play">クイック再生</string>
+    <string name="desktop_moods_genres">ムード・ジャンル</string>
+    <string name="desktop_playlists_nas">NASのプレイリスト</string>
+    <string name="desktop_recently_played">最近再生</string>
+    <string name="desktop_most_played">よく聴く曲</string>
+    <string name="desktop_discover">発見</string>
+    <string name="desktop_favorites">お気に入り</string>
+    <string name="desktop_see_all">すべて見る</string>
+    <string name="desktop_not_playing">再生していません</string>
+    <string name="desktop_theme_system">システム</string>
+    <string name="desktop_glass_performance">パフォーマンス</string>
+    <string name="desktop_cache_limit">キャッシュ上限</string>
+    <string name="desktop_unlimited">無制限</string>
+    <string name="desktop_done">完了</string>
+    <string name="desktop_volume">音量</string>
+    <string name="desktop_on">オン</string>
+    <string name="desktop_audio_tab">オーディオとAutomix</string>
+    <string name="desktop_signal_chain">シグナルチェーン</string>
+    <string name="desktop_chain_source">ソースファイル</string>
+    <string name="desktop_chain_dsp">DSP・Automix</string>
+    <string name="desktop_chain_output">出力デバイス</string>
+    <string name="desktop_output_mode">出力モード</string>
+    <string name="desktop_radio_from_song">この曲のラジオ</string>
+    <string name="desktop_autoplay_end">終了時に自動再生</string>
+    <string name="desktop_recent_searches">最近の検索</string>
+</resources>

@@ -3,75 +3,165 @@ package dev.lelonio.square.desktop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import org.w3c.dom.Element
+import java.io.InputStream
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import javax.xml.parsers.DocumentBuilderFactory
 
-enum class Language(val code: String, val label: String) { English("en", "English"), Vietnamese("vi", "Tiếng Việt") }
+enum class Language(val code: String, val label: String) {
+    English("en", "English"),
+    German("de", "Deutsch"),
+    Spanish("es", "Español"),
+    French("fr", "Français"),
+    Hindi("hi", "हिन्दी"),
+    Italian("it", "Italiano"),
+    Japanese("ja", "日本語"),
+    Korean("ko", "한국어"),
+    Portuguese("pt", "Português"),
+    Russian("ru", "Русский"),
+    Turkish("tr", "Türkçe"),
+    Vietnamese("vi", "Tiếng Việt");
+
+    companion object {
+        fun fromCode(code: String?): Language =
+            entries.firstOrNull { it.code.equals(code, ignoreCase = true) } ?: English
+    }
+}
+
+val TranslationLanguages: List<Pair<String, String>> =
+    Language.entries.map { it.code to it.label } + listOf(
+        "zh-CN" to "中文",
+        "th" to "ไทย",
+        "id" to "Bahasa Indonesia",
+    )
 
 /**
- * The desktop's own strings, in English as written in the code and in
- * Vietnamese from this table. The phone's strings.xml are Android resources the
- * desktop cannot load, and most of its screens' wording is the desktop's own.
+ * Runtime localization loader:
+ * - Reads Android's `strings.xml` packaged by `sharedResources` (`android-res/values[-lang]/strings.xml`)
+ * - Overlays desktop-only strings from `i18n/values[-lang]/strings.xml`
+ * - Falls back to English (`en`) per missing key or unknown language
+ * - Formats Android positional/standard format specifiers (`%1$s`, `%1$d`, `%s`, `%d`, etc.)
  */
 object Strings {
     var current by mutableStateOf(Language.English)
 
-    val VI = mapOf(
-        "Search" to "Tìm kiếm", "Home" to "Trang chủ", "Library" to "Thư viện", "Playlists" to "Danh sách phát",
-        "Your month" to "Tháng của bạn", "Settings" to "Cài đặt", "Pinned" to "Đã ghim",
-        "Quick play" to "Phát nhanh", "Moods & genres" to "Tâm trạng & thể loại", "Playlists on NAS" to "Danh sách phát trên NAS",
-        "Recently played" to "Nghe gần đây", "Recently added" to "Mới thêm", "Most played" to "Nghe nhiều nhất",
-        "Discover" to "Khám phá", "Favorites" to "Yêu thích", "Downloaded" to "Đã tải xuống", "See all" to "Xem tất cả",
-        "Couldn't reach the server — showing what is on this computer." to "Không kết nối được server — đang hiện nhạc có trên máy này.",
-        "Couldn't reach the server" to "Không kết nối được server",
-        "Albums" to "Album", "Artists" to "Nghệ sĩ", "Songs" to "Bài hát",
-        "Artists, albums, songs" to "Nghệ sĩ, album, bài hát", "Recent searches" to "Tìm kiếm gần đây", "Clear" to "Xoá",
-        "Play" to "Phát", "Shuffle" to "Trộn bài", "Download" to "Tải xuống", "Pin" to "Ghim", "Unpin" to "Bỏ ghim",
-        "Order" to "Thứ tự", "Title" to "Tên", "Artist" to "Nghệ sĩ", "Album" to "Album", "Added" to "Ngày thêm", "Length" to "Độ dài",
-        "Descending" to "Giảm dần", "Ascending" to "Tăng dần", "Show as grid" to "Dạng lưới", "Show as list" to "Dạng danh sách",
-        "Play next" to "Phát tiếp theo", "Add to queue" to "Thêm vào hàng chờ", "Go to album" to "Đi tới album",
-        "Go to artist" to "Đi tới nghệ sĩ", "Remove download" to "Xoá bản tải", "Inspect" to "Kiểm tra file",
-        "Copy link" to "Sao chép liên kết", "Link copied" to "Đã sao chép liên kết", "Remove from playlist" to "Xoá khỏi danh sách phát",
-        "Removed from playlist" to "Đã xoá khỏi danh sách phát", "Delete from NAS" to "Xoá khỏi NAS", "Delete" to "Xoá", "Cancel" to "Huỷ",
-        "The file is deleted from the server and taken out of every playlist. This can't be undone." to
-            "File sẽ bị xoá khỏi server và khỏi mọi danh sách phát. Không thể hoàn tác.",
-        "Close" to "Đóng", "Reading the file and its spectrum…" to "Đang đọc file và phổ âm thanh…",
-        "Nothing downloaded yet. Right-click a song, or use Download on an album or playlist." to
-            "Chưa tải bài nào. Nhấp chuột phải vào bài hát, hoặc bấm Tải xuống trên album hay danh sách phát.",
-        "Your month in music" to "Tháng âm nhạc của bạn", "Nothing played this month yet." to "Tháng này chưa nghe bài nào.",
-        "Song of the month" to "Bài hát của tháng", "Most played songs" to "Bài nghe nhiều nhất", "Most played artists" to "Nghệ sĩ nghe nhiều nhất",
-        "Previous month" to "Tháng trước", "Next month" to "Tháng sau", "minutes" to "phút", "plays" to "lượt phát",
-        "songs" to "bài hát", "artists" to "nghệ sĩ",
-        "Up next" to "Tiếp theo", "Clear the queue" to "Xoá hàng chờ", "Move up" to "Lên", "Move down" to "Xuống",
-        "Remove from queue" to "Xoá khỏi hàng chờ", "Sleep timer" to "Hẹn giờ tắt", "End of song" to "Hết bài",
-        "Turn off" to "Tắt", "Lyrics" to "Lời bài hát", "Lyrics (L)" to "Lời bài hát (L)", "Queue" to "Hàng chờ",
-        "Close (Esc)" to "Đóng (Esc)", "Translate lyrics" to "Dịch lời", "Hide translation" to "Ẩn bản dịch",
-        "No lyrics for this song" to "Bài này chưa có lời", "Automatic" to "Tự động", "Change" to "Đổi",
-        "Lyrics from" to "Lời từ", "Try another source" to "Thử nguồn khác",
-        "Previous" to "Bài trước", "Next" to "Bài sau", "Repeat" to "Lặp lại", "Back" to "Quay lại", "Not playing" to "Chưa phát",
-        "Navidrome / Subsonic server" to "Server Navidrome / Subsonic", "Server URL" to "Địa chỉ server",
-        "Username" to "Tên đăng nhập", "Password" to "Mật khẩu", "Connect" to "Kết nối", "Rescan server library" to "Quét lại thư viện trên server",
-        "Downloads" to "Tải xuống", "Open folder" to "Mở thư mục", "Remove all downloads" to "Xoá mọi bản tải",
-        "Removed all downloads" to "Đã xoá mọi bản tải", "Appearance" to "Giao diện", "Dark" to "Tối", "Light" to "Sáng",
-        "Font" to "Phông chữ", "System" to "Hệ thống", "Language" to "Ngôn ngữ", "Glass" to "Kính",
-        "Renderer (applies after a restart)" to "Bộ vẽ (có hiệu lực sau khi mở lại app)", "Software" to "Phần mềm",
-        "Crossfade" to "Chuyển bài mượt", "Off" to "Tắt", "Equalizer" to "Bộ chỉnh âm", "Flat" to "Phẳng", "Vocal" to "Giọng hát",
-        "Lyrics style" to "Kiểu lời bài hát", "Animated" to "Chuyển động", "Classic" to "Cổ điển",
-        "Lyrics timing" to "Lệch lời bài hát", "Done" to "Xong", "Volume" to "Âm lượng", "Mood" to "Tâm trạng",
-        "Updates" to "Cập nhật", "Check for updates" to "Kiểm tra cập nhật", "Diagnostics" to "Chẩn đoán",
-        "Save diagnostics report" to "Lưu báo cáo chẩn đoán", "Playback" to "Phát nhạc", "Speed" to "Tốc độ", "Pitch" to "Cao độ",
-        "Reverb" to "Vang", "Karaoke (remove vocals)" to "Karaoke (tách giọng)", "Match loudness" to "Cân bằng độ to",
-        "Trim silence" to "Cắt khoảng lặng", "Fade on skip" to "Giảm dần khi chuyển bài", "Effects" to "Hiệu ứng", "Reset" to "Đặt lại",
-        "On" to "Bật", "Smart Automix" to "Automix thông minh", "Bass swap" to "Đổi bass", "Loop Mix" to "Loop Mix",
-        "Each song is analysed once (beats, phrases, vocals) and mixed into the next on the beat; until then the crossfade above is used." to
-            "Mỗi bài được phân tích một lần (nhịp, câu nhạc, giọng hát) rồi trộn sang bài sau đúng nhịp; trong lúc chờ, app dùng chuyển bài mượt ở trên.", "Original" to "Gốc", "Slowed + Reverb" to "Chậm + Vang", "Sped Up" to "Tăng tốc", "Installer opened: " to "Đã mở trình cài đặt: ", "Update failed: " to "Cập nhật lỗi: ",
-        " is available — Settings → Updates" to " đã có — Cài đặt → Cập nhật", "new" to "mới", "Version" to "Phiên bản", "Install" to "Cài",
-        "You have the newest version" to "Bạn đang dùng bản mới nhất", "Downloading" to "Đang tải",
-        "Report saved to " to "Đã lưu báo cáo vào ", " and copied" to " và sao chép", "Library rescan started" to "Đã bắt đầu quét thư viện",
-        "Rescan failed" to "Quét lỗi", "Find in list" to "Tìm trong danh sách", "Find in album" to "Tìm trong album",
-        "Local Folders" to "Thư mục nhạc", "Add folder" to "Thêm thư mục", "Rescan" to "Quét lại",
-        "Offline mode" to "Chế độ ngoại tuyến", "Cache limit" to "Giới hạn bộ nhớ đệm", "Unlimited" to "Không giới hạn",
-        "New playlist" to "Danh sách phát mới", "Rename" to "Đổi tên", "Add to playlist" to "Thêm vào danh sách phát",
-    )
+    private val androidCache = ConcurrentHashMap<String, Map<String, String>>()
+    private val desktopCache = ConcurrentHashMap<String, Map<String, String>>()
+    private val mergedCache = ConcurrentHashMap<String, Map<String, String>>()
+    private val reverseEnIndex: Map<String, String> by lazy {
+        buildMap {
+            for ((k, v) in loadLanguage(Language.English.code)) {
+                putIfAbsent(v, k)
+            }
+        }
+    }
+
+    fun str(key: String, vararg args: Any): String = formatForLanguage(current.code, key, *args)
+
+    fun formatForLanguage(code: String, key: String, vararg args: Any): String {
+        val lang = Language.fromCode(code)
+        val map = loadLanguage(lang.code)
+        val enMap = loadLanguage(Language.English.code)
+        val raw = map[key] ?: enMap[key] ?: return key
+        if (args.isEmpty()) return raw
+        val locale = Locale.forLanguageTag(lang.code)
+        return runCatching { String.format(locale, raw, *args) }
+            .getOrElse {
+                val fallback = enMap[key] ?: return raw
+                runCatching { String.format(Locale.ENGLISH, fallback, *args) }.getOrDefault(raw)
+            }
+    }
+
+    fun loadLanguage(code: String): Map<String, String> {
+        val normalized = Language.entries.firstOrNull { it.code.equals(code, ignoreCase = true) }?.code ?: "en"
+        return mergedCache.getOrPut(normalized) {
+            val enAndroid = androidStrings("en")
+            val enDesktop = desktopStrings("en")
+            val langAndroid = if (normalized == "en") emptyMap() else androidStrings(normalized)
+            val langDesktop = if (normalized == "en") emptyMap() else desktopStrings(normalized)
+            LinkedHashMap<String, String>(enAndroid.size + enDesktop.size).apply {
+                putAll(enAndroid)
+                putAll(enDesktop)
+                putAll(langAndroid)
+                putAll(langDesktop)
+            }
+        }
+    }
+
+    fun androidStrings(code: String): Map<String, String> {
+        val norm = code.lowercase(Locale.ROOT)
+        return androidCache.getOrPut(norm) {
+            val qualifier = if (norm == "en") "values" else "values-$norm"
+            parseResourceStream(openResource("android-res/$qualifier/strings.xml"))
+        }
+    }
+
+    fun desktopStrings(code: String): Map<String, String> {
+        val norm = code.lowercase(Locale.ROOT)
+        return desktopCache.getOrPut(norm) {
+            val qualifier = if (norm == "en") "values" else "values-$norm"
+            parseResourceStream(openResource("i18n/$qualifier/strings.xml"))
+        }
+    }
+
+    private fun openResource(path: String): InputStream? =
+        Strings::class.java.classLoader?.getResourceAsStream(path)
+
+    internal fun parseResourceStream(stream: InputStream?): Map<String, String> {
+        if (stream == null) return emptyMap()
+        return stream.use { input ->
+            runCatching {
+                val factory = DocumentBuilderFactory.newInstance().apply {
+                    setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                    isExpandEntityReferences = false
+                }
+                val doc = factory.newDocumentBuilder().parse(input)
+                val nodes = doc.getElementsByTagName("string")
+                val out = LinkedHashMap<String, String>(nodes.length)
+                for (i in 0 until nodes.length) {
+                    val el = nodes.item(i) as? Element ?: continue
+                    val name = el.getAttribute("name").trim()
+                    if (name.isEmpty()) continue
+                    out[name] = unescapeAndroidString(el.textContent.orEmpty())
+                }
+                out
+            }.getOrDefault(emptyMap())
+        }
+    }
+
+    internal fun unescapeAndroidString(raw: String): String {
+        val trimmed = raw.trim()
+        val sb = StringBuilder(trimmed.length)
+        var i = 0
+        while (i < trimmed.length) {
+            val c = trimmed[i]
+            if (c == '\\' && i + 1 < trimmed.length) {
+                when (val next = trimmed[i + 1]) {
+                    '\'' -> { sb.append('\''); i += 2 }
+                    '"' -> { sb.append('"'); i += 2 }
+                    'n' -> { sb.append('\n'); i += 2 }
+                    't' -> { sb.append('\t'); i += 2 }
+                    '\\' -> { sb.append('\\'); i += 2 }
+                    else -> { sb.append(next); i += 2 }
+                }
+            } else {
+                sb.append(c)
+                i++
+            }
+        }
+        return sb.toString()
+    }
 }
 
-/** [en] in the listener's language. */
-fun tr(en: String): String = if (Strings.current == Language.Vietnamese) Strings.VI[en] ?: en else en
+/** Resolves [key] in the listener's current language with optional format arguments. */
+fun str(key: String, vararg args: Any): String = Strings.str(key, *args)
+
+/** Convenience helper resolving either a string key or an English literal mapped via the English table. */
+fun tr(keyOrEn: String): String {
+    val map = Strings.loadLanguage(Strings.current.code)
+    if (keyOrEn in map) return map[keyOrEn]!!
+    val enMap = Strings.loadLanguage(Language.English.code)
+    val resolvedKey = enMap.entries.firstOrNull { it.value == keyOrEn }?.key
+    return if (resolvedKey != null) map[resolvedKey] ?: keyOrEn else keyOrEn
+}

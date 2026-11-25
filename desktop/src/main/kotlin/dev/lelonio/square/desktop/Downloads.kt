@@ -12,6 +12,7 @@ import dev.lelonio.square.backend.subsonic.SubsonicChildSong
 import dev.lelonio.square.data.CatalogArtist
 import dev.lelonio.square.data.CatalogTrack
 import dev.lelonio.square.desktop.nativeaudio.NativeEngine
+import dev.lelonio.square.desktop.ui.components.Http
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred

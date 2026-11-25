@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_forward">앞으로</string>
+    <string name="desktop_mini_player">미니 플레이어</string>
+    <string name="desktop_minimize">최소화</string>
+    <string name="desktop_maximize">최대화</string>
+    <string name="desktop_restore">복원</string>
+    <string name="desktop_inspector">인스펙터</string>
+    <string name="desktop_collapse_sidebar">사이드바 접기</string>
+    <string name="desktop_expand_sidebar">사이드바 펼치기</string>
+    <string name="desktop_quick_search_hint">검색 (Ctrl+K)</string>
+    <string name="desktop_local_folders">로컬 폴더</string>
+    <string name="desktop_add_folder">폴더 추가</string>
+    <string name="desktop_rescan">다시 스캔</string>
+    <string name="desktop_scanning">스캔 중…</string>
+    <string name="desktop_your_month">이달의 음악</string>
+    <string name="desktop_not_playing">재생 중이 아님</string>
+    <string name="desktop_theme_system">시스템</string>
+    <string name="desktop_glass_performance">성능</string>
+    <string name="desktop_cache_limit">캐시 제한</string>
+    <string name="desktop_unlimited">제한 없음</string>
+    <string name="desktop_done">완료</string>
+    <string name="desktop_volume">음량</string>
+    <string name="desktop_on">켜기</string>
+    <string name="desktop_audio_tab">오디오 및 Automix</string>
+    <string name="desktop_signal_chain">신호 체인</string>
+    <string name="desktop_chain_source">원본 파일</string>
+    <string name="desktop_chain_dsp">DSP 및 Automix</string>
+    <string name="desktop_chain_output">출력 장치</string>
+    <string name="desktop_output_mode">출력 모드</string>
+    <string name="desktop_radio_from_song">이 곡으로 라디오</string>
+    <string name="desktop_autoplay_end">끝에서 자동 재생</string>
+    <string name="desktop_recent_searches">최근 검색</string>
+</resources>

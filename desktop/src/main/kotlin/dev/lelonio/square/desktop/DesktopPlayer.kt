@@ -34,20 +34,24 @@ class DesktopPlayer(
     val positionMs = MutableStateFlow(0L)
     val volume = MutableStateFlow(0.8f)
     val shuffle = MutableStateFlow(false)
+    val smartShuffle = MutableStateFlow(false)
     val repeat = MutableStateFlow(RepeatMode.OFF)
     val error = MutableStateFlow<String?>(null)
     val stopAfterCurrent = MutableStateFlow(false)
+    val signalChain = MutableStateFlow(AudioSignalChain())
 
     @Volatile var crossfadeSeconds = 6
     @Volatile var speed = 1f
     @Volatile var trimSilence = true
     @Volatile var skipFade = true
+    @Volatile var autoplayAtEnd = false
     @Volatile var planner: ((SubsonicChildSong, SubsonicChildSong) -> AutomixPlan?)? = null
     @Volatile var outputMode: String = "shared"
     @Volatile var outputDeviceId: String? = null
     @Volatile var loudnessResolver: ((SubsonicChildSong, (String, Float) -> Unit) -> Float?)? = null
     @Volatile var onQueueStateChanged: (() -> Unit)? = null
     @Volatile var onPositionChanged: ((Long) -> Unit)? = null
+    @Volatile var onAutoplayNeeded: (suspend (SubsonicChildSong) -> List<SubsonicChildSong>)? = null
 
     private var unshuffled: List<SubsonicChildSong> = emptyList()
     private val lock = Object()
@@ -209,10 +213,10 @@ class DesktopPlayer(
     fun move(from: Int, to: Int) {
         synchronized(lock) {
             val q = queue.value
-            if (from !in q.indices || to !in q.indices || from == to) return
-            val now = current.value
-            queue.value = q.toMutableList().apply { add(to, removeAt(from)) }
-            index.value = queue.value.indexOfFirst { it === now }
+            val (reordered, newIndex) = moveQueueItem(q, index.value, from, to)
+            if (reordered === q) return
+            queue.value = reordered
+            index.value = newIndex
             dropStandby()
         }
         onQueueStateChanged?.invoke()
@@ -355,10 +359,35 @@ class DesktopPlayer(
             val list = if (on) {
                 unshuffled = queue.value
                 listOfNotNull(now) + queue.value.filter { it !== now }.shuffled()
-            } else unshuffled
+            } else {
+                smartShuffle.value = false
+                unshuffled
+            }
             queue.value = list
             shuffle.value = on
             index.value = list.indexOfFirst { it === now }
+            dropStandby()
+        }
+        onQueueStateChanged?.invoke()
+    }
+
+    fun toggleSmartShuffle() {
+        synchronized(lock) {
+            val now = current.value
+            val nextSmart = !smartShuffle.value
+            if (nextSmart) {
+                if (!shuffle.value) unshuffled = queue.value
+                val list = smartShuffleOrder(queue.value, index.value, { it.artist })
+                queue.value = list
+                shuffle.value = true
+                smartShuffle.value = true
+                index.value = list.indexOfFirst { it === now }
+            } else {
+                smartShuffle.value = false
+                shuffle.value = false
+                queue.value = unshuffled
+                index.value = unshuffled.indexOfFirst { it === now }
+            }
             dropStandby()
         }
         onQueueStateChanged?.invoke()
@@ -457,23 +486,55 @@ class DesktopPlayer(
         }
 
         val n = if (error.value == null && !stopAfterCurrent.value) nextIndex(auto = true) else null
+        val endedSong = current.value
+        val wasStoppedAfterCurrent = stopAfterCurrent.value
         if (stopAfterCurrent.value) stopAfterCurrent.value = false
         if (n == null) {
-            synchronized(lock) {
-                isPlaying.value = false
-                positionMs.value = 0L
+            if (!wasStoppedAfterCurrent && error.value == null && autoplayAtEnd && endedSong != null) {
+                val fetcher = onAutoplayNeeded
+                if (fetcher != null) {
+                    scope.launch {
+                        val more = runCatching { fetcher(endedSong) }.getOrDefault(emptyList())
+                        if (more.isNotEmpty()) {
+                            val startAt: Int
+                            synchronized(lock) {
+                                startAt = queue.value.size
+                                queue.value = queue.value + more
+                                unshuffled = unshuffled + more
+                            }
+                            play(startAt, atMs = 0L, fade = false)
+                            onQueueStateChanged?.invoke()
+                            return@launch
+                        }
+                        finishStoppedPlayback(endedSong)
+                    }
+                    return
+                }
             }
-            current.value?.let { publishSmtc(it, false, 0L) }
-            onQueueStateChanged?.invoke()
+            finishStoppedPlayback(endedSong)
         } else {
             play(n, atMs = 0L, fade = false)
         }
     }
 
+    private fun finishStoppedPlayback(endedSong: SubsonicChildSong?) {
+        synchronized(lock) {
+            isPlaying.value = false
+            positionMs.value = 0L
+        }
+        endedSong?.let { publishSmtc(it, false, 0L) }
+        onQueueStateChanged?.invoke()
+    }
+
     private suspend fun pollLoop() {
+        var statusTicks = 0
         while (true) {
             delay(100)
-            if (!engineReady || !isPlaying.value) continue
+            if (!engineReady) continue
+            if (++statusTicks % 4 == 0 || isPlaying.value) {
+                signalChain.value = AudioSignalChain.fromJson(NativeEngine.status())
+            }
+            if (!isPlaying.value) continue
             val song = current.value ?: continue
             val posMs = NativeEngine.position(activeDeck).coerceAtLeast(0L)
             if (abs(posMs - positionMs.value) >= 40L) {

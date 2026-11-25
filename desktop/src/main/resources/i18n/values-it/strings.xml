@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_forward">Avanti</string>
+    <string name="desktop_mini_player">Mini-lettore</string>
+    <string name="desktop_minimize">Riduci a icona</string>
+    <string name="desktop_maximize">Ingrandisci</string>
+    <string name="desktop_restore">Ripristina</string>
+    <string name="desktop_inspector">Ispettore</string>
+    <string name="desktop_collapse_sidebar">Comprimi barra laterale</string>
+    <string name="desktop_expand_sidebar">Espandi barra laterale</string>
+    <string name="desktop_quick_search_hint">Cerca (Ctrl+K)</string>
+    <string name="desktop_local_folders">Cartelle locali</string>
+    <string name="desktop_add_folder">Aggiungi cartella</string>
+    <string name="desktop_rescan">Riscansiona</string>
+    <string name="desktop_scanning">Scansione…</string>
+    <string name="desktop_your_month">Il tuo mese</string>
+    <string name="desktop_quick_play">Riproduzione rapida</string>
+    <string name="desktop_moods_genres">Atmosfere e generi</string>
+    <string name="desktop_playlists_nas">Playlist su NAS</string>
+    <string name="desktop_recently_played">Ascoltati di recente</string>
+    <string name="desktop_most_played">Più ascoltati</string>
+    <string name="desktop_discover">Scopri</string>
+    <string name="desktop_favorites">Preferiti</string>
+    <string name="desktop_see_all">Vedi tutto</string>
+    <string name="desktop_not_playing">Nessuna riproduzione</string>
+    <string name="desktop_theme_system">Sistema</string>
+    <string name="desktop_glass_performance">Prestazioni</string>
+    <string name="desktop_cache_limit">Limite cache</string>
+    <string name="desktop_unlimited">Illimitato</string>
+    <string name="desktop_done">Fatto</string>
+    <string name="desktop_volume">Volume</string>
+    <string name="desktop_on">Attivo</string>
+    <string name="desktop_audio_tab">Audio e Automix</string>
+    <string name="desktop_signal_chain">Catena del segnale</string>
+    <string name="desktop_chain_source">File sorgente</string>
+    <string name="desktop_chain_dsp">DSP e Automix</string>
+    <string name="desktop_chain_output">Dispositivo di uscita</string>
+    <string name="desktop_output_mode">Modalità uscita</string>
+    <string name="desktop_radio_from_song">Radio dal brano</string>
+    <string name="desktop_autoplay_end">Riproduzione automatica alla fine</string>
+    <string name="desktop_recent_searches">Ricerche recenti</string>
+</resources>

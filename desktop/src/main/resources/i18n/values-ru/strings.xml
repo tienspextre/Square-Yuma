@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_forward">Вперёд</string>
+    <string name="desktop_mini_player">Мини-плеер</string>
+    <string name="desktop_minimize">Свернуть</string>
+    <string name="desktop_maximize">Развернуть</string>
+    <string name="desktop_restore">Восстановить</string>
+    <string name="desktop_inspector">Инспектор</string>
+    <string name="desktop_collapse_sidebar">Свернуть панель</string>
+    <string name="desktop_expand_sidebar">Развернуть панель</string>
+    <string name="desktop_quick_search_hint">Поиск (Ctrl+K)</string>
+    <string name="desktop_local_folders">Локальные папки</string>
+    <string name="desktop_add_folder">Добавить папку</string>
+    <string name="desktop_rescan">Пересканировать</string>
+    <string name="desktop_scanning">Сканирование…</string>
+    <string name="desktop_your_month">Ваш месяц</string>
+    <string name="desktop_not_playing">Ничего не играет</string>
+    <string name="desktop_theme_system">Система</string>
+    <string name="desktop_glass_performance">Производительность</string>
+    <string name="desktop_cache_limit">Лимит кэша</string>
+    <string name="desktop_unlimited">Без ограничений</string>
+    <string name="desktop_done">Готово</string>
+    <string name="desktop_volume">Громкость</string>
+    <string name="desktop_on">Вкл</string>
+    <string name="desktop_audio_tab">Аудио и Automix</string>
+    <string name="desktop_signal_chain">Цепь сигнала</string>
+    <string name="desktop_chain_source">Исходный файл</string>
+    <string name="desktop_chain_dsp">DSP и Automix</string>
+    <string name="desktop_chain_output">Устройство вывода</string>
+    <string name="desktop_output_mode">Режим вывода</string>
+    <string name="desktop_radio_from_song">Радио по треку</string>
+    <string name="desktop_autoplay_end">Автовоспроизведение в конце</string>
+    <string name="desktop_recent_searches">Недавние запросы</string>
+</resources>

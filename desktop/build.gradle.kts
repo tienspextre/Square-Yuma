@@ -31,6 +31,7 @@ val sharedResources by tasks.registering(Sync::class) {
     from("../shared/ui/src/androidMain/res/font/inter.ttf") { into("font") }
     from("../docs/square.png")
     from("../app/src/main/assets") { include("*.onnx"); into("models") }
+    from("../app/src/main/res") { include("values*/strings.xml"); into("android-res") }
     into(layout.buildDirectory.dir("shared/resources"))
 }
 

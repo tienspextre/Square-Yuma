@@ -10,7 +10,7 @@ tick boxes, list touched files, paste the gate command and its result, and write
 | 1 — KMP modules, shared core/backends, remove `sharedSources` + stubs | done (gate green 2026-11-24) |
 | 2 — Native engine (WASAPI, decoders, DSP, SMTC, JNI) | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
 | 3 — Local library + Subsonic parity, queue persistence | done (Linux gate green 2026-11-25) |
-| 4 — Frameless window, 3-pane glass UI, desktop package split | not started |
+| 4 — Frameless window, 3-pane glass UI, desktop package split | done (Linux gate green 2026-11-25; Windows-only files uncompiled here) |
 | 5 — Fullscreen, mini-player, PC ergonomics, tray low-RAM | not started |
 | 6 — Installer, auto-update, diagnostics, CI | not started |
 
@@ -51,8 +51,50 @@ Gate `./gradlew :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :
 - [x] Minimal desktop UI wiring: `Local Folders` sidebar & screen (add/remove/rescan + songs/albums/artists), playlist create/rename/delete/add/remove/reorder, `Offline mode` toggle & cache limit in `Downloads`/`Settings`
 - [x] Tests in `:shared:core:desktopTest` and `:desktop:test` + all gates green
 
+### Phase 4 checklist
+- [x] Desktop monoliths split into `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/{shell,home,library,browse,player,lyrics,search,settings,components}` + `LocalCatalog` split (`LocalLibraryModels.kt`, `LocalCatalogWatcher.kt`); no `.kt` file under `desktop/src/main` over 25 KB (`find desktop/src/main -name '*.kt' -size +26k` empty)
+- [x] Frameless window (`Window(undecorated = true, transparent = false)`) + Win32 subclass (`native/windows/src/window_win.cpp`, `window_frame.h`, JNI `getWindowHwnd` / `installFrame` / `updateFrameLayout` / `uninstallFrame` via JAWT without JNA/`--add-opens`) + Linux stub & `WindowDraggableArea`
+- [x] Glass titlebar: back/forward navigation history, `Ctrl+K` quick search field, stubbed Mini-Player toggle callback, Windows-style min/max/close reporting layout rects to native
+- [x] Adaptive 3-pane shell: collapsible left sidebar (< 1000 dp icon rail or manual toggle, Library chip/filter preserved), lazy main content pane with off-UI-thread decoding & LRU bitmap cache, toggleable right inspector (`Lyrics` with translation toggle + target language, `Queue` with smart shuffle / repeat / radio / autoplay / drag reorder, `Audio & Automix` live signal chain), floating glass transport bar with debounced `LiquidSlider`, mouse-wheel volume, and Skiko-ported `AutomixBadge` / `mixRing` / `automixNeonBorder`
+- [x] Search history with per-entry delete + drag-and-drop reorder in queue and local playlists
+- [x] Settings: `GlassProfile` (`Performance` / `Balanced` / `Quality`), `ThemeMode` (`Dark` / `Light` / `System`), 12-language runtime picker independent of OS locale
+- [x] Localization: single source of truth from `app/src/main/res/values*/strings.xml` packaged via `:desktop:sharedResources` (`android-res/`) + desktop-only XML files (`desktop/src/main/resources/i18n/values*/strings.xml`) parsed at runtime across all 12 languages with `en` fallback
+- [x] Unit tests in `:desktop:test` (`NavigationHistoryTest`, `SidebarCollapseTest`, `StringsLoaderTest`, `WindowHitTestTest`, `QueueReorderTest`) + ~60s live soak + verification screenshots under `docs/screenshots/windows-port/`
+
 ## Log
 _(newest first)_
+
+### 2026-11-25 — Phase 4 landed
+Gates on Linux:
+- `./gradlew --console=plain :app:assembleDebug :app:testDebugUnitTest :core:audio-dsp:test :shared:core:desktopTest :desktop:test :desktop:compileKotlin`: **BUILD SUCCESSFUL** (`:app:testDebugUnitTest` 66, `:core:audio-dsp:testDebugUnitTest` 24, `:core:audio-dsp:desktopTest` 21, `:shared:core:desktopTest` 6, `:desktop:test` 20; 0 failures, 0 errors, 0 skipped).
+- `cmake -S native/windows -B native/windows/build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build native/windows/build && ctest --test-dir native/windows/build --output-on-failure`: **4/4 passed** (`ring_buffer`, `dsp_chain`, `decoders`, `exclusive_format`).
+- `./gradlew -q :desktop:run --args=--self-check`: exit 0 (`self-check ok: native self-check ok (4 MixStyles + full DSP + AnalyzeAudio) (duration=1.0s lufs=-19.9)`).
+- Live GUI run on `DISPLAY=:1`: stayed alive at 60s (`APP_ALIVE_AT_60S=1`) with 0 exceptions in log; verified screenshots captured in `docs/screenshots/windows-port/` (`01_inspector_lyrics.png`, `02_inspector_queue.png`, `03_inspector_audio.png`, `04_collapsed_rail.png`, `05_settings_controls.png`, `06_light_theme_performance.png`, `07_home_light_en.png`, `08_glass_balanced.png`, `09_glass_quality.png`).
+- `find desktop/src/main -name '*.kt' -size +26k`: 0 files.
+
+Created:
+- `native/windows/src/{window_frame.h,window_frame_stub.cpp,window_win.cpp}`
+- `desktop/src/main/resources/i18n/values*/strings.xml` (12 languages: `values`, `values-de`, `values-es`, `values-fr`, `values-hi`, `values-it`, `values-ja`, `values-ko`, `values-pt`, `values-ru`, `values-tr`, `values-vi`)
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{AppState,LocalCatalogWatcher,LocalLibraryModels,NavigationHistory,QueueLogic}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/components/{AmbientBackground,Artwork,CommonControls,DragReorder,TrackRow}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/shell/{AudioInspector,InspectorPane,QueueInspector,Shell,Sidebar,TitleBar,WindowFrame,WindowHitTest}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/ui/{home/HomeScreen,library/{LibraryScreen,LocalFoldersScreen,PlaylistsScreen},browse/{BrowseScreens,MonthScreen,TracksView},lyrics/{LyricsInspector,LyricsSources},player/{AutomixVisuals,NowPlaying,TransportBar},search/SearchScreen,settings/{AudioSettingsSection,SettingsScreen}}.kt`
+- `desktop/src/test/kotlin/dev/lelonio/square/desktop/{NavigationHistoryTest,QueueReorderTest,SidebarCollapseTest,StringsLoaderTest,WindowHitTestTest}.kt`
+
+Changed:
+- `desktop/build.gradle.kts` (`sharedResources` Sync packages `app/src/main/res/values*/strings.xml` -> `android-res`)
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{DesktopPlayer,Downloads,Features,LocalCatalog,Main,Strings,Updates}.kt`
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/nativeaudio/NativeEngine.kt`
+- `native/windows/{CMakeLists.txt,src/jni_bridge.cpp}`
+- `shared/core/src/commonMain/kotlin/dev/lelonio/square/backend/subsonic/{SubsonicClient,SubsonicModels}.kt` (`getSimilarSongs` / `similarSongs2`)
+
+Deleted (split into packages above):
+- `desktop/src/main/kotlin/dev/lelonio/square/desktop/{Ambient,App,Artwork,LyricsSources,NowPlaying,Screens}.kt`
+
+Untested Windows-only code (host is Linux, no MSVC/MinGW):
+- `native/windows/src/window_win.cpp` (Win32 subclass `WM_NCCALCSIZE`, `WM_NCHITTEST`, `WM_GETMINMAXINFO`, `DwmExtendFrameIntoClientArea`, `DwmSetWindowAttribute`, JAWT HWND lookup) plus Phase 2 Windows-only native code (`wasapi_out.cpp`, `smtc_win.cpp`, Win32 COM/MMCSS branches).
+
+Next: Phase 5 (fullscreen, mini-player, PC ergonomics, tray low-RAM) and Windows CI verification of `window_win.cpp` + WASAPI/SMTC.
 
 ### 2026-11-25 — Phase 3 landed
 Gates on Linux:
