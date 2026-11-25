@@ -14,6 +14,8 @@ endif()
 option(SQUARE_BUILD_TESTS "Build native CTest unit tests" ON)
 
 include(FetchContent)
+# libogg v1.3.5 declares cmake_minimum_required(<3.5), which CMake 4 rejects.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 # --- Third-party: libogg, libopus, opusfile (FetchContent pinned tags) ---
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
