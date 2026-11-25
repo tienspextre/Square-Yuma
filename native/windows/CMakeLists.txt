@@ -106,6 +106,9 @@ target_compile_definitions(bungee PUBLIC
     BUNGEE_VERSION="0.0.0"
 )
 target_link_libraries(bungee PUBLIC pffft)
+if(MSVC)
+    target_compile_options(bungee PRIVATE /FI${CMAKE_CURRENT_SOURCE_DIR}/src/msvc_gcc_compat.h)
+endif()
 
 # --- Reused by path: app/src/main/cpp/analyzer ---
 set(APP_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../app/src/main/cpp)
